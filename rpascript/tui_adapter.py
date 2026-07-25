@@ -108,7 +108,7 @@ class ErrorScreen(ModalScreen):
         with Vertical(id="error-box"):
             yield Static("⚠ Application Crashed", id="error-title")
             yield RichLog(id="error-detail", highlight=True, markup=True)
-            yield Static("Press any key to exit.", id="error-footer")
+            yield Static("Press Escape to exit.", id="error-footer")
 
     def on_mount(self) -> None:
         """Render the traceback into the detail panel."""
@@ -123,8 +123,11 @@ class ErrorScreen(ModalScreen):
         detail.write(tb)
 
     def on_key(self, event: Key) -> None:
-        """Any key exits the app."""
-        self.app.exit(return_code=1)
+        """Escape exits the app; all other keys are consumed to keep the screen open."""
+        if event.key == "escape":
+            self.app.exit(return_code=1)
+        else:
+            event.stop()
 
 
 class ScriptEditor(ModalScreen):

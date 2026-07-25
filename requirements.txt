@@ -1,6 +1,6 @@
 bokeh
 pyserial
-textual  # TUI framework for interactive script execution
+textual>=0.32  # TUI framework for interactive script execution
 
 rpyc  # RPyC remote procedure call for TUI RPC
 
