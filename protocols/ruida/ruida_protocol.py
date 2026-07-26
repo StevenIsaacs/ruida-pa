@@ -514,7 +514,7 @@ CT = {
     },
     ENQ: "ENQ",
     0xD0: {  # This was discovered with LightBurn
-        0x29: ("Skipping 2 bytes:", SKIP, 2)  # Follows with 0x89 0x89 --- wha???
+        0x29: ("SKIP", SKIP, 2)  # Follows with 0x89 0x89 --- wha???
     },
     0xD7: "EOF",
     0xD8: {

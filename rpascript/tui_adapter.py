@@ -1972,23 +1972,9 @@ class TuiAdapter(App):
             self._log_error(f"Error writing {path}: {type(e).__name__}: {e}")
 
     def _cmd_stop(self, args: str) -> None:
-        """Stop current operation (session connection wait or script execution)."""
-        driver_stopped = False
+        """Stop script execution."""
         if self._ruida_driver is not None:
-            driver_stopped = True
             self._ruida_driver.cancel_script()
-
-        session_stopped = False
-        if not self._session_connected.is_set():
-            session_stopped = True
-
-        if session_stopped and driver_stopped:
-            self._session_start_cancel.set()
-            self._log_info("Session start cancelled (pending scripts dropped)")
-        elif session_stopped:
-            self._session_start_cancel.set()
-            self._log_info("Session start cancelled")
-        elif driver_stopped:
             self._log_info("Script execution stopped")
         else:
             self._log_info("Nothing to stop")
@@ -2278,16 +2264,14 @@ class TuiAdapter(App):
 
     def _cmd_edit(self, args: str = "") -> None:
         """Open the loaded script in a full-screen editor."""
-        if not self._loaded_script:
-            self._log_error("No script loaded. Use /load, /import, or send via RPC first.")
-            return
 
         def on_edit(result: list[str] | None) -> None:
             if result is not None:
                 self._loaded_script = result
                 self._log_info(f"Script updated: {len(result)} lines")
 
-        self.push_screen(ScriptEditor("\n".join(self._loaded_script)), on_edit)
+        text = "\n".join(self._loaded_script) if self._loaded_script else ""
+        self.push_screen(ScriptEditor(text), on_edit)
 
     @staticmethod
     def _file_extensions_for_cmd(cmd: str) -> set[str] | None:
