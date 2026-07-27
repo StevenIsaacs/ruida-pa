@@ -422,18 +422,18 @@ REPLY = -1
 # Command table - port 50200
 CT = {
     0x80: {
-        0x00: ("AXIS_X_MOVE", XABSCOORD),
-        0x01: ("AXIS_Y_MOVE", YABSCOORD),  # TODO: Verify the Y move.
-        0x02: ("AXIS_U_MOVE", UABSCOORD),  # TODO: Verify the U move.
-        0x03: ("AXIS_Z_MOVE", ZABSCOORD),
+        0x00: ("MOVE_ABS_X", XABSCOORD),
+        0x01: ("MOVE_ABS_Y", YABSCOORD),  # TODO: Verify the Y move.
+        0x02: ("MOVE_ABS_U", UABSCOORD),  # TODO: Verify the U move.
+        0x03: ("MOVE_ABS_Z", ZABSCOORD),
     },
     0x88: ("MOVE_ABS_XY", XABSCOORD, YABSCOORD),
     0x89: ("MOVE_REL_XY", XRELCOORD14, YRELCOORD14),
     0x8A: ("MOVE_REL_X", XRELCOORD14),
     0x8B: ("MOVE_REL_Y", YRELCOORD14),
     0xA0: {
-        0x00: ("AXIS_A_MOVE", AABSCOORD),
-        0x08: ("AXIS_U_MOVE", UABSCOORD),
+        0x00: ("MOVE_ABS_A", AABSCOORD),
+        0x08: ("MOVE_ABS_U", UABSCOORD),
     },
     0xA7: KT,  # KEYPRESS
     0xA8: ("CUT_ABS_XY", XABSCOORD, YABSCOORD),

@@ -459,7 +459,7 @@ class ScriptParser:
 
         Iterates over the full CT table structure, handling:
         - Direct command tuples  (0x88: ('MOVE_ABS_XY', ...))
-        - Sub-command dicts      (0x80: {0x00: ('AXIS_X_MOVE', ...)})
+        - Sub-command dicts      (0x80: {0x00: ('MOVE_ABS_X', ...)})
         - Nested sub-command     (0xCA: {0x01: {0x00: 'LAYER_END', ...}})
         - Plain string commands  (0xCE: 'ENQ')
         - External refs          (0xA7: KT) — skipped

@@ -113,10 +113,10 @@ Each line is parsed as:
 | `REF_POINT_ANCHOR`    | *(none)*                | Set reference point (alternative)     |
 | `REF_POINT_SET`      | *(none)*                | Set reference point for coordinate system |
 | `FOCUS_Z`             | *(none)*                | Auto-focus Z axis                     |
-| `AXIS_X_MOVE`         | `X=mm`                  | Single-axis X move                    |
-| `AXIS_Y_MOVE`         | `Y=mm`                  | Single-axis Y move                    |
-| `AXIS_Z_MOVE`         | `Z=mm`                  | Single-axis Z move                    |
-| `AXIS_U_MOVE`         | `U=mm`                  | Single-axis U move (rotary)           |
+| `MOVE_ABS_X`         | `X=mm`                  | Single-axis X move                    |
+| `MOVE_ABS_Y`         | `Y=mm`                  | Single-axis Y move                    |
+| `MOVE_ABS_Z`         | `Z=mm`                  | Single-axis Z move                    |
+| `MOVE_ABS_U`         | `U=mm`                  | Single-axis U move (rotary)           |
 | `JOG_XY`         | `Rel={0-3} X=mm Y=mm` | Jog relative to reference point       |
 
 ### 2.2 Laser Power
