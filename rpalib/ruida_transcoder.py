@@ -178,9 +178,9 @@ class RdDecoder:
         self.value = self.to_int(data) / 1000.0
         return self.formatted
 
-    def rd_rapid(self, data: bytearray):
+    def rd_rel(self, data: bytearray):
         self.value = self.to_int(data)
-        return rdap.ROT.get(data[0], f"RAPID_UNKNOWN: 0x{data[0]:02X}")
+        return rdap.RELT.get(data[0], f"REL_UNKNOWN: 0x{data[0]:02X}")
 
     def rd_axis(self, data: bytearray):
         self.value = self.to_int(data)

@@ -117,7 +117,7 @@ Each line is parsed as:
 | `AXIS_Y_MOVE`         | `Y=mm`                  | Single-axis Y move                    |
 | `AXIS_Z_MOVE`         | `Z=mm`                  | Single-axis Z move                    |
 | `AXIS_U_MOVE`         | `U=mm`                  | Single-axis U move (rotary)           |
-| `MOVE_RAPID_XY`         | `Option={0-3} X=mm Y=mm` | Rapid relative move with option       |
+| `JOG_XY`         | `Rel={0-3} X=mm Y=mm` | Jog relative to reference point       |
 
 ### 2.2 Laser Power
 
@@ -236,8 +236,8 @@ Each line is parsed as:
 | `FEED_LENGTH`             | `{val}`                 | Set feed length                      |
 | `FEED_REPEAT`             | `{val} {val}`           | Feed repeat counts                   |
 | `FEED_INFO`               | `{val}`                 | Feed information                     |
-| `MOVE_RAPID_Z`              | `Option={0-3} Z=mm`     | Relative Z-axis move                 |
-| `MOVE_RAPID_U`              | `Option={0-3} U=mm`     | Relative U-axis move (rotary)        |
+| `JOG_Z`              | `Rel={0-3} Z=mm`     | Jog Z-axis relative to reference point                 |
+| `JOG_U`              | `Rel={0-3} U=mm`     | Jog U-axis relative to reference point (rotary)        |
 | `ELEMENT_INDEX`           | `{n}`                   | Select element by index              |
 | `ELEMENT_NAME`            | `String:string`         | Set element name                     |
 | `SET_FEED_AUTO_PAUSE`     | `State=ON/OFF`         | Enable/disable auto-pause on feed |
@@ -277,7 +277,7 @@ converts the numeric portion to the appropriate internal encoding.
 | Memory addr   | `MEM_CARD_ID`, `0x057E`    | mnemonic or hex     | Mnemonic from MT table (see §4).   |
 | Integer       | `42`, `0x1A`                | plain / hex        | Signed or unsigned per command.    |
 | File number   | `FNum:1`, `1`               | `uint14`            | Document file index.               |
-| Option/Rapid  | `0`, `1`, `2`, `3`          | integer (0–3)       | ROT option: ORIGIN, LIGHT_ORIGIN, etc. |
+| Rel           | `0`, `1`, `2`, `3`          | integer (0–3)       | RELT: MACHINE, ANCHOR, CURRENT, SET_POINT |
 
 ### Suffix tolerance
 

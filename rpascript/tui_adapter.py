@@ -2118,7 +2118,7 @@ class TuiAdapter(App):
         """Frame the job or a specific layer.
 
         Sets speed to 600 mm/S and moves the laser head to the top-right
-        corner, then to the bottom-left corner using rapid moves.
+        corner, then to the bottom-left corner using jog moves.
 
         Usage: /frame job | /frame layer <N>
         """
@@ -2190,8 +2190,8 @@ class TuiAdapter(App):
 
         frame_script = [
             "SPEED_LASER_1 Speed:600.000mm/S",
-            f"MOVE_RAPID_XY Option:RAPID_ORIGIN X={top_right[0]:.3f}mm Y={top_right[1]:.3f}mm",
-            f"MOVE_RAPID_XY Option:RAPID_ORIGIN X={bottom_left[0]:.3f}mm Y={bottom_left[1]:.3f}mm",
+            f"JOG_XY Rel:MACHINE X={top_right[0]:.3f}mm Y={top_right[1]:.3f}mm",
+            f"JOG_XY Rel:MACHINE X={bottom_left[0]:.3f}mm Y={bottom_left[1]:.3f}mm",
         ]
 
         self._log_info(

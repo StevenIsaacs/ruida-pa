@@ -31,7 +31,7 @@ _ENCODER_MAP: dict[str, str | None] = {
     "time": "encode_time",
     "bool": "encode_bool",
     "on_off": "encode_bool",
-    "rapid": "encode_uint7",
+    "rel": "encode_uint7",
     "axis": "encode_uint7",
     "mt": "encode_mt",
     "index": "encode_index",
@@ -387,11 +387,11 @@ def parse_value(
     except ValueError:
         pass
 
-    # --- Rapid option table (ROT) resolution ---
-    if decoder_fn == "rapid":
-        rev_rot = {v: k for k, v in rdap.ROT.items()}
-        if raw in rev_rot:
-            return rev_rot[raw]
+    # --- RELT table resolution ---
+    if decoder_fn == "rel":
+        rev_rel = {v: k for k, v in rdap.RELT.items()}
+        if raw in rev_rel:
+            return rev_rel[raw]
 
     # --- Axis label-to-value resolution ---
     if decoder_fn == "axis":

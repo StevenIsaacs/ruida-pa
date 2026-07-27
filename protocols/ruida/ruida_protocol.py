@@ -63,12 +63,12 @@ CARD_IDS_BY_NAME = {v: k for k, v in CARD_IDS.items()}
 # For checking which origin mode.
 ORIGIN_HOME = 0x02
 LIGHT_ON = 0x01
-# Rapid option table.
-ROT = {
-    0x00: "RAPID_ORIGIN",
-    0x01: "RAPID_LIGHT_ORIGIN",
-    0x02: "RAPID_NONE",
-    0x03: "RAPID_LIGHT",
+# Relative option table.
+RELT = {
+    0x00: "MACHINE",
+    0x01: "ANCHOR",
+    0x02: "CURRENT",
+    0x03: "SET_POINT",
 }
 
 # Axis selection for PEN_OFFSET_AXIS / PART_OFFSET_AXIS.
@@ -117,7 +117,7 @@ ENAME = ("Elem:{}", "cstring", "cstring")
 LAYER = ("Layer:{}", "int7", "int_7")  # or layer.
 LASER = ("Laser:{}", "int7", "int_7")  # For dual head lasers.
 VALUE = ("{}", "int7", "int_7")
-RAPID = ("Option:{}", "rapid", "int_7")
+REL = ("Rel:{}", "rel", "int_7")
 AXIS = ("Axis:{}", "axis", "int_7")
 COLOR = ("Color:#{:06X}", "color", "uint_35")
 SETTING = ("Set:{:08X}", "uint35", "uint_35")
@@ -547,13 +547,13 @@ CT = {
         0x37: "KEYUP_U_BACKWARDS",
     },
     0xD9: {
-        0x00: ("MOVE_RAPID_X", RAPID, XABSCOORD),
-        0x01: ("MOVE_RAPID_Y", RAPID, YABSCOORD),
-        0x02: ("MOVE_RAPID_Z", RAPID, ZABSCOORD),
-        0x03: ("MOVE_RAPID_U", RAPID, UABSCOORD),
-        0x0F: ("RAPID_FEED_AXIS_MOVE", RAPID),
-        0x10: ("MOVE_RAPID_XY", RAPID, XABSCOORD, YABSCOORD),
-        0x30: ("MOVE_RAPID_XYU", RAPID, XABSCOORD, YABSCOORD, UABSCOORD),
+        0x00: ("JOG_X", REL, XABSCOORD),
+        0x01: ("JOG_Y", REL, YABSCOORD),
+        0x02: ("JOG_Z", REL, ZABSCOORD),
+        0x03: ("JOG_U", REL, UABSCOORD),
+        0x0F: ("JOG_FEED_AXIS", REL),
+        0x10: ("JOG_XY", REL, XABSCOORD, YABSCOORD),
+        0x30: ("JOG_XYU", REL, XABSCOORD, YABSCOORD, UABSCOORD),
     },
     0xDA: {  # SETTING
         0x00: ("GET_SETTING", MEMORY),  # SETTING_READ
