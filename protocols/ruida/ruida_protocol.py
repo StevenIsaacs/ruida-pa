@@ -130,7 +130,7 @@ YABSCOORD = ("Y=" + COORD_FMT, "coord", "int_35")
 ZABSCOORD = ("Z=" + COORD_FMT, "coord", "int_35")
 AABSCOORD = ("A=" + COORD_FMT, "coord", "int_35")  # Should be Z?
 UABSCOORD = ("U=" + COORD_FMT, "coord", "int_35")
-RELCOORD = ("REL=" + COORD_FMT, "coord", "int_35")
+OFFSET = ("OFFSET=" + COORD_FMT, "coord", "int_35")
 RELCOORD35 = ("Rel=" + COORD_FMT, "coord", "int_35")
 XRELCOORD35 = ("RelX=" + COORD_FMT, "coord", "int_35")
 YRELCOORD35 = ("RelY=" + COORD_FMT, "coord", "int_35")
@@ -595,8 +595,8 @@ CT = {
         0x51: ("DOCUMENT_BOTTOM_LEFT", XABSCOORD, YABSCOORD),
         0x52: ("LAYER_TOP_RIGHT", LAYER, XABSCOORD, YABSCOORD),
         0x53: ("LAYER_BOTTOM_LEFT", LAYER, XABSCOORD, YABSCOORD),
-        0x54: ("PEN_OFFSET_AXIS", AXIS, RELCOORD),
-        0x55: ("LAYER_OFFSET_AXIS", AXIS, RELCOORD),
+        0x54: ("PEN_OFFSET_AXIS", AXIS, OFFSET),
+        0x55: ("LAYER_OFFSET_AXIS", AXIS, OFFSET),
         0x60: ("SET_CURRENT_ELEMENT_INDEX", UINT7),
         0x61: ("LAYER_EX_TOP_RIGHT", LAYER, XABSCOORD, YABSCOORD),
         0x62: ("LAYER_EX_BOTTOM_LEFT", LAYER, XABSCOORD, YABSCOORD),
