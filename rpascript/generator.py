@@ -169,6 +169,8 @@ class ScriptGenerator:
                 # lookup table instead of raw numeric indices.
                 if spec[1] == "axis":
                     val = rdap.AXIS_T.get(val, f"UNKNOWN_AXIS: 0x{val:02X}")
+                if spec[1] == "rel":
+                    val = rdap.RELT.get(val, f"REL_UNKNOWN: 0x{val:02X}")
 
                 # Memory address / index decoders produce formatted text
                 # (e.g. "Addr:0620") that can't be decoded back to MSB/LSB.
