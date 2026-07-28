@@ -132,9 +132,9 @@ AFARDIM = ("A=" + DIM_FMT, "dim", "int_35")
 UFARDIM = ("U=" + DIM_FMT, "dim", "int_35")
 OFFSET = ("OFFSET=" + DIM_FMT, "dim", "int_35")
 # RELCOORD35, XRELCOORD35, YRELCOORD35 REMOVED — were unused
-NEARDIM14 = ("Rel=" + DIM_FMT, "dim", "int_14")
-XNEARDIM14 = ("RelX=" + DIM_FMT, "dim", "int_14")
-YNEARDIM14 = ("RelY=" + DIM_FMT, "dim", "int_14")
+NEARDIM = ("Rel=" + DIM_FMT, "dim", "int_14")
+XNEARDIM = ("RelX=" + DIM_FMT, "dim", "int_14")
+YNEARDIM = ("RelY=" + DIM_FMT, "dim", "int_14")
 POWER = ("Power:{:.1f}%", "power", "uint_14")
 SPEED = ("Speed:{:.3f}mm/S", "speed", "int_35")
 FREQUENCY = ("Freq:{:.3f}KHz", "frequency", "int_35")
@@ -426,18 +426,18 @@ CT = {
         0x03: ("MOVE_FAR_Z", ZFARDIM),
     },
     0x88: ("MOVE_FAR_XY", XFARDIM, YFARDIM),
-    0x89: ("MOVE_NEAR_XY", XNEARDIM14, YNEARDIM14),
-    0x8A: ("MOVE_NEAR_X", XNEARDIM14),
-    0x8B: ("MOVE_NEAR_Y", YNEARDIM14),
+    0x89: ("MOVE_NEAR_XY", XNEARDIM, YNEARDIM),
+    0x8A: ("MOVE_NEAR_X", XNEARDIM),
+    0x8B: ("MOVE_NEAR_Y", YNEARDIM),
     0xA0: {
         0x00: ("MOVE_FAR_A", AFARDIM),
         0x08: ("MOVE_FAR_U", UFARDIM),
     },
     0xA7: KT,  # KEYPRESS
     0xA8: ("CUT_FAR_XY", XFARDIM, YFARDIM),
-    0xA9: ("CUT_NEAR_XY", XNEARDIM14, YNEARDIM14),
-    0xAA: ("CUT_NEAR_X", XNEARDIM14),
-    0xAB: ("CUT_NEAR_Y", YNEARDIM14),
+    0xA9: ("CUT_NEAR_XY", XNEARDIM, YNEARDIM),
+    0xAA: ("CUT_NEAR_X", XNEARDIM),
+    0xAB: ("CUT_NEAR_Y", YNEARDIM),
     0xC0: ("IMD_POWER_2", POWER),
     0xC1: ("END_POWER_2", POWER),
     0xC2: ("IMD_POWER_3", POWER),
