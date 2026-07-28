@@ -251,7 +251,7 @@ These tests require no controller. They verify the core wire-format logic using 
 | Field | Value |
 |-------|-------|
 | **Objective** | Verify that `ScriptParser.parse_lines()` correctly parses known good `.rds` script lines into command dicts. |
-| **Prerequisites** | A known good `.rds` script (e.g., containing `CORE NOP`, `MOVE MOVE_ABS_XY X=100.000mm Y=200.000mm`). |
+| **Prerequisites** | A known good `.rds` script (e.g., containing `CORE NOP`, `MOVE MOVE_FAR_XY X=100.000mm Y=200.000mm`). |
 | **Steps** | 1. Create a list of `.rds` lines.<br>2. Call `ScriptParser.parse_lines(lines)`.<br>3. Examine the returned command dicts. |
 | **Expected result** | Each line is correctly parsed into a dict with keys: `type`, `mnemonic`, `params`, etc. Values match input. |
 
@@ -336,7 +336,7 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | Verify that executing a move command causes the machine to move as expected. |
 | **Prerequisites** | Active session. **WARNING:** Ensure safe operation — verify no mechanical obstructions, set safe speed, have emergency stop accessible. |
-| **Steps** | 1. With active TUI session, type `MOVE MOVE_ABS_XY X=10.000mm Y=10.000mm` and press Enter.<br>2. Observe the controller's physical response.<br>3. Verify the TUI log shows no errors. |
+| **Steps** | 1. With active TUI session, type `MOVE MOVE_FAR_XY X=10.000mm Y=10.000mm` and press Enter.<br>2. Observe the controller's physical response.<br>3. Verify the TUI log shows no errors. |
 | **Expected result** | The machine moves to (10, 10) or as close as mechanically possible. No timeout or error events in the log. |
 
 #### Test 4.2.4: Queue Multiple Commands
@@ -346,7 +346,7 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | Verify that multiple queued commands execute in order. |
 | **Prerequisites** | Active session. Safe mechanical environment. |
-| **Steps** | 1. With active TUI session, type `MOVE MOVE_ABS_XY X=100.000mm Y=100.000mm` and press Enter.<br>2. Immediately type `MOVE MOVE_ABS_XY X=200.000mm Y=200.000mm` and press Enter.<br>3. Observe the machine moves to (100, 100) first, then to (200, 200). |
+| **Steps** | 1. With active TUI session, type `MOVE MOVE_FAR_XY X=100.000mm Y=100.000mm` and press Enter.<br>2. Immediately type `MOVE MOVE_FAR_XY X=200.000mm Y=200.000mm` and press Enter.<br>3. Observe the machine moves to (100, 100) first, then to (200, 200). |
 | **Expected result** | Commands execute sequentially in the order they were entered. |
 
 #### Test 4.2.5: [Optional] Load and Execute `.rds` File via Slash Commands

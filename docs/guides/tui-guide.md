@@ -158,8 +158,8 @@ Any valid rpascript command line:
 ```
 HOME_XY
 SET_ABSOLUTE
-MOVE_ABS_XY X=100mm Y=200mm
-CUT_ABS_XY X=200mm Y=100mm
+MOVE_FAR_XY X=100mm Y=200mm
+CUT_FAR_XY X=200mm Y=100mm
 ```
 
 Sent to the controller as a single-line script. Requires an active session.
@@ -640,7 +640,7 @@ Loaded 2 lines from finish.rds
 /list job
 # --- Head ---
 SET_ORIGIN
-MOVE_ABS_XY X=0mm Y=0mm
+MOVE_FAR_XY X=0mm Y=0mm
 LASER_OFF
 # --- Job ---
 START_JOB
@@ -648,7 +648,7 @@ LAYER_PROMPT "Default"
 ...
 EOF
 # --- Tail ---
-MOVE_ABS_XY X=0mm Y=0mm
+MOVE_FAR_XY X=0mm Y=0mm
 
 # Save pure job body (head/tail not included)
 /save job front-panel-complete.rds

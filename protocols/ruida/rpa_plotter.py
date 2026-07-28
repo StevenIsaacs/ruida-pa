@@ -51,24 +51,24 @@ class RpaPlotter:
             "RAPID_MOVE_X": "speed_axis_move",
             "RAPID_MOVE_Y": "speed_axis_move",
             "RAPID_MOVE_XY": "speed_axis_move",
-            "MOVE_ABS_XY": "speed_axis_move",
-            "MOVE_REL_X": "speed_axis",
-            "MOVE_REL_Y": "speed_axis",
-            "CUT_ABS_XY": "speed_laser_1",
-            "CUT_REL_XY": "speed_laser_1",
-            "CUT_REL_X": "speed_laser_1",
-            "CUT_REL_Y": "speed_laser_1",
+            "MOVE_FAR_XY": "speed_axis_move",
+            "MOVE_NEAR_X": "speed_axis",
+            "MOVE_NEAR_Y": "speed_axis",
+            "CUT_FAR_XY": "speed_laser_1",
+            "CUT_NEAR_XY": "speed_laser_1",
+            "CUT_NEAR_X": "speed_laser_1",
+            "CUT_NEAR_Y": "speed_laser_1",
         }
         self.cmd_counters = {
             "cmd_axis_x_move": 0,
             "cmd_axis_y_move": 0,
-            "cmd_move_abs_xy": 0,
-            "cmd_move_rel_xy": 0,
-            "cmd_move_rel_x": 0,
-            "cmd_move_rel_y": 0,
-            "cmd_cut_abs_xy": 0,
-            "cmd_cut_rel_xy": 0,
-            "cmd_cut_rel_x": 0,
+            "cmd_move_far_xy": 0,
+            "cmd_move_near_xy": 0,
+            "cmd_move_near_x": 0,
+            "cmd_move_near_y": 0,
+            "cmd_cut_far_xy": 0,
+            "cmd_cut_near_xy": 0,
+            "cmd_cut_near_x": 0,
             "cmd_imd_power_1": 0,
             "cmd_end_power_1": 0,
             "cmd_imd_power_2": 0,
@@ -77,7 +77,7 @@ class RpaPlotter:
             "cmd_end_power_3": 0,
             "cmd_imd_power_4": 0,
             "cmd_end_power_4": 0,
-            "cmd_cut_rel_y": 0,
+            "cmd_cut_near_y": 0,
             "cmd_min_power_1": 0,
             "cmd_max_power_1": 0,
             "cmd_min_power_2": 0,
@@ -168,7 +168,7 @@ class RpaPlotter:
         """Used for moves?"""
         self.plot.s["speed_axis_move"] = values[0]
 
-    def cmd_move_abs_xy(self, values: list[float]):
+    def cmd_move_far_xy(self, values: list[float]):
         """This effectively a move with the laser off.
 
         Move lines are always black.
@@ -245,7 +245,7 @@ class RpaPlotter:
         else:
             self.plot.add_line(self.plot.origin_x, self.plot.origin_y + values[1])
 
-    def cmd_move_rel_xy(self, values: list[float]):
+    def cmd_move_near_xy(self, values: list[float]):
         """Move a distance relative to the current position.
 
         The relative distance cannot exceed what can be expressed in 14 bits.
@@ -256,7 +256,7 @@ class RpaPlotter:
         self._valid_rel("Y", _rel_y)
         self.plot.add_line(self.plot.x + _rel_x, self.plot.y + _rel_y)
 
-    def cmd_move_rel_x(self, values: list[float]):
+    def cmd_move_near_x(self, values: list[float]):
         """Move a distance along the X axis relative to the current position.
 
         The relative distance cannot exceed what can be expressed in 14 bits.
@@ -265,7 +265,7 @@ class RpaPlotter:
         self._valid_rel("X", _rel_x)
         self.plot.add_line(self.plot.x + _rel_x, self.plot.y)
 
-    def cmd_move_rel_y(self, values: list[float]):
+    def cmd_move_near_y(self, values: list[float]):
         """Move a distance along the Y axis relative to the current position.
 
         The relative distance cannot exceed what can be expressed in 14 bits.
@@ -275,14 +275,14 @@ class RpaPlotter:
         self.plot.add_line(self.plot.x, self.plot.y + _rel_y)
 
     # ++++ Cuts
-    def cmd_cut_abs_xy(self, values: list[float]):
+    def cmd_cut_far_xy(self, values: list[float]):
         """This effectively a move with the laser off.
 
         Move lines are always black.
         """
         self.plot.add_line(values[0], values[1], cut=True)
 
-    def cmd_cut_rel_xy(self, values: list[float]):
+    def cmd_cut_near_xy(self, values: list[float]):
         """With the laser on move a distance relative to the current position.
 
         The relative distance cannot exceed what can be expressed in 14 bits.
@@ -293,7 +293,7 @@ class RpaPlotter:
         self._valid_rel("Y", _rel_y)
         self.plot.add_line(self.plot.x + _rel_x, self.plot.y + _rel_y, cut=True)
 
-    def cmd_cut_rel_x(self, values: list[float]):
+    def cmd_cut_near_x(self, values: list[float]):
         """With the laser on move a distance along the X axis relative to the
         current position.
 
@@ -303,7 +303,7 @@ class RpaPlotter:
         self._valid_rel("X", _rel_x)
         self.plot.add_line(self.plot.x + _rel_x, self.plot.y, cut=True)
 
-    def cmd_cut_rel_y(self, values: list[float]):
+    def cmd_cut_near_y(self, values: list[float]):
         """With the laser on move a distance along the Y axis relative to the
         current position.
 
@@ -592,14 +592,14 @@ class RpaPlotter:
             0x00: "cmd_axis_x_move",
             0x08: "cmd_axis_y_move",
         },
-        0x88: "cmd_move_abs_xy",
-        0x89: "cmd_move_rel_xy",
-        0x8A: "cmd_move_rel_x",
-        0x8B: "cmd_move_rel_y",
-        0xA8: "cmd_cut_abs_xy",
-        0xA9: "cmd_cut_rel_xy",
-        0xAA: "cmd_cut_rel_x",
-        0xAB: "cmd_cut_rel_y",
+        0x88: "cmd_move_far_xy",
+        0x89: "cmd_move_near_xy",
+        0x8A: "cmd_move_near_x",
+        0x8B: "cmd_move_near_y",
+        0xA8: "cmd_cut_far_xy",
+        0xA9: "cmd_cut_near_xy",
+        0xAA: "cmd_cut_near_x",
+        0xAB: "cmd_cut_near_y",
         0xC0: "cmd_imd_power_2",
         0xC1: "cmd_end_power_2",
         0xC2: "cmd_imd_power_3",

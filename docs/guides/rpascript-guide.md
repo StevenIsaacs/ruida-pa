@@ -68,7 +68,7 @@ during live execution — commands are batched automatically.
 ### Regular Commands
 
 ```rds
-MOVE MOVE_ABS_XY X=100mm Y=200mm
+MOVE MOVE_FAR_XY X=100mm Y=200mm
 CORE NOP
 GET_SETTING MEM_CARD_ID
 END_JOB
@@ -98,14 +98,14 @@ Each line is parsed as:
 | Mnemonic              | Parameters              | Description                           |
 | --------------------- | ----------------------- | ------------------------------------- |
 | `SET_ABSOLUTE`        | *(none)*                | Switch to absolute coordinate mode    |
-| `MOVE_ABS_XY`         | `X=mm Y=mm`             | Rapid move to absolute X, Y           |
-| `MOVE_REL_XY`         | `RelX=mm RelY=mm`        | Rapid move relative from current      |
-| `MOVE_REL_X`          | `RelX=mm`               | Rapid move relative on X axis         |
-| `MOVE_REL_Y`          | `RelY=mm`               | Rapid move relative on Y axis         |
-| `CUT_ABS_XY`          | `X=mm Y=mm`             | Cut (engrave) move to absolute X, Y   |
-| `CUT_REL_XY`          | `RelX=mm RelY=mm`        | Cut move relative from current        |
-| `CUT_REL_X`           | `RelX=mm`               | Cut move relative on X axis           |
-| `CUT_REL_Y`           | `RelY=mm`               | Cut move relative on Y axis           |
+| `MOVE_FAR_XY`         | `X=mm Y=mm`             | Rapid move to far X, Y           |
+| `MOVE_NEAR_XY`         | `nearX=mm nearY=mm`        | Rapid move near from current      |
+| `MOVE_NEAR_X`          | `nearX=mm`               | Rapid move near on X axis         |
+| `MOVE_NEAR_Y`          | `nearY=mm`               | Rapid move near on Y axis         |
+| `CUT_FAR_XY`          | `X=mm Y=mm`             | Cut (engrave) move to far X, Y   |
+| `CUT_NEAR_XY`          | `nearX=mm nearY=mm`        | Cut move near from current        |
+| `CUT_NEAR_X`           | `nearX=mm`               | Cut move near on X axis           |
+| `CUT_NEAR_Y`           | `nearY=mm`               | Cut move near on Y axis           |
 | `HOME_XY`             | *(none)*                | Home X and Y axes                     |
 | `HOME_Z`              | *(none)*                | Home Z axis                           |
 | `HOME_U`              | *(none)*                | Home U axis (rotary)                  |
@@ -113,10 +113,10 @@ Each line is parsed as:
 | `REF_POINT_ANCHOR`    | *(none)*                | Set reference point (alternative)     |
 | `REF_POINT_SET`      | *(none)*                | Set reference point for coordinate system |
 | `FOCUS_Z`             | *(none)*                | Auto-focus Z axis                     |
-| `MOVE_ABS_X`         | `X=mm`                  | Single-axis X move                    |
-| `MOVE_ABS_Y`         | `Y=mm`                  | Single-axis Y move                    |
-| `MOVE_ABS_Z`         | `Z=mm`                  | Single-axis Z move                    |
-| `MOVE_ABS_U`         | `U=mm`                  | Single-axis U move (rotary)           |
+| `MOVE_FAR_X`         | `X=mm`                  | Single-axis X move                    |
+| `MOVE_FAR_Y`         | `Y=mm`                  | Single-axis Y move                    |
+| `MOVE_FAR_Z`         | `Z=mm`                  | Single-axis Z move                    |
+| `MOVE_FAR_U`         | `U=mm`                  | Single-axis U move (rotary)           |
 | `JOG_XY`         | `Rel={0-3} X=mm Y=mm` | Jog relative to reference point       |
 
 ### 2.2 Laser Power
@@ -397,10 +397,10 @@ WAIT !MACHINE_STATUS_MOVING to=30s
 
 # Cut a line and wait for it to finish
 SET_ABSOLUTE
-MOVE_ABS_XY X=10mm Y=10mm
+MOVE_FAR_XY X=10mm Y=10mm
 LASER_ON Power=80%
 SPEED_LASER_1 Speed=150mm/S
-CUT_ABS_XY X=110mm Y=10mm
+CUT_FAR_XY X=110mm Y=10mm
 LASER_OFF
 WAIT !MACHINE_STATUS_MOVING to=30s
 ```
@@ -476,14 +476,14 @@ SPEED_LASER_1 Speed=120mm/S
 IMD_POWER_1 Power=85%
 
 # Navigate to start position
-MOVE_ABS_XY X=50mm Y=50mm
+MOVE_FAR_XY X=50mm Y=50mm
 
 # Cut a 100mm × 100mm rectangle
 LASER_ON Power=85%
-CUT_ABS_XY X=150mm Y=50mm
-CUT_ABS_XY X=150mm Y=150mm
-CUT_ABS_XY X=50mm Y=150mm
-CUT_ABS_XY X=50mm Y=50mm
+CUT_FAR_XY X=150mm Y=50mm
+CUT_FAR_XY X=150mm Y=150mm
+CUT_FAR_XY X=50mm Y=150mm
+CUT_FAR_XY X=50mm Y=50mm
 LASER_OFF
 
 WAIT !MACHINE_STATUS_MOVING to=60s
@@ -496,13 +496,13 @@ WAIT !MACHINE_STATUS_MOVING to=60s
 CORE CMD LAYER_END           # End previous layer
 SPEED_LASER_1 Speed=300mm/S
 IMD_POWER_1 Power=30%
-CUT_ABS_XY X=100mm Y=100mm
+CUT_FAR_XY X=100mm Y=100mm
 
 # Layer 2: Deep cut
 CORE CMD LAYER_END
 SPEED_LASER_1 Speed=50mm/S
 IMD_POWER_1 Power=90%
-CUT_ABS_XY X=200mm Y=100mm
+CUT_FAR_XY X=200mm Y=100mm
 ```
 
 ### Job with File Checksum
@@ -517,9 +517,9 @@ START_JOB
 SPEED_LASER_1 Speed=200mm/S
 IMD_POWER_1 Power=75%
 
-MOVE_ABS_XY X=10mm Y=10mm
+MOVE_FAR_XY X=10mm Y=10mm
 LASER_ON
-CUT_ABS_XY X=200mm Y=10mm
+CUT_FAR_XY X=200mm Y=10mm
 LASER_OFF
 
 BLOCK_END
@@ -541,7 +541,7 @@ ARRAY_DIRECTION 1
 START_JOB
 SPEED_LASER_1 Speed=200mm/S
 IMD_POWER_1 Power=80%
-CUT_ABS_XY X=20mm Y=20mm
+CUT_FAR_XY X=20mm Y=20mm
 
 BLOCK_END
 ARRAY_END
@@ -894,11 +894,11 @@ EN_LASER_TUBE_START State:ON
 EN_EX_IO 0
 
 # Move and cut commands
-MOVE_ABS_XY X=50.000mm Y=50.000mm
-CUT_ABS_XY X=150.000mm Y=50.000mm
-CUT_ABS_XY X=150.000mm Y=150.000mm
-CUT_ABS_XY X=50.000mm Y=150.000mm
-CUT_ABS_XY X=50.000mm Y=50.000mm
+MOVE_FAR_XY X=50.000mm Y=50.000mm
+CUT_FAR_XY X=150.000mm Y=50.000mm
+CUT_FAR_XY X=150.000mm Y=150.000mm
+CUT_FAR_XY X=50.000mm Y=150.000mm
+CUT_FAR_XY X=50.000mm Y=50.000mm
 
 # ── Tail ──
 ARRAY_END

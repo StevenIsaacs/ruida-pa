@@ -458,8 +458,8 @@ class ScriptParser:
         """Build {mnemonic: (prefix_byte, opcode_or_None, cmd_entry_or_None)}.
 
         Iterates over the full CT table structure, handling:
-        - Direct command tuples  (0x88: ('MOVE_ABS_XY', ...))
-        - Sub-command dicts      (0x80: {0x00: ('MOVE_ABS_X', ...)})
+        - Direct command tuples  (0x88: ('MOVE_FAR_XY', ...))
+        - Sub-command dicts      (0x80: {0x00: ('MOVE_FAR_X', ...)})
         - Nested sub-command     (0xCA: {0x01: {0x00: 'LAYER_END', ...}})
         - Plain string commands  (0xCE: 'ENQ')
         - External refs          (0xA7: KT) — skipped
@@ -468,7 +468,7 @@ class ScriptParser:
 
         for prefix_byte, entry in CT.items():
             # --- Direct command tuple ---
-            # e.g. 0x88: ('MOVE_ABS_XY', XABSCOORD, YABSCOORD)
+            # e.g. 0x88: ('MOVE_FAR_XY', XFARDIM, YFARDIM)
             if isinstance(entry, tuple):
                 if len(entry) >= 1 and isinstance(entry[0], str):
                     _map[entry[0]] = (prefix_byte, None, entry)
@@ -837,7 +837,7 @@ class ScriptInterpreter:
         if mt_entry is None or len(mt_entry) < 2:
             return ""
 
-        spec = mt_entry[1]  # Type spec, e.g. CARD_ID, XABSCOORD, TBDU35
+        spec = mt_entry[1]  # Type spec, e.g. CARD_ID, XFARDIM, TBDU35
         if not isinstance(spec, tuple) or len(spec) < 2:
             return ""
 

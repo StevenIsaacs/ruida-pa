@@ -420,24 +420,24 @@ REPLY = -1
 # Command table - port 50200
 CT = {
     0x80: {
-        0x00: ("MOVE_ABS_X", XFARDIM),
-        0x01: ("MOVE_ABS_Y", YFARDIM),  # TODO: Verify the Y move.
-        0x02: ("MOVE_ABS_U", UFARDIM),  # TODO: Verify the U move.
-        0x03: ("MOVE_ABS_Z", ZFARDIM),
+        0x00: ("MOVE_FAR_X", XFARDIM),
+        0x01: ("MOVE_FAR_Y", YFARDIM),  # TODO: Verify the Y move.
+        0x02: ("MOVE_FAR_U", UFARDIM),  # TODO: Verify the U move.
+        0x03: ("MOVE_FAR_Z", ZFARDIM),
     },
-    0x88: ("MOVE_ABS_XY", XFARDIM, YFARDIM),
-    0x89: ("MOVE_REL_XY", XNEARDIM14, YNEARDIM14),
-    0x8A: ("MOVE_REL_X", XNEARDIM14),
-    0x8B: ("MOVE_REL_Y", YNEARDIM14),
+    0x88: ("MOVE_FAR_XY", XFARDIM, YFARDIM),
+    0x89: ("MOVE_NEAR_XY", XNEARDIM14, YNEARDIM14),
+    0x8A: ("MOVE_NEAR_X", XNEARDIM14),
+    0x8B: ("MOVE_NEAR_Y", YNEARDIM14),
     0xA0: {
-        0x00: ("MOVE_ABS_A", AFARDIM),
-        0x08: ("MOVE_ABS_U", UFARDIM),
+        0x00: ("MOVE_FAR_A", AFARDIM),
+        0x08: ("MOVE_FAR_U", UFARDIM),
     },
     0xA7: KT,  # KEYPRESS
-    0xA8: ("CUT_ABS_XY", XFARDIM, YFARDIM),
-    0xA9: ("CUT_REL_XY", XNEARDIM14, YNEARDIM14),
-    0xAA: ("CUT_REL_X", XNEARDIM14),
-    0xAB: ("CUT_REL_Y", YNEARDIM14),
+    0xA8: ("CUT_FAR_XY", XFARDIM, YFARDIM),
+    0xA9: ("CUT_NEAR_XY", XNEARDIM14, YNEARDIM14),
+    0xAA: ("CUT_NEAR_X", XNEARDIM14),
+    0xAB: ("CUT_NEAR_Y", YNEARDIM14),
     0xC0: ("IMD_POWER_2", POWER),
     0xC1: ("END_POWER_2", POWER),
     0xC2: ("IMD_POWER_3", POWER),

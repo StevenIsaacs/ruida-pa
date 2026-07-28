@@ -74,9 +74,9 @@ Each line is an rpascript command string. Examples:
 
 ```
 GET_SETTING MEM_CARD_ID
-MOVE_ABS_XY X=100mm Y=200mm
+MOVE_FAR_XY X=100mm Y=200mm
 LASER_ON Power=80%
-MOVE_ABS_XY X=200mm Y=300mm
+MOVE_FAR_XY X=200mm Y=300mm
 LASER_OFF
 END_JOB
 DELAY 5s
@@ -317,7 +317,7 @@ class MyApp:
             print(f"Session: {event.value}")
             if event == RdStatusEvent.CONNECTED:
                 self.driver.run([
-                    "MOVE_ABS_XY X=100mm Y=200mm",
+                    "MOVE_FAR_XY X=100mm Y=200mm",
                     "LASER_ON Power=80%",
                 ])
         else:

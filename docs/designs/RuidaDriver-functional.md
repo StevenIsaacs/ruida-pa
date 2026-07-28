@@ -945,7 +945,7 @@ Indicates a packet boundary (used in tshark output generation to batch commands 
 
 ```rds
 CORE NOP
-MOVE MOVE_ABS_XY X=100.000mm Y=200.000mm
+MOVE MOVE_FAR_XY X=100.000mm Y=200.000mm
 CORE CMD END_JOB = 12345
 GET_SETTING MEM_CARD_ID  = 42
 ```

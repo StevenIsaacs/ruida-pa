@@ -274,7 +274,7 @@ GET_SETTING MEM_CARD_ID  = CardID:RDC6442S
 NEW_PACKET
 REF_POINT_2
 SET_ABSOLUTE
-MOVE_ABS_XY X=10000mm Y=20000mm
+MOVE_FAR_XY X=10000mm Y=20000mm
 ```
 
 - Lines starting with `#` are comments
@@ -503,12 +503,12 @@ Contributions are welcome! This is an ongoing analysis project. Areas where help
 Protocol specifications are defined in the protocol tables. For example:
 ```python
 # In CT (Command Table)
-0x88: ('MOVE_ABS_XY', XCOORD, YCOORD),
+0x88: ('MOVE_FAR_XY', XFARDIM, YFARDIM),
 ```
 
 Parameter decoders are defined as tuples:
 ```python
-XCOORD = ('X={}mm', coord, 'int_35')
+XFARDIM = ('X={}mm', 'dim', 'int_35')
 #         ^format   ^decoder ^raw_type
 ```
 

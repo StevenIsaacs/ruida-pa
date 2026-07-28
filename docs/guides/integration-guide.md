@@ -215,20 +215,20 @@ driver.start(udp_host="192.168.1.100")
 # Configure head (runs before every job)
 driver.set_head_script([
     "SET_ABSOLUTE",
-    "MOVE_ABS_XY X=0mm Y=0mm",
+    "MOVE_FAR_XY X=0mm Y=0mm",
 ])
 
 # Configure tail (runs after every job)
 driver.set_tail_script([
-    "MOVE_ABS_XY X=0mm Y=0mm",
+    "MOVE_FAR_XY X=0mm Y=0mm",
     "END_JOB",
 ])
 
 # Run a job — head and tail are prepended/appended automatically
 driver.run_job([
-    "MOVE_ABS_XY X=100mm Y=100mm",
+    "MOVE_FAR_XY X=100mm Y=100mm",
     "LASER_ON Power=80%",
-    "MOVE_ABS_XY X=200mm Y=200mm",
+    "MOVE_FAR_XY X=200mm Y=200mm",
     "LASER_OFF",
 ], auto_checksum=True)
 
@@ -455,7 +455,7 @@ adapter.start(udp_host="192.168.1.100")
 
 adapter.run([
     "GET_SETTING MEM_CARD_ID",
-    "MOVE_ABS_XY X=100mm Y=200mm",
+    "MOVE_FAR_XY X=100mm Y=200mm",
     "END_JOB",
 ], auto_checksum=True)
 
@@ -494,7 +494,7 @@ from rpascript.interpreter import ScriptParser
 parser = ScriptParser()
 try:
     parsed = parser.parse_lines([
-        "MOVE_ABS_XY X=100mm Y=200mm",
+        "MOVE_FAR_XY X=100mm Y=200mm",
         "LASER_ON Power=80%",
         "END_JOB",
     ])
@@ -513,12 +513,12 @@ from ruidadriver.ruida_driver import RdDriver
 driver = RdDriver()
 # With auto_checksum=False (default), mismatch raises ValueError
 try:
-    driver.run(["MOVE_ABS_XY X=100mm Y=200mm", "END_JOB = 99999"])
+    driver.run(["MOVE_FAR_XY X=100mm Y=200mm", "END_JOB = 99999"])
 except ValueError as e:
     print(f"Expected checksum mismatch: {e}")
 
 # With auto_checksum=True, it auto-fixes and continues
-driver.run(["MOVE_ABS_XY X=100mm Y=200mm", "END_JOB = 99999"],
+driver.run(["MOVE_FAR_XY X=100mm Y=200mm", "END_JOB = 99999"],
            auto_checksum=True)  # no error
 ```
 
@@ -529,16 +529,16 @@ Test head/job/tail assembly via TUI commands without a connection. Assemble comm
 ```python
 head = [
     "SET_ABSOLUTE",
-    "MOVE_ABS_XY X=0mm Y=0mm",
+    "MOVE_FAR_XY X=0mm Y=0mm",
 ]
 job = [
-    "MOVE_ABS_XY X=100mm Y=100mm",
+    "MOVE_FAR_XY X=100mm Y=100mm",
     "LASER_ON Power=80%",
-    "MOVE_ABS_XY X=200mm Y=200mm",
+    "MOVE_FAR_XY X=200mm Y=200mm",
     "LASER_OFF",
 ]
 tail = [
-    "MOVE_ABS_XY X=0mm Y=0mm",
+    "MOVE_FAR_XY X=0mm Y=0mm",
     "END_JOB",
 ]
 
@@ -555,7 +555,7 @@ script = [
     "DELAY 500ms",
     "WAIT MACHINE_STATUS_MOVING",
     "WAIT !MACHINE_STATUS_JOB_RUNNING to=30s",
-    "MOVE_ABS_XY X=100mm Y=200mm",
+    "MOVE_FAR_XY X=100mm Y=200mm",
 ]
 # The driver processes these inline in the runner thread:
 # - DELAY: time.sleep(0.5)
@@ -594,7 +594,7 @@ import time
 
 driver = RdDriver()
 driver.start(udp_host="192.168.1.100")
-driver.run(["MOVE_ABS_XY X=100mm Y=200mm" for _ in range(100)])
+driver.run(["MOVE_FAR_XY X=100mm Y=200mm" for _ in range(100)])
 
 # Cancel mid-execution — current iteration won't requeue
 driver.cancel_script()
@@ -919,10 +919,10 @@ All five head/tail methods are exposed as RPC methods:
 # Configure head/tail remotely
 svc.set_head_script([
     "SET_ABSOLUTE",
-    "MOVE_ABS_XY X=0mm Y=0mm",
+    "MOVE_FAR_XY X=0mm Y=0mm",
 ])
 svc.set_tail_script([
-    "MOVE_ABS_XY X=0mm Y=0mm",
+    "MOVE_FAR_XY X=0mm Y=0mm",
     "END_JOB",
 ])
 
@@ -933,7 +933,7 @@ print(f"Head: {len(head)} lines, Tail: {len(tail)} lines")
 
 # Run job with head/tail composition
 svc.run_job([
-    "MOVE_ABS_XY X=100mm Y=100mm",
+    "MOVE_FAR_XY X=100mm Y=100mm",
     "LASER_ON Power=80%",
     "LASER_OFF",
 ], auto_checksum=True)
