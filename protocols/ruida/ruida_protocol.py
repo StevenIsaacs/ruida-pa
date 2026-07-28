@@ -80,7 +80,7 @@ AXIS_T = {
 }
 
 # Type format strings.
-COORD_FMT = "{:.3f}mm"
+DIM_FMT = "{:.3f}mm"
 
 # Parameter specifications. NOTE: These are command specific where possible.
 # These need to be tuples because the type is used for determining next
@@ -123,27 +123,25 @@ COLOR = ("Color:#{:06X}", "color", "uint_35")
 SETTING = ("Set:{:08X}", "uint35", "uint_35")
 ID = ("ID:{}", "uint14", "uint_14")
 DIRECTION = ("Dir:{}", "int7", "int_7")  # Table-ize the direction?
-COORD = ("POS=" + COORD_FMT, "coord", "int_35")
-ABSCOORD = ("ABS=" + COORD_FMT, "coord", "int_35")
-XABSCOORD = ("X=" + COORD_FMT, "coord", "int_35")
-YABSCOORD = ("Y=" + COORD_FMT, "coord", "int_35")
-ZABSCOORD = ("Z=" + COORD_FMT, "coord", "int_35")
-AABSCOORD = ("A=" + COORD_FMT, "coord", "int_35")  # Should be Z?
-UABSCOORD = ("U=" + COORD_FMT, "coord", "int_35")
-OFFSET = ("OFFSET=" + COORD_FMT, "coord", "int_35")
-RELCOORD35 = ("Rel=" + COORD_FMT, "coord", "int_35")
-XRELCOORD35 = ("RelX=" + COORD_FMT, "coord", "int_35")
-YRELCOORD35 = ("RelY=" + COORD_FMT, "coord", "int_35")
-RELCOORD14 = ("Rel=" + COORD_FMT, "coord", "int_14")
-XRELCOORD14 = ("RelX=" + COORD_FMT, "coord", "int_14")
-YRELCOORD14 = ("RelY=" + COORD_FMT, "coord", "int_14")
+DIM = ("POS=" + DIM_FMT, "dim", "int_35")
+FARDIM = ("ABS=" + DIM_FMT, "dim", "int_35")
+XFARDIM = ("X=" + DIM_FMT, "dim", "int_35")
+YFARDIM = ("Y=" + DIM_FMT, "dim", "int_35")
+ZFARDIM = ("Z=" + DIM_FMT, "dim", "int_35")
+AFARDIM = ("A=" + DIM_FMT, "dim", "int_35")
+UFARDIM = ("U=" + DIM_FMT, "dim", "int_35")
+OFFSET = ("OFFSET=" + DIM_FMT, "dim", "int_35")
+# RELCOORD35, XRELCOORD35, YRELCOORD35 REMOVED — were unused
+NEARDIM14 = ("Rel=" + DIM_FMT, "dim", "int_14")
+XNEARDIM14 = ("RelX=" + DIM_FMT, "dim", "int_14")
+YNEARDIM14 = ("RelY=" + DIM_FMT, "dim", "int_14")
 POWER = ("Power:{:.1f}%", "power", "uint_14")
 SPEED = ("Speed:{:.3f}mm/S", "speed", "int_35")
 FREQUENCY = ("Freq:{:.3f}KHz", "frequency", "int_35")
 COLUMNS = ("Columns={}", "uint14", "uint_14")
 ROWS    = ("Rows={}",    "uint14", "uint_14")
-XSTEP = ("XStep=" + COORD_FMT, "coord", "int_35")
-YSTEP = ("YStep=" + COORD_FMT, "coord", "int_35")
+XSTEP = ("XStep=" + DIM_FMT, "dim", "int_35")
+YSTEP = ("YStep=" + DIM_FMT, "dim", "int_35")
 TIME = ("{:.3f}mS", "time", "int_35")
 SWITCH = ("State:{}", "on_off", "uint_7")
 CARD_ID = ("CardID:{}", "card_id", "uint_35")
@@ -269,7 +267,7 @@ MT = {
         0x23: ("MEM_AXIS_MAX_VELOCITY_1", TBD),  # 0x023
         0x24: ("MEM_AXIS_START_VELOCITY_1", TBD),  # 0x024
         0x25: ("MEM_AXIS_MAX_ACC_1", TBD),  # 0x025
-        0x26: ("MEM_BED_SIZE_X", XABSCOORD),  # Deduced from LB
+        0x26: ("MEM_BED_SIZE_X", XFARDIM),  # Deduced from LB
         0x27: ("MEM_AXIS_BTN_START_VEL_1", TBD),  # 0x027
         0x28: ("MEM_AXIS_BTN_ACC_1", TBD),  # 0x028
         0x29: ("MEM_AXIS_ESTP_ACC_1", TBD),  # 0x029
@@ -280,7 +278,7 @@ MT = {
         0x33: ("MEM_AXIS_MAX_VELOCITY_2", TBD),  # 0x033
         0x34: ("MEM_AXIS_START_VELOCITY_2", TBD),  # 0x034
         0x35: ("MEM_AXIS_MAX_ACC_2", TBD),  # 0x035
-        0x36: ("MEM_BED_SIZE_Y", YABSCOORD),  # Deduce from LB
+        0x36: ("MEM_BED_SIZE_Y", YFARDIM),  # Deduce from LB
         0x37: ("MEM_AXIS_BTN_START_VEL_2", TBD),  # 0x037
         0x38: ("MEM_AXIS_BTN_ACC_2", TBD),  # 0x038
         0x39: ("MEM_AXIS_ESTP_ACC_2", TBD),  # 0x039
@@ -373,13 +371,13 @@ MT = {
         0x05: ("MEM_TOTAL_DOC_NUMBER", TBDU35),  # 0x205
         0x07: ("MEM_UNKNOWN", TBDU35),  # LightBurn uses this
         0x08: ("MEM_PRE_WORK_TIME", TBD),  # 0x208
-        0x21: ("MEM_CURRENT_POSITION_X", XABSCOORD),  # 0x221
+        0x21: ("MEM_CURRENT_POSITION_X", XFARDIM),  # 0x221
         0x23: ("MEM_TOTAL_WORK_LENGTH_1", TBD),  # 0x223
-        0x31: ("MEM_CURRENT_POSITION_Y", YABSCOORD),  # 0x231
+        0x31: ("MEM_CURRENT_POSITION_Y", YFARDIM),  # 0x231
         0x33: ("MEM_TOTAL_WORK_LENGTH_2", TBD),  # 0x233
-        0x41: ("MEM_CURRENT_POSITION_Z", ZABSCOORD),  # 0x241
+        0x41: ("MEM_CURRENT_POSITION_Z", ZFARDIM),  # 0x241
         0x43: ("MEM_TOTAL_WORK_LENGTH_3", TBD),  # 0x243
-        0x51: ("MEM_CURRENT_POSITION_U", UABSCOORD),  # 0x251
+        0x51: ("MEM_CURRENT_POSITION_U", UFARDIM),  # 0x251
         0x53: ("MEM_TOTAL_WORK_LENGTH_4", TBD),  # 0x253
     },
     0x05: {
@@ -422,24 +420,24 @@ REPLY = -1
 # Command table - port 50200
 CT = {
     0x80: {
-        0x00: ("MOVE_ABS_X", XABSCOORD),
-        0x01: ("MOVE_ABS_Y", YABSCOORD),  # TODO: Verify the Y move.
-        0x02: ("MOVE_ABS_U", UABSCOORD),  # TODO: Verify the U move.
-        0x03: ("MOVE_ABS_Z", ZABSCOORD),
+        0x00: ("MOVE_ABS_X", XFARDIM),
+        0x01: ("MOVE_ABS_Y", YFARDIM),  # TODO: Verify the Y move.
+        0x02: ("MOVE_ABS_U", UFARDIM),  # TODO: Verify the U move.
+        0x03: ("MOVE_ABS_Z", ZFARDIM),
     },
-    0x88: ("MOVE_ABS_XY", XABSCOORD, YABSCOORD),
-    0x89: ("MOVE_REL_XY", XRELCOORD14, YRELCOORD14),
-    0x8A: ("MOVE_REL_X", XRELCOORD14),
-    0x8B: ("MOVE_REL_Y", YRELCOORD14),
+    0x88: ("MOVE_ABS_XY", XFARDIM, YFARDIM),
+    0x89: ("MOVE_REL_XY", XNEARDIM14, YNEARDIM14),
+    0x8A: ("MOVE_REL_X", XNEARDIM14),
+    0x8B: ("MOVE_REL_Y", YNEARDIM14),
     0xA0: {
-        0x00: ("MOVE_ABS_A", AABSCOORD),
-        0x08: ("MOVE_ABS_U", UABSCOORD),
+        0x00: ("MOVE_ABS_A", AFARDIM),
+        0x08: ("MOVE_ABS_U", UFARDIM),
     },
     0xA7: KT,  # KEYPRESS
-    0xA8: ("CUT_ABS_XY", XABSCOORD, YABSCOORD),
-    0xA9: ("CUT_REL_XY", XRELCOORD14, YRELCOORD14),
-    0xAA: ("CUT_REL_X", XRELCOORD14),
-    0xAB: ("CUT_REL_Y", YRELCOORD14),
+    0xA8: ("CUT_ABS_XY", XFARDIM, YFARDIM),
+    0xA9: ("CUT_REL_XY", XNEARDIM14, YNEARDIM14),
+    0xAA: ("CUT_REL_X", XNEARDIM14),
+    0xAB: ("CUT_REL_Y", YNEARDIM14),
     0xC0: ("IMD_POWER_2", POWER),
     0xC1: ("END_POWER_2", POWER),
     0xC2: ("IMD_POWER_3", POWER),
@@ -547,13 +545,13 @@ CT = {
         0x37: "KEYUP_U_BACKWARDS",
     },
     0xD9: {
-        0x00: ("JOG_X", REL, XABSCOORD),
-        0x01: ("JOG_Y", REL, YABSCOORD),
-        0x02: ("JOG_Z", REL, ZABSCOORD),
-        0x03: ("JOG_U", REL, UABSCOORD),
+        0x00: ("JOG_X", REL, XFARDIM),
+        0x01: ("JOG_Y", REL, YFARDIM),
+        0x02: ("JOG_Z", REL, ZFARDIM),
+        0x03: ("JOG_U", REL, UFARDIM),
         0x0F: ("JOG_FEED_AXIS", REL),
-        0x10: ("JOG_XY", REL, XABSCOORD, YABSCOORD),
-        0x30: ("JOG_XYU", REL, XABSCOORD, YABSCOORD, UABSCOORD),
+        0x10: ("JOG_XY", REL, XFARDIM, YFARDIM),
+        0x30: ("JOG_XYU", REL, XFARDIM, YFARDIM, UFARDIM),
     },
     0xDA: {  # SETTING
         0x00: ("GET_SETTING", MEMORY),  # SETTING_READ
@@ -571,35 +569,35 @@ CT = {
     0xE7: {
         0x00: "BLOCK_END",
         0x01: ("SET_FILE_NAME", FNAME),
-        0x03: ("JOB_TOP_RIGHT", XABSCOORD, YABSCOORD),
+        0x03: ("JOB_TOP_RIGHT", XFARDIM, YFARDIM),
         0x04: ("JOB_COPIES", COLUMNS, ROWS, XSTEP, YSTEP),
         0x05: ("ARRAY_DIRECTION", DIRECTION),
         0x06: ("FEED_REPEAT", UINT35, UINT35),
-        0x07: ("JOB_BOTTOM_LEFT", XABSCOORD, YABSCOORD),
+        0x07: ("JOB_BOTTOM_LEFT", XFARDIM, YFARDIM),
         0x08: ("ARRAY_COPIES", COLUMNS, ROWS, XSTEP, YSTEP),
         0x09: ("FEED_LENGTH", INT35),
         0x0A: ("FEED_INFO", TBD35),  # TODO: A 35 bit value? What for?
         0x0B: ("ARRAY_EN_MIRROR_CUT", UINT7),
-        0x13: ("ARRAY_TOP_RIGHT", XABSCOORD, YABSCOORD),
-        0x17: ("ARRAY_BOTTOM_LEFT", XABSCOORD, YABSCOORD),
-        0x23: ("ARRAY_ADD", XABSCOORD, YABSCOORD),
+        0x13: ("ARRAY_TOP_RIGHT", XFARDIM, YFARDIM),
+        0x17: ("ARRAY_BOTTOM_LEFT", XFARDIM, YFARDIM),
+        0x23: ("ARRAY_ADD", XFARDIM, YFARDIM),
         0x24: ("ARRAY_MIRROR", UINT7),
         0x32: ("UNKNOWN_E732", TBDU35, TBDU35),  # RDWorks uses this.
-        0x35: ("BLOCK_X_SIZE", XABSCOORD, YABSCOORD),
+        0x35: ("BLOCK_X_SIZE", XFARDIM, YFARDIM),
         # ? 0x35: ('BY_TEST: {:08X}', UINT35), # expect 0x11227766?
         0x36: ("SET_FILE_EMPTY", UINT7),
         0x37: ("ARRAY_EVEN_DISTANCE", XSTEP, YSTEP),
         0x38: ("SET_FEED_AUTO_PAUSE", SWITCH),
         0x3A: "UNION_BLOCK_PROPERTY",
-        0x50: ("DOCUMENT_TOP_RIGHT", XABSCOORD, YABSCOORD),
-        0x51: ("DOCUMENT_BOTTOM_LEFT", XABSCOORD, YABSCOORD),
-        0x52: ("LAYER_TOP_RIGHT", LAYER, XABSCOORD, YABSCOORD),
-        0x53: ("LAYER_BOTTOM_LEFT", LAYER, XABSCOORD, YABSCOORD),
+        0x50: ("DOCUMENT_TOP_RIGHT", XFARDIM, YFARDIM),
+        0x51: ("DOCUMENT_BOTTOM_LEFT", XFARDIM, YFARDIM),
+        0x52: ("LAYER_TOP_RIGHT", LAYER, XFARDIM, YFARDIM),
+        0x53: ("LAYER_BOTTOM_LEFT", LAYER, XFARDIM, YFARDIM),
         0x54: ("PEN_OFFSET_AXIS", AXIS, OFFSET),
         0x55: ("LAYER_OFFSET_AXIS", AXIS, OFFSET),
         0x60: ("SET_CURRENT_ELEMENT_INDEX", UINT7),
-        0x61: ("LAYER_EX_TOP_RIGHT", LAYER, XABSCOORD, YABSCOORD),
-        0x62: ("LAYER_EX_BOTTOM_LEFT", LAYER, XABSCOORD, YABSCOORD),
+        0x61: ("LAYER_EX_TOP_RIGHT", LAYER, XFARDIM, YFARDIM),
+        0x62: ("LAYER_EX_BOTTOM_LEFT", LAYER, XFARDIM, YFARDIM),
     },
     0xE8: {
         0x00: ("DELETE_DOCUMENT", UINT35, UINT35),  # Values are what?
@@ -615,17 +613,17 @@ CT = {
         0x00: ("ELEMENT_MAX_INDEX", UINT7),
         0x01: ("ELEMENT_NAME_MAX_INDEX", UINT7),
         0x02: ("ENABLE_BLOCK_CUTTING", SWITCH),
-        0x03: ("DISPLAY_OFFSET", XABSCOORD, YABSCOORD),
+        0x03: ("DISPLAY_OFFSET", XFARDIM, YFARDIM),
         0x04: ("FEED_AUTO_CALC", UINT7),
     },
     0xF2: {
         0x00: ("ELEMENT_INDEX", UINT7),
         0x01: ("ELEMENT_NAME_INDEX", UINT7),
         0x02: ("ELEMENT_NAME", STRING8),
-        0x03: ("ELEMENT_ARRAY_TOP_RIGHT", XABSCOORD, YABSCOORD),
-        0x04: ("ELEMENT_ARRAY_BOTTOM_LEFT", XABSCOORD, YABSCOORD),
+        0x03: ("ELEMENT_ARRAY_TOP_RIGHT", XFARDIM, YFARDIM),
+        0x04: ("ELEMENT_ARRAY_BOTTOM_LEFT", XFARDIM, YFARDIM),
         0x05: ("ELEMENT_COPIES", COLUMNS, ROWS, XSTEP, YSTEP),
-        0x06: ("ELEMENT_ARRAY_ADD", XABSCOORD, YABSCOORD),
+        0x06: ("ELEMENT_ARRAY_ADD", XFARDIM, YFARDIM),
         0x07: ("ELEMENT_ARRAY_MIRROR", UINT7),
     },
 }

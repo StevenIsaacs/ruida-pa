@@ -39,7 +39,7 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 ## Key conventions
 
 - Protocol command tables live in `protocols/ruida/ruida_parser.py` (CT dict: byte → command name + param specs).
-- Parameter decoder tuples: `(format_string, decoder_fn, raw_type)` — e.g. `('X={}mm', coord, 'int_35')`.
+- Parameter decoder tuples: `(format_string, decoder_fn, raw_type)` — e.g. `('X={}mm', dim, 'int_35')`.
 - Checksum is a running sum of bytes in engrave/cut commands; excludes memory and jog commands. Known ~220-byte discrepancy with LightBurn captures.
 - `discovery/` is a **separate git repo** (submodule). Commit test case changes there, not in the parent.
 

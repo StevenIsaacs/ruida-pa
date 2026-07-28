@@ -158,7 +158,7 @@ class RdDecoder:
         return self.formatted
 
     # Ruida Parameter Types
-    def rd_coord(self, data: bytearray):
+    def rd_dim(self, data: bytearray):
         self.value = self.to_int(data) / 1000.0
         return self.formatted
 
@@ -398,11 +398,11 @@ class RdEncoder:
         _i2 = int.from_bytes(_ba[4:], byteorder="big")
         return self.from_uint(_i1, 5) + self.from_uint(_i2, 5)
 
-    def encode_coord(self, value: float, n_bytes: int = 5) -> bytearray:
-        """Encode a coordinate (mm) as signed value * 1000.
+    def encode_dim(self, value: float, n_bytes: int = 5) -> bytearray:
+        """Encode a dimension (mm) as signed value * 1000.
 
         Args:
-            value: Coordinate in mm.
+            value: Dimension in mm.
             n_bytes: Number of 7-bit bytes (2 for int14, 5 for int35). Default 5.
         """
         if n_bytes not in (2, 5):

@@ -22,7 +22,7 @@ _ENCODER_MAP: dict[str, str | None] = {
     "int35": "encode_int35",
     "uint35": "encode_uint35",
     "color": "encode_color",
-    "coord": "encode_coord",
+    "dim": "encode_dim",
     "cstring": "encode_cstring",
     "string8": "encode_string8",
     "power": "encode_power",
@@ -228,12 +228,12 @@ def encode_single_param(
     if method_name is None:
         return bytearray()
 
-    # Special handling for coord which needs rd_type to select byte count
-    if decoder_fn == "coord":
-        coord_nbytes = {"int_14": 2, "uint_14": 2, "int_35": 5, "uint_35": 5}.get(
+    # Special handling for dim which needs rd_type to select byte count
+    if decoder_fn == "dim":
+        dim_nbytes = {"int_14": 2, "uint_14": 2, "int_35": 5, "uint_35": 5}.get(
             rd_type, 5
         )
-        return encoder.encode_coord(parsed, coord_nbytes)
+        return encoder.encode_dim(parsed, dim_nbytes)
 
     # Resolve method on RdEncoder instance
     encoder_method = getattr(encoder, method_name, None)
@@ -299,7 +299,7 @@ def parse_value(
         return False
 
     # --- Typed suffix parsing ---
-    if decoder_fn == "coord":
+    if decoder_fn == "dim":
         clean = raw
         if "=" in clean:
             clean = clean.split("=", 1)[1].strip()

@@ -1015,7 +1015,7 @@ Transport.write(packet)             Send to wire (UDP socket / serial)
 | `uint14` | `encode_uint14` | Unsigned 14-bit integer |
 | `int35` | `encode_int35` | Signed 35-bit integer |
 | `uint35` | `encode_uint35` | Unsigned 35-bit integer |
-| `coord` | `encode_coord` | Coordinate (byte count from `rd_type`) |
+| `dim` | `encode_dim` | Dimension (byte count from `rd_type`) |
 | `cstring` | `encode_cstring` | C-string (null-terminated) |
 | `string8` | `encode_string8` | 8-byte fixed string |
 | `power` | `encode_power` | Laser power value |

@@ -855,11 +855,11 @@ class ScriptInterpreter:
         raw: bytearray
         if decoder_name == "card_id":
             raw = self._enc.encode_card_id(parsed)
-        elif decoder_name == "coord":
-            coord_nbytes = {"int_14": 2, "uint_14": 2, "int_35": 5, "uint_35": 5}.get(
+        elif decoder_name == "dim":
+            dim_nbytes = {"int_14": 2, "uint_14": 2, "int_35": 5, "uint_35": 5}.get(
                 rd_type, 5
             )
-            raw = self._enc.encode_coord(parsed, coord_nbytes)
+            raw = self._enc.encode_dim(parsed, dim_nbytes)
         else:
             method_name = _ENCODER_MAP.get(decoder_name)
             if method_name is None and rd_type is not None:
