@@ -55,10 +55,10 @@ server stop
 - These are processed by `start_rpyc_server()` / `server.stop()`, not
   sent to the controller as commands.
 
-### NEW_PACKET Directive
+### new_packet Directive
 
 ```rds
-NEW_PACKET
+new_packet
 ```
 
 Marks a packet boundary. Used when the script is replayed through

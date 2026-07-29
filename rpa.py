@@ -230,7 +230,7 @@ def _write_rd(commands, mnemonic_map, mt_map, rd_path, magic):
     raw = bytearray()
     for cmd in commands:
         cmd_type = cmd.get("type")
-        if cmd_type in ("NEW_PACKET", "SESSION_START", "SESSION_END", "DELAY", "WAIT"):
+        if cmd_type in ("new_packet", "SESSION_START", "SESSION_END", "DELAY", "WAIT"):
             continue
         mnemonic = cmd.get("mnemonic")
         if not mnemonic:

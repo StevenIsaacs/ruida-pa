@@ -271,14 +271,14 @@ a command mnemonic followed by optional parameters and an optional expected repl
 GET_SETTING MEM_CARD_ID  = CardID:RDC6442S
 
 # Packet 2
-NEW_PACKET
+new_packet
 REF_POINT_2
 SET_ABSOLUTE
 MOVE_FAR_XY X=10000mm Y=20000mm
 ```
 
 - Lines starting with `#` are comments
-- `NEW_PACKET` marks a boundary between packets
+- `new_packet` marks a boundary between packets
 - `= value` after a command captures the controller's reply
 - Packet numbering comments (`# Packet N`) provide human-readable guidance
 

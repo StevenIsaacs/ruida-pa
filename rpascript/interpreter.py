@@ -42,7 +42,7 @@ def reconstruct_script_line(cmd: dict) -> str:
     """Convert a parsed command dict back to an rpascript text line.
 
     Reconstructs the original rpascript line from a parsed command dict,
-    handling session meta-commands, NEW_PACKET directives, and regular commands
+    handling session meta-commands, new_packet directives, and regular commands
     with their parameters and expected values.
 
     Args:
@@ -88,9 +88,9 @@ def reconstruct_script_line(cmd: dict) -> str:
             parts.append(f"to={to_val}")
         return " ".join(parts)
 
-    # NEW_PACKET directive
-    if cmd_type == "NEW_PACKET":
-        return "NEW_PACKET"
+    # new_packet directive
+    if cmd_type == "new_packet":
+        return "new_packet"
 
     # Regular command: [TYPE] MNEMONIC param1 param2 [= expected]
     tokens = []
@@ -313,11 +313,11 @@ class ScriptParser:
                 )
                 return None
 
-        # --- NEW_PACKET directive (per-packet boundary marker) ---
-        if tokens[0] == "NEW_PACKET":
+        # --- new_packet directive (per-packet boundary marker) ---
+        if tokens[0] == "new_packet":
             return {
-                "type": "NEW_PACKET",
-                "mnemonic": "NEW_PACKET",
+                "type": "new_packet",
+                "mnemonic": "new_packet",
                 "params": [],
                 "expected": None,
                 "line_num": line_num,
@@ -576,7 +576,7 @@ class ScriptInterpreter:
     def interpret(self, commands: list[dict]) -> None:
         """Process a list of parsed commands, writing tshark output.
 
-        Commands between NEW_PACKET markers are combined into single UDP packets.
+        Commands between new_packet markers are combined into single UDP packets.
         Synthetic ACK replies are emitted immediately after each command packet.
         Commands with an ``expected`` value get a synthetic reply packet emitted
         after the batch packet (and ACK) that carried them.
@@ -605,7 +605,7 @@ class ScriptInterpreter:
         end_job_offset = None
         end_job_batch = bytearray()  # reference to batch containing placeholder
         for cmd in commands:
-            if cmd.get("type") == "NEW_PACKET":
+            if cmd.get("type") == "new_packet":
                 # Flush current batch as a single combined packet,
                 # emit ACK immediately after the command packet,
                 # then emit synthetic replies for any commands with expected values.
@@ -665,10 +665,10 @@ class ScriptInterpreter:
             encoded_sum = self._enc.encode_uint35(file_checksum)
             if end_job_batch is not current_batch:
                 # The batch containing the END_JOB placeholder was already flushed
-                # by a NEW_PACKET directive. This is a script structure error.
+                # by a new_packet directive. This is a script structure error.
                 self._warning_callback(
                     "END_JOB without value must appear in the final batch "
-                    "(cannot be before a NEW_PACKET directive)",
+                    "(cannot be before a new_packet directive)",
                     "END_JOB without value must be in the final packet batch"
                 )
             current_batch[end_job_offset : end_job_offset + 5] = encoded_sum

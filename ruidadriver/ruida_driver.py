@@ -563,7 +563,7 @@ class RdDriver:
                 end_job_value = None  # parsed value if present
 
                 for cmd in parsed:
-                    if cmd.get("type") == "NEW_PACKET":
+                    if cmd.get("type") == "new_packet":
                         continue
                     if cmd.get("type") == "DELAY":
                         self._handle_delay(cmd)

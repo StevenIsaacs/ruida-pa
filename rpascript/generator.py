@@ -95,8 +95,8 @@ class ScriptGenerator:
 
         Fires from RuidaProtocolAnalyzer.decode() when a new host→controller
         packet is read. Writes a blank line and packet-number comment before
-        each packet, and a NEW_PACKET marker on every call after the first,
-        so the first packet's commands have no preceding NEW_PACKET marker.
+        each packet, and a new_packet marker on every call after the first,
+        so the first packet's commands have no preceding new_packet marker.
         """
         # Flush any pending command line before the packet boundary so the
         # previous packet's commands are fully written with their expect values.
@@ -104,7 +104,7 @@ class ScriptGenerator:
         self._packet_count += 1
         self._fp.write(f"\n# Packet {self._packet_count}\n")
         if self._packet_count > 1:
-            self._fp.write("NEW_PACKET\n")
+            self._fp.write("new_packet\n")
 
     def close(self):
         """Close the output file."""

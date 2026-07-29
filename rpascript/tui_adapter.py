@@ -1321,7 +1321,7 @@ class TuiAdapter(App):
             self._flush_pending()
             self._packet_count += 1
             if self._packet_count > 1:
-                self.lines.append("NEW_PACKET")
+                self.lines.append("new_packet")
 
         def _flush_pending(self) -> None:
             """Write the buffered command line, appending ``= <expect>`` if a
@@ -1558,7 +1558,7 @@ class TuiAdapter(App):
     def _filter_job_commands(lines: list[str]) -> list[str]:
         """Filter lines to only include commands between START_JOB and EOF (inclusive).
 
-        Excludes GET_SETTING and NEW_PACKET directives — they are not part of the job.
+        Excludes GET_SETTING and new_packet directives — they are not part of the job.
         """
         in_job = False
         result: list[str] = []
@@ -1567,9 +1567,9 @@ class TuiAdapter(App):
             if stripped == "START_JOB" or stripped.startswith("START_JOB "):
                 in_job = True
             if in_job:
-                # Skip GET_SETTING and NEW_PACKET — not part of the job
+                # Skip GET_SETTING and new_packet — not part of the job
                 if stripped.startswith("GET_SETTING") or stripped.startswith(
-                    "NEW_PACKET"
+                    "new_packet"
                 ):
                     continue
                 result.append(line)
@@ -1662,7 +1662,7 @@ class TuiAdapter(App):
         raw = bytearray()
         for cmd in parsed:
             cmd_type = cmd.get("type")
-            if cmd_type in ("NEW_PACKET", "SESSION_START", "SESSION_END", "DELAY", "WAIT"):
+            if cmd_type in ("new_packet", "SESSION_START", "SESSION_END", "DELAY", "WAIT"):
                 continue
             mnemonic = cmd.get("mnemonic")
             if not mnemonic:
@@ -2048,7 +2048,7 @@ class TuiAdapter(App):
         cmd_id = 0
         for cmd in parsed:
             cmd_type = cmd.get("type")
-            if cmd_type in ("SESSION_START", "SESSION_END", "DELAY", "WAIT", "NEW_PACKET"):
+            if cmd_type in ("SESSION_START", "SESSION_END", "DELAY", "WAIT", "new_packet"):
                 continue
 
             mnemonic = cmd.get("mnemonic")

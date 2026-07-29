@@ -600,7 +600,7 @@ A daemon thread that processes scripts from `_script_queue`:
 2. `None` sentinel → exit loop (shutdown).
 3. Parse the script lines via `ScriptParser.parse_lines()`.
 4. For each parsed command:
-   - Skip `NEW_PACKET` directives.
+   - Skip `new_packet` directives.
    - Encode via `encode_command()`.
    - **File checksum handling**:
      - If `END_JOB` with a value → store for verification.
@@ -609,7 +609,7 @@ A daemon thread that processes scripts from `_script_queue`:
      - Excluded: commands in `CHK_DISABLES` (0xA7 KEYPRESS, 0xDA SETTING) and `END_JOB` itself.
 5. **Post-loop checksum resolution**:
    - If `END_JOB` had a value → verify against accumulated checksum. Raises `ValueError` on mismatch.
-   - If `END_JOB` had a placeholder → encode `file_checksum` as `uint35` and patch the last 5 bytes of the placeholder command's bytearray. `END_JOB` without a value must appear in the final batch (not before a `NEW_PACKET` in the tshark pipeline); the `interpreter.py` variant validates this.
+   - If `END_JOB` had a placeholder → encode `file_checksum` as `uint35` and patch the last 5 bytes of the placeholder command's bytearray. `END_JOB` without a value must appear in the final batch (not before a `new_packet` in the tshark pipeline); the `interpreter.py` variant validates this.
    - Duplicate `END_JOB` raises `ValueError`.
 6. **Transmission**:
    - If `session.is_connected` → `transport.write(encoded)`.
@@ -933,10 +933,10 @@ session end
 - `to=<timeout>` is an optional parameter specifying the connection timeout (e.g. `5s`, `5000ms`). Default is 5000ms.
 - `session end` terminates the active session.
 
-#### 7.1.3 NEW_PACKET Directive
+#### 7.1.3 new_packet Directive
 
 ```rds
-NEW_PACKET
+new_packet
 ```
 
 Indicates a packet boundary (used in tshark output generation to batch commands into packets).
@@ -969,7 +969,7 @@ Type names are resolved via `ScriptParser._resolve_type()`, which also accepts t
 
 ### 7.3 Line Reconstruction
 
-`reconstruct_script_line(cmd)` converts a parsed command dict back to rpascript text format, preserving session meta-commands, `NEW_PACKET`, and regular commands with their parameters and expected values.
+`reconstruct_script_line(cmd)` converts a parsed command dict back to rpascript text format, preserving session meta-commands, `new_packet`, and regular commands with their parameters and expected values.
 
 ---
 
@@ -1058,7 +1058,7 @@ The file checksum is a running sum of `sum(raw)` for all commands that pass `sho
 
 **Verification mode**: When `END_JOB` has a value parameter, the accumulated checksum is compared against that value after all commands are processed. Mismatch raises `ValueError`.
 
-**Placeholder mode**: When `END_JOB` has no value parameter, 5 zero bytes are inserted as a placeholder. After the checksum is fully accumulated, the placeholder bytes are patched with the encoded `uint35` checksum value. In the tshark output path (`ScriptInterpreter`), the placeholder must be in the final batch (before any `NEW_PACKET` after it), otherwise a `ValueError` is raised.
+**Placeholder mode**: When `END_JOB` has no value parameter, 5 zero bytes are inserted as a placeholder. After the checksum is fully accumulated, the placeholder bytes are patched with the encoded `uint35` checksum value. In the tshark output path (`ScriptInterpreter`), the placeholder must be in the final batch (before any `new_packet` after it), otherwise a `ValueError` is raised.
 
 **Duplicate detection**: At most one `END_JOB` per file. Duplicates raise `ValueError`.
 
@@ -1157,7 +1157,7 @@ Handled at all levels:
 ### 10.4 Checksum Edge Cases
 
 - **Duplicate END_JOB**: Detected and raised as `ValueError("Duplicate END_JOB — at most one per file")`.
-- **END_JOB before NEW_PACKET**: In tshark output mode, if the placeholder END_JOB is in a batch that was already flushed (before a NEW_PACKET marker), the patch fails with a descriptive `ValueError`.
+- **END_JOB before new_packet**: In tshark output mode, if the placeholder END_JOB is in a batch that was already flushed (before a new_packet marker), the patch fails with a descriptive `ValueError`.
 - **END_JOB value mismatch**: Detected and raised as `ValueError` with both the expected and actual values.
 
 ### 10.5 Stale Session State
@@ -1207,7 +1207,7 @@ Converts decoded Ruida parser output (from `rpa.py`) to `.rds` script format for
 
 **Callback interface:**
 - `write_command(label, cmd_values, param_list, command, sub_command, decoded, cmd_n)` — Called once per decoded host→controller command. Buffers the command line until a reply callback arrives on the same `cmd_n`, then appends `= <reply_value>`.
-- `on_new_packet()` — Called once per host→controller packet. Writes a `NEW_PACKET` marker between packets.
+- `on_new_packet()` — Called once per host→controller packet. Writes a `new_packet` marker between packets.
 
 **Formatting details:**
 - Power parameters use `{:.3f}` format (not `{:.1f}`) for lossless round-trip of all 16,384 uint14 power values.
