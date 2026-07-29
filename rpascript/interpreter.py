@@ -844,10 +844,6 @@ class ScriptInterpreter:
         decoder_name = spec[1]
         rd_type = spec[2] if len(spec) >= 3 else None
 
-        # Skip unknown / TBD types
-        if decoder_name in ("tbd",):
-            return ""
-
         # Parse the expected value string into a Python value
         parsed = self._parse_value(expected, decoder_name, rd_type)
 

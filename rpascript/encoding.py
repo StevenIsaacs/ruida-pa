@@ -37,7 +37,6 @@ _ENCODER_MAP: dict[str, str | None] = {
     "index": "encode_index",
     "checksum": "encode_uint35",
     "card_id": "encode_uint35",
-    "tbd": None,
 }
 
 # Fallback: ruida type name (DTYP from param spec) → encoder method.

@@ -182,8 +182,6 @@ class ScriptGenerator:
                 # Emit the raw numeric value so the encoder can parse it.
                 if spec[1] in ("mt", "index"):
                     params.append(str(val))
-                elif spec[1] == "tbd":
-                    params.append(str(val))
                 else:
                     try:
                         formatted = fmt_str.format(val)

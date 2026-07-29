@@ -17,9 +17,6 @@ CMD_MASK = 0x80  # Only the first byte of a command has the top bit set.
 EOF = 0xD7  # Indicates the end of the Ruida file and the checksum will
 # follow.
 
-# Internal and not part of the Ruida protocol.
-EOD = 0xFF  # To signal end of incoming data to the decoder.
-
 # This table defines the number of bit and corresponding number of incoming
 # data bytes for each basic data type.
 # Indexes into the RD_TYPES table.
@@ -48,8 +45,6 @@ RD_TYPES = {
     "index": [14, 2],  # An index into an unknown table.
     "chksum": [32, 5],  # For file checksum calculation.
     "card_id": [32, 5],  # Card ID reply.
-    "tbd": [-1, -1],  # Type is unknown signal read to end of packet.
-    # Use this for analyzing data.
 }
 
 # Card ID reply to model name lookup table.
@@ -154,9 +149,6 @@ INDEX = ("Index:{:04X}", "index", "index")
 
 FILE_SUM = ("Sum:0x{0:010X}", "checksum", "uint_35")
 
-# For when the format and type of data is not known.
-# Use this for data that needs to be analyzed
-TBD = ("TBD:{0:035b}b: 0x{0:08x}: {0}", "tbd", "tbd")
 # Use these once the size is known but needs further investigation.
 TBDU7 = ("TBDU7:{0:07b}b: 0x{0:02x}: {0}", "uint7", "uint_7")
 TBDU14 = ("TBDU14:{0:014b}b: 0x{0:04x}: {0}", "uint14", "uint_14")
@@ -215,7 +207,7 @@ KT = {
 # Unknown address generic decode.
 UNKNOWN_ADDRESS = (
     "TBD:Unknown address",
-    TBD,
+    TBDU35,
 )  # Use when address discovered but data is
 # unknown.
 # These are used when SETTING at an address.
@@ -245,153 +237,153 @@ MST = {
 MT = {
     0x00: {
         0x04: ("MEM_IO_ENABLE", TBDU35),  # 0x004
-        0x05: ("MEM_G0_VELOCITY", TBD),  # 0x005
-        0x0B: ("MEM_ENG_FACULA", TBD),  # 0x00B
-        0x0C: ("MEM_HOME_VELOCITY", TBD),  # 0x00C
-        0x0E: ("MEM_ENG_VERT_VELOCITY", TBD),  # 0x00E
-        0x10: ("MEM_SYSTEM_CONTROL_MODE", TBD),  # 0x010
-        0x11: ("MEM_LASER_PWM_FREQUENCY_1", TBD),  # 0x011
-        0x12: ("MEM_LASER_MIN_POWER_1", TBD),  # 0x012
-        0x13: ("MEM_LASER_MAX_POWER_1", TBD),  # 0x013
-        0x16: ("MEM_LASER_ATTENUATION", TBD),  # 0x016
-        0x17: ("MEM_LASER_PWM_FREQUENCY_2", TBD),  # 0x017
-        0x18: ("MEM_LASER_MIN_POWER_2", TBD),  # 0x018
-        0x19: ("MEM_LASER_MAX_POWER_2", TBD),  # 0x019
-        0x1A: ("MEM_LASER_STANDBY_FREQUENCY_1", TBD),  # 0x01A
-        0x1B: ("MEM_LASER_STANDBY_PULSE_1", TBD),  # 0x01B
-        0x1C: ("MEM_LASER_STANDBY_FREQUENCY_2", TBD),  # 0x01C
-        0x1D: ("MEM_LASER_STANDBY_PULSE_2", TBD),  # 0x01D
+        0x05: ("MEM_G0_VELOCITY", TBDU35),  # 0x005
+        0x0B: ("MEM_ENG_FACULA", TBDU35),  # 0x00B
+        0x0C: ("MEM_HOME_VELOCITY", TBDU35),  # 0x00C
+        0x0E: ("MEM_ENG_VERT_VELOCITY", TBDU35),  # 0x00E
+        0x10: ("MEM_SYSTEM_CONTROL_MODE", TBDU35),  # 0x010
+        0x11: ("MEM_LASER_PWM_FREQUENCY_1", TBDU35),  # 0x011
+        0x12: ("MEM_LASER_MIN_POWER_1", TBDU35),  # 0x012
+        0x13: ("MEM_LASER_MAX_POWER_1", TBDU35),  # 0x013
+        0x16: ("MEM_LASER_ATTENUATION", TBDU35),  # 0x016
+        0x17: ("MEM_LASER_PWM_FREQUENCY_2", TBDU35),  # 0x017
+        0x18: ("MEM_LASER_MIN_POWER_2", TBDU35),  # 0x018
+        0x19: ("MEM_LASER_MAX_POWER_2", TBDU35),  # 0x019
+        0x1A: ("MEM_LASER_STANDBY_FREQUENCY_1", TBDU35),  # 0x01A
+        0x1B: ("MEM_LASER_STANDBY_PULSE_1", TBDU35),  # 0x01B
+        0x1C: ("MEM_LASER_STANDBY_FREQUENCY_2", TBDU35),  # 0x01C
+        0x1D: ("MEM_LASER_STANDBY_PULSE_2", TBDU35),  # 0x01D
         0x1E: ("MEM_AUTO_TYPE_SPACE", TBD35),  # 0x01E
-        0x20: ("MEM_AXIS_CONTROL_PARA_1", TBD),  # 0x020
+        0x20: ("MEM_AXIS_CONTROL_PARA_1", TBDU35),  # 0x020
         0x21: ("MEM_AXIS_PRECISION_1", TBDU35),  # 0x021
-        0x23: ("MEM_AXIS_MAX_VELOCITY_1", TBD),  # 0x023
-        0x24: ("MEM_AXIS_START_VELOCITY_1", TBD),  # 0x024
-        0x25: ("MEM_AXIS_MAX_ACC_1", TBD),  # 0x025
+        0x23: ("MEM_AXIS_MAX_VELOCITY_1", TBDU35),  # 0x023
+        0x24: ("MEM_AXIS_START_VELOCITY_1", TBDU35),  # 0x024
+        0x25: ("MEM_AXIS_MAX_ACC_1", TBDU35),  # 0x025
         0x26: ("MEM_BED_SIZE_X", XFARDIM),  # Deduced from LB
-        0x27: ("MEM_AXIS_BTN_START_VEL_1", TBD),  # 0x027
-        0x28: ("MEM_AXIS_BTN_ACC_1", TBD),  # 0x028
-        0x29: ("MEM_AXIS_ESTP_ACC_1", TBD),  # 0x029
-        0x2A: ("MEM_AXIS_HOME_OFFSET_1", TBD),  # 0x02A
-        0x2B: ("MEM_AXIS_BACKLASH_1", TBD),  # 0x02B
-        0x30: ("MEM_AXIS_CONTROL_PARA_2", TBD),  # 0x030
+        0x27: ("MEM_AXIS_BTN_START_VEL_1", TBDU35),  # 0x027
+        0x28: ("MEM_AXIS_BTN_ACC_1", TBDU35),  # 0x028
+        0x29: ("MEM_AXIS_ESTP_ACC_1", TBDU35),  # 0x029
+        0x2A: ("MEM_AXIS_HOME_OFFSET_1", TBDU35),  # 0x02A
+        0x2B: ("MEM_AXIS_BACKLASH_1", TBDU35),  # 0x02B
+        0x30: ("MEM_AXIS_CONTROL_PARA_2", TBDU35),  # 0x030
         0x31: ("MEM_AXIS_PRECISION_2", TBDU35),  # 0x031
-        0x33: ("MEM_AXIS_MAX_VELOCITY_2", TBD),  # 0x033
-        0x34: ("MEM_AXIS_START_VELOCITY_2", TBD),  # 0x034
-        0x35: ("MEM_AXIS_MAX_ACC_2", TBD),  # 0x035
+        0x33: ("MEM_AXIS_MAX_VELOCITY_2", TBDU35),  # 0x033
+        0x34: ("MEM_AXIS_START_VELOCITY_2", TBDU35),  # 0x034
+        0x35: ("MEM_AXIS_MAX_ACC_2", TBDU35),  # 0x035
         0x36: ("MEM_BED_SIZE_Y", YFARDIM),  # Deduce from LB
-        0x37: ("MEM_AXIS_BTN_START_VEL_2", TBD),  # 0x037
-        0x38: ("MEM_AXIS_BTN_ACC_2", TBD),  # 0x038
-        0x39: ("MEM_AXIS_ESTP_ACC_2", TBD),  # 0x039
-        0x3A: ("MEM_AXIS_HOME_OFFSET_2", TBD),  # 0x03A
-        0x3B: ("MEM_AXIS_BACKLASH_2", TBD),  # 0x03B
-        0x40: ("MEM_AXIS_CONTROL_PARA_3", TBD),  # 0x040
+        0x37: ("MEM_AXIS_BTN_START_VEL_2", TBDU35),  # 0x037
+        0x38: ("MEM_AXIS_BTN_ACC_2", TBDU35),  # 0x038
+        0x39: ("MEM_AXIS_ESTP_ACC_2", TBDU35),  # 0x039
+        0x3A: ("MEM_AXIS_HOME_OFFSET_2", TBDU35),  # 0x03A
+        0x3B: ("MEM_AXIS_BACKLASH_2", TBDU35),  # 0x03B
+        0x40: ("MEM_AXIS_CONTROL_PARA_3", TBDU35),  # 0x040
         0x41: ("MEM_AXIS_PRECISION_3", TBDU35),  # 0x041
-        0x43: ("MEM_AXIS_MAX_VELOCITY_3", TBD),  # 0x043
-        0x44: ("MEM_AXIS_START_VELOCITY_3", TBD),  # 0x044
-        0x45: ("MEM_AXIS_MAX_ACC_3", TBD),  # 0x045
-        0x46: ("MEM_AXIS_RANGE_3", TBD),  # 0x046
-        0x47: ("MEM_AXIS_BTN_START_VEL_3", TBD),  # 0x047
-        0x48: ("MEM_AXIS_BTN_ACC_3", TBD),  # 0x048
-        0x49: ("MEM_AXIS_ESTP_ACC_3", TBD),  # 0x049
-        0x4A: ("MEM_AXIS_HOME_OFFSET_3", TBD),  # 0x04A
-        0x4B: ("MEM_AXIS_BACKLASH_3", TBD),  # 0x04B
-        0x50: ("MEM_AXIS_CONTROL_PARA_4", TBD),  # 0x050
+        0x43: ("MEM_AXIS_MAX_VELOCITY_3", TBDU35),  # 0x043
+        0x44: ("MEM_AXIS_START_VELOCITY_3", TBDU35),  # 0x044
+        0x45: ("MEM_AXIS_MAX_ACC_3", TBDU35),  # 0x045
+        0x46: ("MEM_AXIS_RANGE_3", TBDU35),  # 0x046
+        0x47: ("MEM_AXIS_BTN_START_VEL_3", TBDU35),  # 0x047
+        0x48: ("MEM_AXIS_BTN_ACC_3", TBDU35),  # 0x048
+        0x49: ("MEM_AXIS_ESTP_ACC_3", TBDU35),  # 0x049
+        0x4A: ("MEM_AXIS_HOME_OFFSET_3", TBDU35),  # 0x04A
+        0x4B: ("MEM_AXIS_BACKLASH_3", TBDU35),  # 0x04B
+        0x50: ("MEM_AXIS_CONTROL_PARA_4", TBDU35),  # 0x050
         0x51: ("MEM_AXIS_PRECISION_4", TBDU35),  # 0x051
-        0x53: ("MEM_AXIS_MAX_VELOCITY_4", TBD),  # 0x053
-        0x54: ("MEM_AXIS_START_VELOCITY_4", TBD),  # 0x054
-        0x55: ("MEM_AXIS_MAX_ACC_4", TBD),  # 0x055
-        0x56: ("MEM_AXIS_RANGE_4", TBD),  # 0x056
-        0x57: ("MEM_AXIS_BTN_START_VEL_4", TBD),  # 0x057
-        0x58: ("MEM_AXIS_BTN_ACC_4", TBD),  # 0x058
-        0x59: ("MEM_AXIS_ESTP_ACC_4", TBD),  # 0x059
-        0x5A: ("MEM_AXIS_HOME_OFFSET_4", TBD),  # 0x05A
-        0x5B: ("MEM_AXIS_BACKLASH_4", TBD),  # 0x05B
-        0x60: ("MEM_MACHINE_TYPE_(0X1155,_0XAA55)", TBD),  # 0x060
-        0x63: ("MEM_LASER_MIN_POWER_3", TBD),  # 0x063
-        0x64: ("MEM_LASER_MAX_POWER_3", TBD),  # 0x064
-        0x65: ("MEM_LASER_PWM_FREQUENCY_3", TBD),  # 0x065
-        0x66: ("MEM_LASER_STANDBY_FREQUENCY_3", TBD),  # 0x066
-        0x67: ("MEM_LASER_STANDBY_PULSE_3", TBD),  # 0x067
-        0x68: ("MEM_LASER_MIN_POWER_4", TBD),  # 0x068
-        0x69: ("MEM_LASER_MAX_POWER_4", TBD),  # 0x069
-        0x6A: ("MEM_LASER_PWM_FREQUENCY_4", TBD),  # 0x06A
-        0x6B: ("MEM_LASER_STANDBY_FREQUENCY_4", TBD),  # 0x06B
-        0x6C: ("MEM_LASER_STANDBY_PULSE_4", TBD),  # 0x06C
+        0x53: ("MEM_AXIS_MAX_VELOCITY_4", TBDU35),  # 0x053
+        0x54: ("MEM_AXIS_START_VELOCITY_4", TBDU35),  # 0x054
+        0x55: ("MEM_AXIS_MAX_ACC_4", TBDU35),  # 0x055
+        0x56: ("MEM_AXIS_RANGE_4", TBDU35),  # 0x056
+        0x57: ("MEM_AXIS_BTN_START_VEL_4", TBDU35),  # 0x057
+        0x58: ("MEM_AXIS_BTN_ACC_4", TBDU35),  # 0x058
+        0x59: ("MEM_AXIS_ESTP_ACC_4", TBDU35),  # 0x059
+        0x5A: ("MEM_AXIS_HOME_OFFSET_4", TBDU35),  # 0x05A
+        0x5B: ("MEM_AXIS_BACKLASH_4", TBDU35),  # 0x05B
+        0x60: ("MEM_MACHINE_TYPE_(0X1155,_0XAA55)", TBDU35),  # 0x060
+        0x63: ("MEM_LASER_MIN_POWER_3", TBDU35),  # 0x063
+        0x64: ("MEM_LASER_MAX_POWER_3", TBDU35),  # 0x064
+        0x65: ("MEM_LASER_PWM_FREQUENCY_3", TBDU35),  # 0x065
+        0x66: ("MEM_LASER_STANDBY_FREQUENCY_3", TBDU35),  # 0x066
+        0x67: ("MEM_LASER_STANDBY_PULSE_3", TBDU35),  # 0x067
+        0x68: ("MEM_LASER_MIN_POWER_4", TBDU35),  # 0x068
+        0x69: ("MEM_LASER_MAX_POWER_4", TBDU35),  # 0x069
+        0x6A: ("MEM_LASER_PWM_FREQUENCY_4", TBDU35),  # 0x06A
+        0x6B: ("MEM_LASER_STANDBY_FREQUENCY_4", TBDU35),  # 0x06B
+        0x6C: ("MEM_LASER_STANDBY_PULSE_4", TBDU35),  # 0x06C
     },
     0x02: {
-        0x00: ("MEM_SYSTEM_SETTINGS", TBD),  # 0x100
-        0x01: ("MEM_TURN_VELOCITY", TBD),  # 0x101
-        0x02: ("MEM_SYN_ACC", TBD),  # 0x102
-        0x03: ("MEM_G0_DELAY", TBD),  # 0x103
-        0x07: ("MEM_FEED_DELAY_AFTER", TBD),  # 0x107
-        0x09: ("MEM_TURN_ACC", TBD),  # 0x109
-        0x0A: ("MEM_G0_ACC", TBD),  # 0x10A
-        0x0B: ("MEM_FEED_DELAY_PRIOR", TBD),  # 0x10B
-        0x0C: ("MEM_MANUAL_DIS", TBD),  # 0x10C
-        0x0D: ("MEM_SHUT_DOWN_DELAY", TBD),  # 0x10D
-        0x0E: ("MEM_FOCUS_DEPTH", TBD),  # 0x10E
-        0x0F: ("MEM_GO_SCALE_BLANK", TBD),  # 0x10F
-        0x1A: ("MEM_ACC_RATIO", TBD),  # 0x11A
-        0x17: ("MEM_ARRAY_FEED_REPAY", TBD),  # 0x117
-        0x1B: ("MEM_TURN_RATIO", TBD),  # 0x11B
-        0x1C: ("MEM_ACC_G0_RATIO", TBD),  # 0x11C
-        0x1F: ("MEM_ROTATE_PULSE", TBD),  # 0x11F
-        0x21: ("MEM_ROTATE_D", TBD),  # 0x121
-        0x24: ("MEM_X_MINIMUM_ENG_VELOCITY", TBD),  # 0x124
-        0x25: ("MEM_X_ENG_ACC", TBD),  # 0x125
+        0x00: ("MEM_SYSTEM_SETTINGS", TBDU35),  # 0x100
+        0x01: ("MEM_TURN_VELOCITY", TBDU35),  # 0x101
+        0x02: ("MEM_SYN_ACC", TBDU35),  # 0x102
+        0x03: ("MEM_G0_DELAY", TBDU35),  # 0x103
+        0x07: ("MEM_FEED_DELAY_AFTER", TBDU35),  # 0x107
+        0x09: ("MEM_TURN_ACC", TBDU35),  # 0x109
+        0x0A: ("MEM_G0_ACC", TBDU35),  # 0x10A
+        0x0B: ("MEM_FEED_DELAY_PRIOR", TBDU35),  # 0x10B
+        0x0C: ("MEM_MANUAL_DIS", TBDU35),  # 0x10C
+        0x0D: ("MEM_SHUT_DOWN_DELAY", TBDU35),  # 0x10D
+        0x0E: ("MEM_FOCUS_DEPTH", TBDU35),  # 0x10E
+        0x0F: ("MEM_GO_SCALE_BLANK", TBDU35),  # 0x10F
+        0x1A: ("MEM_ACC_RATIO", TBDU35),  # 0x11A
+        0x17: ("MEM_ARRAY_FEED_REPAY", TBDU35),  # 0x117
+        0x1B: ("MEM_TURN_RATIO", TBDU35),  # 0x11B
+        0x1C: ("MEM_ACC_G0_RATIO", TBDU35),  # 0x11C
+        0x1F: ("MEM_ROTATE_PULSE", TBDU35),  # 0x11F
+        0x21: ("MEM_ROTATE_D", TBDU35),  # 0x121
+        0x24: ("MEM_X_MINIMUM_ENG_VELOCITY", TBDU35),  # 0x124
+        0x25: ("MEM_X_ENG_ACC", TBDU35),  # 0x125
         0x26: ("MEM_USER_PARA_1", TBDU35),  # 0x126
-        0x28: ("MEM_Z_HOME_VELOCITY", TBD),  # 0x128
-        0x29: ("MEM_Z_WORK_VELOCITY", TBD),  # 0x129
-        0x2A: ("MEM_Z_G0_VELOCITY", TBD),  # 0x12A
-        0x2B: ("MEM_Z_PEN_UP_POSITION", TBD),  # 0x12B
-        0x2C: ("MEM_U_HOME_VELOCITY", TBD),  # 0x12C
-        0x2D: ("MEM_U_WORK_VELOCITY", TBD),  # 0x12D
-        0x31: ("MEM_MANUAL_FAST_SPEED", TBD),  # 0x131
-        0x32: ("MEM_MANUAL_SLOW_SPEED", TBD),  # 0x132
-        0x34: ("MEM_Y_MINIMUM_ENG_VELOCITY", TBD),  # 0x134
-        0x35: ("MEM_Y_ENG_ACC", TBD),  # 0x135
-        0x37: ("MEM_ENG_ACC_RATIO", TBD),  # 0x137
+        0x28: ("MEM_Z_HOME_VELOCITY", TBDU35),  # 0x128
+        0x29: ("MEM_Z_WORK_VELOCITY", TBDU35),  # 0x129
+        0x2A: ("MEM_Z_G0_VELOCITY", TBDU35),  # 0x12A
+        0x2B: ("MEM_Z_PEN_UP_POSITION", TBDU35),  # 0x12B
+        0x2C: ("MEM_U_HOME_VELOCITY", TBDU35),  # 0x12C
+        0x2D: ("MEM_U_WORK_VELOCITY", TBDU35),  # 0x12D
+        0x31: ("MEM_MANUAL_FAST_SPEED", TBDU35),  # 0x131
+        0x32: ("MEM_MANUAL_SLOW_SPEED", TBDU35),  # 0x132
+        0x34: ("MEM_Y_MINIMUM_ENG_VELOCITY", TBDU35),  # 0x134
+        0x35: ("MEM_Y_ENG_ACC", TBDU35),  # 0x135
+        0x37: ("MEM_ENG_ACC_RATIO", TBDU35),  # 0x137
     },
     0x03: {
-        0x00: ("MEM_CARD_LANGUAGE", TBD),  # 0x180
-        0x01: ("MEM_PC_LOCK_1", TBD),  # 0x181
-        0x02: ("MEM_PC_LOCK_2", TBD),  # 0x182
-        0x03: ("MEM_PC_LOCK_3", TBD),  # 0x183
-        0x04: ("MEM_PC_LOCK_4", TBD),  # 0x184
-        0x05: ("MEM_PC_LOCK_5", TBD),  # 0x185
-        0x06: ("MEM_PC_LOCK_6", TBD),  # 0x186
-        0x07: ("MEM_PC_LOCK_7", TBD),  # 0x187
-        0x11: ("MEM_TOTAL_LASER_WORK_TIME", TBD),  # 0x211
+        0x00: ("MEM_CARD_LANGUAGE", TBDU35),  # 0x180
+        0x01: ("MEM_PC_LOCK_1", TBDU35),  # 0x181
+        0x02: ("MEM_PC_LOCK_2", TBDU35),  # 0x182
+        0x03: ("MEM_PC_LOCK_3", TBDU35),  # 0x183
+        0x04: ("MEM_PC_LOCK_4", TBDU35),  # 0x184
+        0x05: ("MEM_PC_LOCK_5", TBDU35),  # 0x185
+        0x06: ("MEM_PC_LOCK_6", TBDU35),  # 0x186
+        0x07: ("MEM_PC_LOCK_7", TBDU35),  # 0x187
+        0x11: ("MEM_TOTAL_LASER_WORK_TIME", TBDU35),  # 0x211
     },
     0x04: {
         0x00: ("MEM_MACHINE_STATUS", M_STAT),  # 0x200
-        0x01: ("MEM_TOTAL_OPEN_TIME", TBD),  # 0x201
-        0x02: ("MEM_TOTAL_WORK_TIME", TBD),  # 0x202
-        0x03: ("MEM_TOTAL_WORK_NUMBER", TBD),  # 0x203
+        0x01: ("MEM_TOTAL_OPEN_TIME", TBDU35),  # 0x201
+        0x02: ("MEM_TOTAL_WORK_TIME", TBDU35),  # 0x202
+        0x03: ("MEM_TOTAL_WORK_NUMBER", TBDU35),  # 0x203
         0x05: ("MEM_TOTAL_DOC_NUMBER", TBDU35),  # 0x205
         0x07: ("MEM_UNKNOWN", TBDU35),  # LightBurn uses this
-        0x08: ("MEM_PRE_WORK_TIME", TBD),  # 0x208
+        0x08: ("MEM_PRE_WORK_TIME", TBDU35),  # 0x208
         0x21: ("MEM_CURRENT_POSITION_X", XFARDIM),  # 0x221
-        0x23: ("MEM_TOTAL_WORK_LENGTH_1", TBD),  # 0x223
+        0x23: ("MEM_TOTAL_WORK_LENGTH_1", TBDU35),  # 0x223
         0x31: ("MEM_CURRENT_POSITION_Y", YFARDIM),  # 0x231
-        0x33: ("MEM_TOTAL_WORK_LENGTH_2", TBD),  # 0x233
+        0x33: ("MEM_TOTAL_WORK_LENGTH_2", TBDU35),  # 0x233
         0x41: ("MEM_CURRENT_POSITION_Z", ZFARDIM),  # 0x241
-        0x43: ("MEM_TOTAL_WORK_LENGTH_3", TBD),  # 0x243
+        0x43: ("MEM_TOTAL_WORK_LENGTH_3", TBDU35),  # 0x243
         0x51: ("MEM_CURRENT_POSITION_U", UFARDIM),  # 0x251
-        0x53: ("MEM_TOTAL_WORK_LENGTH_4", TBD),  # 0x253
+        0x53: ("MEM_TOTAL_WORK_LENGTH_4", TBDU35),  # 0x253
     },
     0x05: {
         0x7E: ("MEM_CARD_ID", CARD_ID),  # 0x2FE
-        0x7F: ("MEM_MAINBOARD_VERSION", TBD),  # 0x2FF
+        0x7F: ("MEM_MAINBOARD_VERSION", TBDU35),  # 0x2FF
     },
     0x06: {
         0x20: UNKNOWN_ADDRESS,  #  Discovered running LB.
     },
     0x07: {
-        0x10: ("MEM_DOCUMENT_TIME", TBD),  # 0x390
+        0x10: ("MEM_DOCUMENT_TIME", TBDU35),  # 0x390
     },
     0x0B: {
-        0x11: ("MEM_CARD_LOCK", TBD),  # 0x591
+        0x11: ("MEM_CARD_LOCK", TBDU35),  # 0x591
         0x12: ("MEM_UNKNOWN", TBD35),  # LightBurn uses this.
     },
 }
@@ -556,7 +548,7 @@ CT = {
     0xDA: {  # SETTING
         0x00: ("GET_SETTING", MEMORY),  # SETTING_READ
         0x01: ("SET_SETTING", MEMORY, TBDU35, TBDU35),  # SETTING_WRITE
-        0x05: ("GET_UNKNOWN", INDEX, TBD),
+        0x05: ("GET_UNKNOWN", INDEX, TBDU35),
     },
     0xE5: {  # FILE
         0x00: ("DOCUMENT_FILE_UPLOAD", FNUM, UINT35, UINT35),

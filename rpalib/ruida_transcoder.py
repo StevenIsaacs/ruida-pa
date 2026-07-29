@@ -242,10 +242,6 @@ class RdDecoder:
         self.checksum = self.value
         return self.formatted
 
-    def rd_tbd(self, data: bytearray):
-        self.value = self.to_int(data)
-        return self.formatted
-
     def rd_color(self, data: bytearray):
         """Decode a color value, swapping BGR wire order to RGB for display."""
         raw = self.to_uint(data)
@@ -271,19 +267,12 @@ class RdDecoder:
             self._length = rdap.RD_TYPES[self.rd_type][rdap.RDT_BYTES]
         self._remaining = self._length
 
-    @property
-    def is_tbd(self):
-        return self.rd_type == "tbd"
-
     def step(self, datum, remaining=None):
         if datum == 0 and self.cstring:
             self.accumulating = False
             self.cstring = False
             return self._rd_decoder(self.data)
         if datum & rdap.CMD_MASK:
-            if self.is_tbd:
-                self.accumulating = False
-                return self._rd_decoder(self.data)
             self.out.protocol(f"datum={datum:02X}: Should not have bit 7 set.")
         if not self.accumulating:
             self.accumulating = True
@@ -293,7 +282,7 @@ class RdDecoder:
             self._remaining = remaining
         else:
             self._remaining -= 1
-        if self._remaining > 0 or self.is_tbd:
+        if self._remaining > 0:
             return None
         else:
             self.accumulating = False

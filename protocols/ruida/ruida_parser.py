@@ -240,12 +240,7 @@ class RdParser:
 
         This completes a decode and transitions to the sync state. The
         decode result and the result from the transition are returned."""
-        if self.decoder.is_tbd:
-            _rd = self.decoder.step(rdap.EOD)
-            if _rd is not None:
-                _r = self.decoded + ":" + _rd
-        else:
-            _rd = None
+        _rd = None
         _rs = self._forward_to_state("sync")
         if _rd is None and _rs is None:
             return None
@@ -357,10 +352,7 @@ class RdParser:
         # Start the comment line with address format
         self.decoded += f"\n# Addr:{_addr_hex}="
         self.which_param = 1
-        if "tbd" in _reply[1]:
-            self.decoder.prime(_reply[1], length=self.remaining)
-        else:
-            self.decoder.prime(_reply[1])
+        self.decoder.prime(_reply[1])
         self.mt_values = []
 
     # ----
@@ -494,14 +486,8 @@ class RdParser:
 
         The reply data is appended to the parameter list."""
         if not self.is_reply:
-            # If the reply type is TBD then reached the end of the reply.
-            if self.decoder.is_tbd:
-                _r = self.decoder(rdap.CMD_MASK)
-                if _r is None:
-                    _r = ""
-            else:
-                self.out.error("Packet from host when expecting reply.")
-            return _r + self._forward_to_state("sync")
+            self.out.error("Packet from host when expecting reply.")
+            return self._forward_to_state("sync")
         else:
             if self._h_is_command(datum):
                 self._h_data_error(
@@ -533,12 +519,9 @@ class RdParser:
             self._forward_to_state("mt_command")
         else:
             if self._h_is_command(datum):
-                # This can either be a problem with the incoming data or
-                # the definition in the protocol table.
-                if not self.decoder.is_tbd:
-                    self._h_data_error(
-                        f"Datum 0x{datum:02X} is a command -- expected data."
-                    )
+                self._h_data_error(
+                    f"Datum 0x{datum:02X} is a command -- expected data."
+                )
                 return self._h_end_decode()
             else:
                 _r = self.decoder.step(datum)
