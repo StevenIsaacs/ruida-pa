@@ -70,8 +70,13 @@ class ScriptGenerator:
         self._pending_cmd_n = cmd_n
         self._pending_expect = None
 
-        line = self._format_line(label, param_list, cmd_values, decoded)
-        self._pending_line = line
+        # Memory reply: decoded already contains the full two-line format
+        # (e.g. "GET_SETTING MEM_CARD_ID\n# Addr:0x057E=CardID:RDC6442S")
+        if "\n" in decoded:
+            self._pending_line = decoded
+        else:
+            line = self._format_line(label, param_list, cmd_values, decoded)
+            self._pending_line = line
 
     def _flush_pending(self):
         """Write the buffered command line to file, appending ``= <expect>`` if a

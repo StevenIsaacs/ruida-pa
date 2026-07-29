@@ -309,7 +309,10 @@ class RdParser:
                 self.mt_values.append(self.decoder.value)
                 # Parameter has been decoded.
                 self.out.verbose(f"Decoded reply parameter {self.which_param}={_r}.")
-                self.decoded += ":Reply:" + _r
+                if self.which_param == 1:
+                    self.decoded += _r
+                else:
+                    self.decoded += " " + _r
                 # Advance to the next parameter.
                 _next = self.which_param + 1
                 if _next >= len(self.param_list):
@@ -344,7 +347,15 @@ class RdParser:
             else:
                 _reply = self._it[_msb][_lsb]
         self.param_list = _reply
-        self.decoded += ":" + _reply[0]
+        # Build the first line: "GET_SETTING <mnemonic>" or "GET_SETTING 0x<addr>"
+        _addr_val = (self.mt_address_msb << 8) + self.mt_address_lsb
+        _addr_hex = f"0x{_addr_val:04X}"
+        if _reply is rdap.UNKNOWN_ADDRESS:
+            self.decoded += f" {_addr_hex}"
+        else:
+            self.decoded += f" {_reply[0]}"
+        # Start the comment line with address format
+        self.decoded += f"\n# Addr:{_addr_hex}="
         self.which_param = 1
         if "tbd" in _reply[1]:
             self.decoder.prime(_reply[1], length=self.remaining)
@@ -359,12 +370,11 @@ class RdParser:
         if self.is_reply:
             if self.mt_address_msb not in self._it:
                 # Setup a generic decode for an unknown address.
-                self.decoded += ":" + rdap.UNKNOWN_ADDRESS[0]
+                pass
             else:
                 if datum not in self._it[self.mt_address_msb]:
                     self.out.protocol(f"Unknown MT address LSB (0x{datum:02X}).")
             self.mt_address_lsb = datum
-            self.decoded += f"{datum:02X}"
             self._enter_state("mt_decode_reply")
         else:
             self.out.error("Packet from host when expecting reply memory address.")
@@ -380,7 +390,6 @@ class RdParser:
             if datum not in self._it:
                 self.out.protocol(f"Unknown MT address MSB (0x{datum:02X}.)")
             self.mt_address_msb = datum
-            self.decoded += f" Addr:{datum:02X}"
             self._enter_state("mt_address_lsb")
         else:
             self.out.error("Packet from host when expecting reply memory address.")
@@ -536,23 +545,25 @@ class RdParser:
                 if _r is not None:
                     # Parameter has been decoded.
                     self.out.verbose(f"Decoded parameter {self.which_param}={_r}.")
-                    self.decoded += " " + _r
                     # A controller memory reference requires special handling.
                     if "mt" in self.param_list[self.which_param] and self.sub_command == 0x00:
+                        # Suppress output — the reply handler produces the complete output.
                         if self.remaining == 0:
                             self._enter_state("mt_command")
                         else:
                             # More commands remain in this packet — continue
                             # processing them before entering memory transfer.
                             self._enter_state("expect_command")
-                        return self.decoded
+                        return None
                     elif (
                         "index" in self.param_list[self.which_param]
                         and self.sub_command == 0x05
                     ):
+                        self.decoded += " " + _r
                         self._enter_state("index_command")
                         return self.decoded
                     else:
+                        self.decoded += " " + _r
                         # Advance to the next parameter.
                         _next = self.which_param + 1
                         self.cmd_values.append(self.decoder.value)
