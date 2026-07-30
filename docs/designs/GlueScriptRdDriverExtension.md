@@ -444,6 +444,9 @@ DOCUMENT_BOTTOM_LEFT X={self.doc_bl_x}mm Y={self.doc_bl_y}mm
 JOB_COPIES Columns={columns} Rows={rows} XStep={xstep}mm YStep={ystep}mm
 ```
 
+Note: These lines form the **job header** section of the final rpascript,
+emitted first by `stage_rpascript()` before any layer attributes or actions.
+
 ### declare_layer(...)
 Initializes a new layer. A layer declaration is expected to be followed by layer actions.
 
@@ -521,6 +524,11 @@ LAYER_ATTRIBUTES Layer:{self._layer} 0
 # declare_layer() call or end_job(), only for layers that have content.
 ```
 
+Note: These lines form the **layer attributes** for one layer, stored in
+`_layer_attributes`. All layers' attribute blocks are emitted together
+in the second section of the final rpascript (before any `SELECT_LAYER`
+commands), sorted by layer number.
+
 ### end_job(...)
 Ends the job and prepares the job to be staged using `stage_rpascript`. After this method has been called all accumulated layer actions are sent and the job is ready to be staged using `stage_rpascript` which MUST be called in order to run the job.
 
@@ -533,8 +541,54 @@ Note: `end_job()` also emits the final layer's bounding box with concrete
 values (`LAYER_TOP_RIGHT` and `LAYER_BOTTOM_LEFT`), provided the layer
 has any move/cut content. Empty layers skip bbox emission.
 
+### stage_rpascript(...)
+Assembles the final rpascript from structured storage in three sections
+and expands deferred variables. The generated rpascript has the following
+structure:
+
+1. **Job header** — reference point setup, START_JOB, JOB_TOP_RIGHT/JOB_BOTTOM_LEFT,
+   DOCUMENT_TOP_RIGHT/DOCUMENT_BOTTOM_LEFT, JOB_COPIES
+2. **Layer attributes** — all layers' LAYER_COLOR, LAYER_SPEED, LAYER_POWER,
+   LAYER_ATTRIBUTES, and bounding box lines, sorted by layer number
+3. **Layer actions** — each layer's actions preceded by `SELECT_LAYER Layer:{n}`,
+   sorted by layer number
+4. **END_JOB** — job terminator
+
+This method must be called before the job can be executed. When called
+with a gluescript list argument, the gluescript is replayed through the
+command registry to regenerate the structured storage before assembly.
+
+Prototype:
+```
+stage_rpascript(gluescript: list[str] | None = None) -> list[str]
+```
+
+Parameters:
+- `gluescript`: Optional gluescript to re-stage. When None (default),
+  uses the current structured state.
+
+Returns:
+- The finalized rpascript as a list of strings.
+
 ### Layer Actions
-Once a layer has been declared a series of actions for the layer are expected to follow. The list of actions for a layer is assumed when either a new layer is declared or the `rpascript` is staged.
+Once a layer has been declared a series of actions for the layer are expected to
+follow. During generation, layer actions are stored in an internal dict keyed by
+layer number. During `stage_rpascript()`, these are assembled into the final
+rpascript with `SELECT_LAYER Layer:{n}` prefixing each layer's action block:
+
+```
+SELECT_LAYER Layer:1
+MOVE_FAR_XY X=50.000mm Y=50.000mm
+CUT_FAR_XY X=150.000mm Y=50.000mm
+...
+SELECT_LAYER Layer:2
+MOVE_NEAR_XY X=10.000mm Y=10.000mm
+...
+```
+
+The `SELECT_LAYER` command tells the controller which layer the subsequent
+actions belong to. Layer actions can include moves, cuts, power settings,
+and jog commands.
 
 The following are the supported layer actions. Note that which actions can be used for a layer depends upon the layer `mode`.
 #### Moves and Cuts

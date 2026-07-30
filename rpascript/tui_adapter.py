@@ -2305,11 +2305,14 @@ class TuiAdapter(App):
             self._log_info("GlueScript: New job started.")
 
         elif sub == "show":
+            layer_count = len(driver._layer_attributes) if hasattr(driver, '_layer_attributes') else 0
+            action_count = sum(len(v) for v in (driver._layer_actions or {}).values())
+            rpa_staged = len(driver.rpascript) if driver.rpascript else 0
             self._log_info(
-                f"GlueScript state: {len(driver.gluescript)} gluescript lines, "
-                f"{len(driver.rpascript)} rpascript lines, "
-                f"layer={driver._layer}, "
-                f"pos=({driver._current_x:.3f}, {driver._current_y:.3f})"
+                f"GlueScript: {len(driver.gluescript)} commands, "
+                f"{layer_count} layer(s), "
+                f"{action_count} action(s), "
+                f"{rpa_staged} rpascript lines"
             )
 
         elif sub == "declare_job":
@@ -2431,7 +2434,7 @@ class TuiAdapter(App):
                         return
                     x = float(action_args[0])
                     y = float(action_args[1])
-                    driver.rpascript.extend(driver.jog_xy_to(x, y))
+                    driver.add_layer_action(layer_n, driver.jog_xy_to(x, y))
                     self._log_info(f"GlueScript: jog_xy_to({x:.3f}, {y:.3f})")
                 else:
                     self._log_error(f"Unknown layer action: {action}. Available: move_xy_to, cut_xy_to, power, jog_xy_to")
@@ -3449,9 +3452,13 @@ class TuiAdapter(App):
         # GlueScript state
         gluescript_info = ""
         if self._ruida_driver is not None:
-            if self._ruida_driver.rpascript:
+            rpa_lines = len(self._ruida_driver.rpascript) if self._ruida_driver.rpascript else 0
+            if rpa_lines > 0:
                 status_symbol = "[green]R[/green]" if self._gluescript_was_run else "[yellow]S[/yellow]"
-                gluescript_info = f"  |  GS:{len(self._ruida_driver.gluescript)} RPA:{len(self._ruida_driver.rpascript)} {status_symbol}"
+                gluescript_info = f"  |  GS:{len(self._ruida_driver.gluescript)} RPA:{rpa_lines} {status_symbol}"
+            elif len(self._ruida_driver.gluescript) > 0:
+                status_symbol = "[yellow]S[/yellow]"
+                gluescript_info = f"  |  GS:{len(self._ruida_driver.gluescript)} RPA:0 {status_symbol}"
 
         self._status_bar.update(
             f"{conn}  {transport_info}  |  {indicators}  |  {machine}  |  {counters}  |  {pos}{gluescript_info}"
