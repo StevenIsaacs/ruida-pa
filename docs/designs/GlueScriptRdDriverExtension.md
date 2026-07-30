@@ -517,8 +517,8 @@ LAYER_SPEED_LASER_1 Layer:{self._layer} Speed:{speed}mm/S
 LAYER_MIN_POWER_1 Layer:{self._layer} Power:{min_power_1}%
 LAYER_MAX_POWER_1 Layer:{self._layer} Power:{max_power_1}%
 LAYER_ATTRIBUTES Layer:{self._layer} 0
-LAYER_TOP_RIGHT Layer:{self._layer} X={self._layer_trx}mm Y={self._layer_try}mm
-LAYER_BOTTOM_LEFT Layer:{self._layer} X={self._layer_blx}mm Y={self._layer_bly}mm
+# Per-layer bounding boxes are emitted as concrete values at the next
+# declare_layer() call or end_job(), only for layers that have content.
 ```
 
 ### end_job(...)
@@ -528,6 +528,11 @@ Prototype:
 ```
 end_job()
 ```
+
+Note: `end_job()` also emits the final layer's bounding box with concrete
+values (`LAYER_TOP_RIGHT` and `LAYER_BOTTOM_LEFT`), provided the layer
+has any move/cut content. Empty layers skip bbox emission.
+
 ### Layer Actions
 Once a layer has been declared a series of actions for the layer are expected to follow. The list of actions for a layer is assumed when either a new layer is declared or the `rpascript` is staged.
 

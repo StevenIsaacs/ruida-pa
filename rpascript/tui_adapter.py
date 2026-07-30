@@ -2431,7 +2431,7 @@ class TuiAdapter(App):
                         return
                     x = float(action_args[0])
                     y = float(action_args[1])
-                    driver.jog_xy_to(x, y)
+                    driver.rpascript.extend(driver.jog_xy_to(x, y))
                     self._log_info(f"GlueScript: jog_xy_to({x:.3f}, {y:.3f})")
                 else:
                     self._log_error(f"Unknown layer action: {action}. Available: move_xy_to, cut_xy_to, power, jog_xy_to")
