@@ -107,6 +107,7 @@ class RdDriver:
         self._protect: bool = True
         self._start_udp_host: str = ""
         self._start_usb_device: str = ""
+        self._start_magic: int = 0x88
         self._decoded_values: dict[int, Any] = {}
         self._build_status_map()
         self._head_script: list[str] = [
@@ -163,7 +164,7 @@ class RdDriver:
 
     # ---- Driver Lifecycle ----
 
-    def start(self, udp_host: str | None = None, usb_device: str | None = None) -> bool:
+    def start(self, udp_host: str | None = None, usb_device: str | None = None, magic: int | None = None) -> bool:
         """Start the driver: create session, configure transport, open, start script runner.
 
         Creates an RdSession, configures transport with the given parameters,
@@ -181,6 +182,8 @@ class RdDriver:
             udp_host = self._start_udp_host
         if usb_device is None:
             usb_device = self._start_usb_device
+        if magic is not None:
+            self._start_magic = magic
 
         if self._session is not None:
             if (udp_host and udp_host != self._start_udp_host) or (
@@ -191,7 +194,7 @@ class RdDriver:
                 return True
 
         self._session = RdSession()
-        self._session.transport.configure(timeout=500, gross_timeout=15000)
+        self._session.transport.configure(magic=self._start_magic, timeout=500, gross_timeout=15000)
         self._start_udp_host = udp_host
         self._start_usb_device = usb_device
         opened = self._session.transport.open(

@@ -709,10 +709,23 @@ class ScriptInterpreter:
                 from ruidadriver.ruida_driver import RdDriver
 
                 params = cmd.get("params", {})
+                # Parse optional magic number (hex string to int)
+                _magic_str = params.get("magic")
+                _magic: int | None = None
+                if _magic_str is not None:
+                    try:
+                        _magic = int(_magic_str, 16) & 0xFF
+                    except ValueError:
+                        self._out.write(
+                            f"# ERROR: Invalid magic number: {_magic_str}\n"
+                        )
+                        return
+
                 driver = RdDriver()
                 opened = driver.start(
                     udp_host=params.get("udp", ""),
                     usb_device=params.get("usb", ""),
+                    magic=_magic,
                 )
                 if not opened:
                     self._out.write(

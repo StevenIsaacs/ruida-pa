@@ -517,6 +517,7 @@ class TuiAdapter(App):
         self._ruida_driver: RdDriver | None = None
         self._last_udp_host: str = ""
         self._last_usb_device: str = ""
+        self._last_magic: int = 0x88
         self._parser = ScriptParser(
             warning_callback=lambda msg, syn: self._log_warning(f"{msg}  |  Syntax: {syn}"),
         )
@@ -565,7 +566,7 @@ class TuiAdapter(App):
             "clear": "Clear all log panels, loaded script, head, and tail",
             "quit": "Exit the TUI",
             "status": "Toggle logging: /status [on|off|status] for status/reply, /status connection [on|off|status] for transport events",
-            "session": "Start or end a controller session (start udp=<IP> usb=<device> to=<timeout> / end)",
+            "session": "Start or end a controller session (start udp=<IP> usb=<device> to=<timeout> magic=0xNN / end)",
             "server": "Start or stop the RPC server. "
             "Server commands: start host=<IP> port=<N> cert=<path> key=<path> token=<token>, or stop",
             "head": "Load a script file to prepend to job on execution",
@@ -1181,7 +1182,7 @@ class TuiAdapter(App):
             "  Available: session, transport, driver, status, parser, decoder, rpc\n"
             "\n"
             "[bold]Ruida Commands[/bold] (no prefix):\n"
-            "  session start udp=<IP> usb=<device> to=<timeout>  Connect to a controller (to: optional, e.g. 5s or 5000ms)\n"
+            "  session start udp=<IP> usb=<device> to=<timeout> magic=0xNN  Connect to a controller (to: optional, e.g. 5s or 5000ms; magic: optional swizzle magic number, e.g. magic=0x88)\n"
             "  session end               Disconnect\n"
             "  server start host=<IP> port=<N>  Start the RPC server\n"
             "  server stop                Stop the RPC server\n"
@@ -2449,7 +2450,8 @@ class TuiAdapter(App):
     # ------------------------------------------------------------------
 
     async def _start_session(
-        self, udp: str | None = None, usb: str | None = None, to: str | None = None
+        self, udp: str | None = None, usb: str | None = None, to: str | None = None,
+        magic: str | None = None,
     ) -> None:
         """Connect to a Ruida controller and start the script runner.
 
@@ -2471,7 +2473,7 @@ class TuiAdapter(App):
             return
 
         if self._ruida_driver is not None:
-            self._ruida_driver.start(udp_host=udp, usb_device=usb)
+            self._ruida_driver.start(udp_host=udp, usb_device=usb, magic=self._last_magic)
             self._last_udp_host = udp
             self._last_usb_device = usb
             return
@@ -2482,6 +2484,17 @@ class TuiAdapter(App):
                 timeout = _parse_timeout_spec(to)
             except ValueError as e:
                 self._log_error(str(e))
+                return
+
+        # Parse optional magic number
+        if magic is not None:
+            try:
+                if magic.lower().startswith("0x"):
+                    self._last_magic = int(magic, 16) & 0xFF
+                else:
+                    raise ValueError
+            except (ValueError, AttributeError):
+                self._log_error(f"Invalid magic number: {magic}")
                 return
 
         # Check pyserial availability before attempting USB connection
@@ -2521,7 +2534,7 @@ class TuiAdapter(App):
             if self._tail_script:
                 driver.set_tail_script(self._tail_script)
 
-            opened = driver.start(udp_host=udp, usb_device=usb)
+            opened = driver.start(udp_host=udp, usb_device=usb, magic=self._last_magic)
             self._last_udp_host = udp
             self._last_usb_device = usb
             if not opened:
@@ -3229,7 +3242,7 @@ class TuiAdapter(App):
         """AppAdapter interface — TUI creates sessions on demand via command input."""
         pass
 
-    def start(self, udp_host: str | None = None, usb_device: str | None = None) -> bool:
+    def start(self, udp_host: str | None = None, usb_device: str | None = None, magic: int | None = None) -> bool:
         """Start the driver session.
 
         Emulates RdDriver.start(). Creates a new RdDriver if none exists,
@@ -3238,6 +3251,7 @@ class TuiAdapter(App):
         Args:
             udp_host: UDP host address or hostname.
             usb_device: USB serial device path.
+            magic: Optional swizzle magic number (default 0x88).
 
         Returns:
             True if transport opened immediately, False if retry needed.
@@ -3254,9 +3268,9 @@ class TuiAdapter(App):
             if self._tail_script:
                 self._ruida_driver.set_tail_script(self._tail_script)
 
-        result = self._ruida_driver.start(udp_host=udp_host, usb_device=usb_device)
+        result = self._ruida_driver.start(udp_host=udp_host, usb_device=usb_device, magic=magic)
         self._log_info(
-            f"[RPC] driver.start(udp_host={udp_host!r}, usb_device={usb_device!r}) -> {result}"
+            f"[RPC] driver.start(udp_host={udp_host!r}, usb_device={usb_device!r}, magic={magic!r}) -> {result}"
         )
         return result
 
