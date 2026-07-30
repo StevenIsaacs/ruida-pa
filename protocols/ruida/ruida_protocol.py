@@ -14,8 +14,7 @@ CMD_MASK = 0x80  # Only the first byte of a command has the top bit set.
 # protocol is used.
 # This can be used to re-sync or to check the length of
 # data associated with a command for validity.
-EOF = 0xD7  # Indicates the end of the Ruida file and the checksum will
-# follow.
+EOF = 0xD7
 
 # This table defines the number of bit and corresponding number of incoming
 # data bytes for each basic data type.
