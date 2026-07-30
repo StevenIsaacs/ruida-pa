@@ -1211,6 +1211,8 @@ class TuiAdapter(App):
             "  /gluescript layer <N> cut_xy_to <x> <y>     Add cut to layer N\n"
             "  /gluescript layer <N> power <p>             Add power action to layer N (IMAGE/DEPTHMAP only)\n"
             "  /gluescript layer <N> jog_xy_to <x> <y>     Add jog to layer N\n"
+            "  /gluescript layer <N> air_assist_on               Enable air assist for layer N\n"
+            "  /gluescript layer <N> air_assist_off              Disable air assist for layer N\n"
             "  /gluescript stage                            Generate rpascript from gluescript (re-stage if already staged)\n"
             "  /gluescript run                              Stage and execute the job\n"
             "  /gluescript list                             Display high-level gluescript commands\n"
@@ -2436,8 +2438,14 @@ class TuiAdapter(App):
                     y = float(action_args[1])
                     driver.add_layer_action(layer_n, driver.jog_xy_to(x, y))
                     self._log_info(f"GlueScript: jog_xy_to({x:.3f}, {y:.3f})")
+                elif action == "air_assist_on":
+                    driver.air_assist_on()
+                    self._log_info("GlueScript: air_assist_on()")
+                elif action == "air_assist_off":
+                    driver.air_assist_off()
+                    self._log_info("GlueScript: air_assist_off()")
                 else:
-                    self._log_error(f"Unknown layer action: {action}. Available: move_xy_to, cut_xy_to, power, jog_xy_to")
+                    self._log_error(f"Unknown layer action: {action}. Available: move_xy_to, cut_xy_to, power, jog_xy_to, air_assist_on, air_assist_off")
             except (ValueError, RuntimeError, NotImplementedError) as e:
                 self._log_error(f"Layer action failed: {e}")
 

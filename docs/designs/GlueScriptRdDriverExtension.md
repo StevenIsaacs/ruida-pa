@@ -637,6 +637,32 @@ Energy per Pulse (Joules) = Average Power (Watts) / PWM Frequency (Hz)
 **Full expanded version:**  
 Energy per Pulse (Joules) = [Maximum Power x Power Percentage x Duty Cycle] / PWM Frequency (Hz)
 
+#### air_assist_on(...)
+Enable air assist for the current layer.
+
+Prototype:
+```
+air_assist_on()
+```
+
+Expands to:
+```
+AIR_ASSIST_ON
+```
+
+#### air_assist_off(...)
+Disable air assist for the current layer.
+
+Prototype:
+```
+air_assist_off()
+```
+
+Expands to:
+```
+AIR_ASSIST_OFF
+```
+
 #### move_xy_to(...)
 Move the laser head to an absolute X,Y coordinate relative to the job reference point.
 
