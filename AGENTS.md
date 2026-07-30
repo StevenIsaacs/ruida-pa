@@ -24,6 +24,7 @@ python rpa.py capture.log              # Decode a tshark log file
 | `rpa.py` | CLI entry — arg parsing, opens input, runs analyzer |
 | `rpalib/` | Output emission, line parsing, plotting UI (Bokeh) |
 | `protocols/ruida/` | Protocol state machine, parser, command tables, checksum logic |
+| `ruidadriver/rd_gluescript.py` | High-level job scripting (GlueScript mixin for RdDriver) |
 | `discovery/` | **Git submodule** — test cases (`tc/`), problems (`prb/`), captured logs |
 
 Only the Ruida UDP protocol is currently implemented. Adding a new protocol means creating a parallel `protocols/<name>/` directory with its own analyzer.
@@ -42,6 +43,8 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 - Parameter decoder tuples: `(format_string, decoder_fn, raw_type)` — e.g. `('X={}mm', dim, 'int_35')`.
 - Checksum is a running sum of bytes in engrave/cut commands; excludes memory and jog commands. Known ~220-byte discrepancy with LightBurn captures.
 - `discovery/` is a **separate git repo** (submodule). Commit test case changes there, not in the parent.
+- `/gluescript` TUI command for high-level job scripting (see [docs/guides/gluescript-guide.md](docs/guides/gluescript-guide.md)).
+  Subcommands: `new`, `show`, `declare_job`, `end_job`, `declare_layer`, `layer`, `stage`, `run`, `list`, `list_rpa`.
 
 ## No test/lint/CI infrastructure
 

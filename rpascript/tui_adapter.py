@@ -452,6 +452,7 @@ class TuiAdapter(App):
         "frame",
         "plot",
         "protect",
+        "gluescript",
         "monitor",
         "scan_mem",
     )
@@ -555,6 +556,7 @@ class TuiAdapter(App):
         self._plot_source: str | None = None  # source label for /plot title (filename or "[RPC]")
         self._loaded_script_path: str | None = None  # Full path of last /load-ed file, for /save preselect
         self._bokeh_apps: list[BokehApp] = []  # running Bokeh servers for /clear shutdown
+        self._gluescript_was_run: bool = False  # Tracks if staged gluescript has been executed
         self._rpyc_server: ThreadedServer | None = None
         self._suggest_popup = RichLog(
             id="suggest-popup", highlight=True, markup=True, max_lines=10
@@ -583,6 +585,7 @@ class TuiAdapter(App):
             "plot": "Plot loaded script moves in a Bokeh visualization",
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
+            "gluescript": "GlueScript high-level scripting. Subcommands: new, declare_job, end_job, declare_layer, layer, stage, run, list, list_rpa, show",
         }
         self._suggest_matches: list[str] = []
         self._suggest_selected: int = 0
@@ -1195,6 +1198,23 @@ class TuiAdapter(App):
             "  Statuses: MACHINE_STATUS_MOVING, MACHINE_STATUS_LAYER_END,\n"
             "            MACHINE_STATUS_JOB_RUNNING\n"
             "  to=   Optional timeout (e.g. to=30s). Default: forever\n"
+            "\n"
+            "[bold]GlueScript Commands[/bold] (prefix with /):\n"
+            "  /gluescript new                              Reset all gluescript data for a new job\n"
+            "  /gluescript show                             Display current gluescript state summary\n"
+            "  /gluescript declare_job ref=<point> [label=<name>] [columns=N rows=N xstep=N ystep=N]\n"
+            "                                               Declare a new job with reference point\n"
+            "  /gluescript end_job                          Finalize and complete the current job\n"
+            "  /gluescript declare_layer label=<name> color=<#rrggbb> mode=<mode> [speed=N ...]\n"
+            "                                               Declare a new layer\n"
+            "  /gluescript layer <N> move_xy_to <x> <y>    Add move to layer N\n"
+            "  /gluescript layer <N> cut_xy_to <x> <y>     Add cut to layer N\n"
+            "  /gluescript layer <N> power <p>             Add power action to layer N (IMAGE/DEPTHMAP only)\n"
+            "  /gluescript layer <N> jog_xy_to <x> <y>     Add jog to layer N\n"
+            "  /gluescript stage                            Generate rpascript from gluescript (re-stage if already staged)\n"
+            "  /gluescript run                              Stage and execute the job\n"
+            "  /gluescript list                             Display high-level gluescript commands\n"
+            "  /gluescript list_rpa                         Display generated low-level rpascript commands\n"
         )
 
     async def _handle_slash_command(self, raw: str) -> None:
@@ -1251,6 +1271,8 @@ class TuiAdapter(App):
                 self._cmd_monitor(args)
             elif cmd == "scan_mem":
                 self._cmd_scan_mem()
+            elif cmd == "gluescript":
+                self._cmd_gluescript(args)
         except Exception as e:
             self._log_error(f"Command /{cmd} failed: {e}")
 
@@ -2263,6 +2285,200 @@ class TuiAdapter(App):
         self._log_info(f"Scan script: {len(lines)} GET_SETTING commands staged")
         self._log_info("Use /run script to run, or review with /list")
 
+    def _cmd_gluescript(self, args: str) -> None:
+        """Handle /gluescript subcommands for high-level scripting."""
+        driver = self._ruida_driver
+        if driver is None:
+            self._log_error("No active session. Use 'session start' first.")
+            return
+
+        tokens = args.strip().split()
+        if not tokens:
+            self._log_info("Usage: /gluescript <subcommand> [args]")
+            return
+
+        sub = tokens[0].lower()
+
+        if sub == "new":
+            driver.new_gluescript()
+            self._gluescript_was_run = False
+            self._log_info("GlueScript: New job started.")
+
+        elif sub == "show":
+            self._log_info(
+                f"GlueScript state: {len(driver.gluescript)} gluescript lines, "
+                f"{len(driver.rpascript)} rpascript lines, "
+                f"layer={driver._layer}, "
+                f"pos=({driver._current_x:.3f}, {driver._current_y:.3f})"
+            )
+
+        elif sub == "declare_job":
+            # Parse key=value pairs from remaining tokens
+            kwargs: dict[str, Any] = {}
+            ref: str | None = None
+            label: str | None = None
+            for tok in tokens[1:]:
+                if "=" in tok:
+                    k, v = tok.split("=", 1)
+                    if k == "ref":
+                        ref = v
+                    elif k == "label":
+                        label = v
+                    elif k in ("columns", "rows"):
+                        try:
+                            kwargs[k] = int(v)
+                        except ValueError:
+                            self._log_error(f"Invalid integer for {k}: {v}")
+                            return
+                    elif k in ("xstep", "ystep"):
+                        try:
+                            kwargs[k] = float(v)
+                        except ValueError:
+                            self._log_error(f"Invalid number for {k}: {v}")
+                            return
+                    else:
+                        self._log_error(f"Unknown parameter: {k}")
+                        return
+                else:
+                    self._log_error(f"Unexpected token: {tok}. Use key=value format.")
+                    return
+            if ref is None:
+                self._log_error("Missing required parameter: ref=<point>")
+                return
+            if label is None:
+                label = f"Job-{ref}"
+            try:
+                driver.declare_job(label=label, ref_point=ref, **kwargs)
+                self._log_info(f"GlueScript: Job declared (label={label!r}, ref={ref}).")
+            except ValueError as e:
+                self._log_error(f"declare_job failed: {e}")
+
+        elif sub == "end_job":
+            try:
+                driver.end_job()
+                self._log_info("GlueScript: Job ended.")
+            except RuntimeError as e:
+                self._log_error(f"end_job failed: {e}")
+
+        elif sub == "declare_layer":
+            # Parse remaining tokens as key=value
+            kwargs: dict[str, Any] = {}  # type: ignore[no-redef]
+            for tok in tokens[1:]:
+                if "=" in tok:
+                    k, v = tok.split("=", 1)
+                    kwargs[k] = v
+                else:
+                    self._log_error(f"Unexpected token: {tok}. Use key=value format.")
+                    return
+            label = kwargs.pop("label", None)
+            color = kwargs.pop("color", None)
+            if label is None or color is None:
+                missing = []
+                if label is None:
+                    missing.append("label=<name>")
+                if color is None:
+                    missing.append("color=<#rrggbb>")
+                self._log_error(f"Missing required parameter(s): {', '.join(missing)}")
+                return
+            if "mode" not in kwargs:
+                self._log_error("Missing required parameter: mode=<mode>")
+                return
+            try:
+                driver.declare_layer(label=label, color=color, **kwargs)
+                self._log_info(f"GlueScript: Layer {driver._layer} declared (label={label!r}, mode={kwargs['mode']}).")
+            except (ValueError, RuntimeError) as e:
+                self._log_error(f"declare_layer failed: {e}")
+
+        elif sub == "layer":
+            if len(tokens) < 4:
+                self._log_error("Usage: /gluescript layer <N> <action> <args...>")
+                return
+            try:
+                layer_n = int(tokens[1])
+            except ValueError:
+                self._log_error(f"Invalid layer number: {tokens[1]}")
+                return
+            action = tokens[2].lower()
+            action_args = tokens[3:]
+
+            try:
+                if action == "move_xy_to":
+                    if len(action_args) < 2:
+                        self._log_error("Usage: /gluescript layer <N> move_xy_to <x> <y>")
+                        return
+                    x = float(action_args[0])
+                    y = float(action_args[1])
+                    driver.move_xy_to(x, y)
+                    self._log_info(f"GlueScript: move_xy_to({x:.3f}, {y:.3f})")
+                elif action == "cut_xy_to":
+                    if len(action_args) < 2:
+                        self._log_error("Usage: /gluescript layer <N> cut_xy_to <x> <y>")
+                        return
+                    x = float(action_args[0])
+                    y = float(action_args[1])
+                    driver.cut_xy_to(x, y)
+                    self._log_info(f"GlueScript: cut_xy_to({x:.3f}, {y:.3f})")
+                elif action == "power":
+                    if len(action_args) < 1:
+                        self._log_error("Usage: /gluescript layer <N> power <p>")
+                        return
+                    p = float(action_args[0])
+                    driver.power(p)
+                    self._log_info(f"GlueScript: power({p:.1f})")
+                elif action == "jog_xy_to":
+                    if len(action_args) < 2:
+                        self._log_error("Usage: /gluescript layer <N> jog_xy_to <x> <y>")
+                        return
+                    x = float(action_args[0])
+                    y = float(action_args[1])
+                    driver.jog_xy_to(x, y)
+                    self._log_info(f"GlueScript: jog_xy_to({x:.3f}, {y:.3f})")
+                else:
+                    self._log_error(f"Unknown layer action: {action}. Available: move_xy_to, cut_xy_to, power, jog_xy_to")
+            except (ValueError, RuntimeError, NotImplementedError) as e:
+                self._log_error(f"Layer action failed: {e}")
+
+        elif sub == "stage":
+            try:
+                _ = driver.stage_rpascript()
+                self._log_info(
+                    f"GlueScript: Staged {len(driver.rpascript)} rpascript lines."
+                )
+            except RuntimeError as e:
+                self._log_error(f"Stage failed: {e}")
+
+        elif sub == "run":
+            try:
+                if not driver.rpascript:
+                    driver.stage_rpascript()
+                rpa = driver.rpascript[:]
+                if not rpa:
+                    self._log_error("No rpascript to run. Build a job first.")
+                    return
+                driver.run_job(rpa)
+                self._gluescript_was_run = True
+                self._log_info(f"GlueScript: Executed job ({len(rpa)} rpascript lines).")
+            except RuntimeError as e:
+                self._log_error(f"Run failed: {e}")
+
+        elif sub == "list":
+            if not driver.gluescript:
+                self._log_info("GlueScript: No gluescript commands.")
+                return
+            for i, line in enumerate(driver.gluescript):
+                self._log_widget.write(f"[dim]{i:4d}:[/dim] {line}")
+
+        elif sub == "list_rpa" or sub == "listrpa":
+            if not driver.rpascript:
+                self._log_info("GlueScript: No rpascript commands.")
+                return
+            for i, line in enumerate(driver.rpascript):
+                self._log_widget.write(f"[dim]{i:4d}:[/dim] {line}")
+
+        else:
+            self._log_error(f"Unknown gluescript subcommand: {sub}")
+            self._log_info("Available: new, show, declare_job, end_job, declare_layer, layer, stage, run, list, list_rpa")
+
     def _cmd_edit(self, args: str = "") -> None:
         """Open the loaded script in a full-screen editor."""
 
@@ -3230,8 +3446,15 @@ class TuiAdapter(App):
                 pos_parts.append(f"{axis}: —")
         pos = "  ".join(pos_parts)
 
+        # GlueScript state
+        gluescript_info = ""
+        if self._ruida_driver is not None:
+            if self._ruida_driver.rpascript:
+                status_symbol = "[green]R[/green]" if self._gluescript_was_run else "[yellow]S[/yellow]"
+                gluescript_info = f"  |  GS:{len(self._ruida_driver.gluescript)} RPA:{len(self._ruida_driver.rpascript)} {status_symbol}"
+
         self._status_bar.update(
-            f"{conn}  {transport_info}  |  {indicators}  |  {machine}  |  {counters}  |  {pos}"
+            f"{conn}  {transport_info}  |  {indicators}  |  {machine}  |  {counters}  |  {pos}{gluescript_info}"
         )
 
     # ------------------------------------------------------------------

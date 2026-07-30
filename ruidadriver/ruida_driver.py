@@ -26,6 +26,7 @@ from rpascript.encoding import (
 )
 from rpascript.interpreter import ScriptParser
 from ruidadriver.rd_session import RdSession
+from ruidadriver.rd_gluescript import GlueScript
 from ruidadriver.rd_status import RdStatusEvent
 
 _UNSET = object()  # Sentinel for "never seen before" in status change detection
@@ -52,7 +53,7 @@ class StatusDict(TypedDict, total=False):
     MACHINE_STATUS_JOB_RUNNING: bool
 
 
-class RdDriver:
+class RdDriver(GlueScript):
     """Ruida Driver Layer (L6) — script interpretation and background execution.
 
     Manages script execution via a background daemon thread, with queued
@@ -95,6 +96,7 @@ class RdDriver:
 
     def __init__(self) -> None:
         """Initialize RdDriver. No session yet — call start() to connect."""
+        super().__init__()
         self._session: RdSession | None = None
         self._script_queue: queue.Queue = queue.Queue()
         self._runner_thread: threading.Thread | None = None
