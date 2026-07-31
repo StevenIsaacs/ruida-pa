@@ -2595,13 +2595,14 @@ class TuiAdapter(App):
             if not [ln for ln in lines if ln.strip()]:
                 self._log_error(f"File is empty or contains only blank lines: {path}")
                 return
-            kept = self._apply_gluescript_lines(lines, "on load", f"in {path}", "Load")
-            if kept is None:
+            result = self._apply_gluescript_lines(lines, "on load", f"in {path}", "Load")
+            if result is None:
                 return
+            kept, staged_count = result
             self._gluescript_was_run = False
             self._log_info(
                 f"Loaded {len(kept)} gluescript lines from {path}, "
-                f"staged {len(driver.rpascript)} rpascript lines"
+                f"staged {staged_count} rpascript lines"
             )
 
         elif sub == "edit":
@@ -2612,17 +2613,18 @@ class TuiAdapter(App):
                 )
                 return
 
-            def on_edit(result: list[str] | None) -> None:
-                if result is None:
+            def on_edit(edited: list[str] | None) -> None:
+                if edited is None:
                     self._log_info("GlueScript: Edit cancelled.")
                     return
-                kept = self._apply_gluescript_lines(result, "after edit", "after edit", "Edit")
-                if kept is None:
+                applied = self._apply_gluescript_lines(edited, "after edit", "after edit", "Edit")
+                if applied is None:
                     return
+                kept, staged_count = applied
                 self._gluescript_was_run = False
                 self._log_info(
                     f"GlueScript: Edited — {len(kept)} gluescript lines, "
-                    f"staged {len(driver.rpascript)} rpascript lines"
+                    f"staged {staged_count} rpascript lines"
                 )
 
             self.push_screen(
@@ -2654,15 +2656,17 @@ class TuiAdapter(App):
         live_ctx: str,
         where_ctx: str,
         fail_prefix: str,
-    ) -> list[str] | None:
+    ) -> tuple[list[str], int] | None:
         """Filter live-only lines, validate, and apply a gluescript to the driver.
 
         Shared pipeline for ``/gluescript load`` and ``/gluescript edit``:
         drops live-only jog/home lines with a warning, requires at least one
         stageable command, validates on a throwaway GlueScript instance
         (suppressing the inline() staging warning), then applies via
-        ``driver.stage_rpascript()``. Returns the kept lines, or None if the
-        input cannot be staged (the error is already logged).
+        ``driver.stage_rpascript()``. Returns the kept lines and the number
+        of staged rpascript lines (the length of the driver's rpascript
+        right after apply), or None if the input cannot be staged (the
+        error is already logged).
         """
         driver = self._ruida_driver
         if driver is None:
@@ -2704,7 +2708,7 @@ class TuiAdapter(App):
             self._log_error(f"{fail_prefix} failed: {e}")
             return None
         driver.stage_rpascript(kept_lines)
-        return kept_lines
+        return kept_lines, len(driver.rpascript)
 
     def _handle_live_command(self, line: str) -> None:
         """Dispatch a bare live-only command (jog or home) to the driver."""
