@@ -457,7 +457,29 @@ class TuiAdapter(App):
         "monitor",
         "scan_mem",
     )
-    _NORMAL_COMMANDS: tuple[str, ...] = ("session", "server")
+    # 3 spots must stay in sync for a future new jog command —
+    # GlueScript.JOG_COMMANDS (recognition), _NORMAL_COMMANDS +
+    # _cmd_descriptions + /help block (autocomplete/usage/help).
+    _NORMAL_COMMANDS: tuple[str, ...] = (
+        "session",
+        "server",
+        "jog_xy_to",
+        "jog_x_to",
+        "jog_y_to",
+        "jog_z_to",
+        "jog_u_to",
+        "jog_xy_rel",
+        "jog_x_rel",
+        "jog_y_rel",
+        "jog_z_rel",
+        "jog_u_rel",
+        "jog_set_xy_speed",
+        "jog_set_z_speed",
+        "jog_set_u_speed",
+        "jog_set_xy_rel",
+        "jog_set_z_rel",
+        "jog_set_u_rel",
+    )
 
     CSS = """
     #main-container {
@@ -587,6 +609,22 @@ class TuiAdapter(App):
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
             "gluescript": "GlueScript high-level scripting. Subcommands: new, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa, show",
+            "jog_xy_to": "Jog XY to absolute position: jog_xy_to <x> <y> (mm)",
+            "jog_x_to": "Jog X to absolute position: jog_x_to <x> (mm)",
+            "jog_y_to": "Jog Y to absolute position: jog_y_to <y> (mm)",
+            "jog_z_to": "Jog Z to absolute position: jog_z_to <z> (mm, max 2000)",
+            "jog_u_to": "Jog U to absolute position: jog_u_to <u> (mm)",
+            "jog_xy_rel": "Jog XY relative: jog_xy_rel [x] [y] (uses configured defaults)",
+            "jog_x_rel": "Jog X relative: jog_x_rel [x] (uses configured default)",
+            "jog_y_rel": "Jog Y relative: jog_y_rel [y] (uses configured default)",
+            "jog_z_rel": "Jog Z relative: jog_z_rel [z] (uses configured default)",
+            "jog_u_rel": "Jog U relative: jog_u_rel [u] (uses configured default)",
+            "jog_set_xy_speed": "Set XY jog speed: jog_set_xy_speed <speed> (mm/s)",
+            "jog_set_z_speed": "Set Z jog speed: jog_set_z_speed <speed> (mm/s)",
+            "jog_set_u_speed": "Set U jog speed: jog_set_u_speed <speed> (mm/s)",
+            "jog_set_xy_rel": "Set relative XY jog distance: jog_set_xy_rel <delta> (mm)",
+            "jog_set_z_rel": "Set relative Z jog distance: jog_set_z_rel <delta> (mm)",
+            "jog_set_u_rel": "Set relative U jog distance: jog_set_u_rel <delta> (mm)",
         }
         self._suggest_matches: list[str] = []
         self._suggest_selected: int = 0
@@ -756,6 +794,10 @@ class TuiAdapter(App):
             await self._handle_slash_command(line)
             return
         self._log_script(line)
+        first_word = line.split(None, 1)[0]
+        if first_word in GlueScript.JOG_COMMANDS:
+            self._handle_jog_command(line)
+            return
 
         try:
             # Parse the line as a single rpascript command
@@ -1190,6 +1232,23 @@ class TuiAdapter(App):
             "  session end               Disconnect\n"
             "  server start host=<IP> port=<N>  Start the RPC server\n"
             "  server stop                Stop the RPC server\n"
+            "  Jog commands (live-only):\n"
+            "    jog_xy_to <x> <y>           Jog XY to absolute position (mm)\n"
+            "    jog_x_to <x>                Jog X to absolute position (mm)\n"
+            "    jog_y_to <y>                Jog Y to absolute position (mm)\n"
+            "    jog_z_to <z>                Jog Z to absolute position (mm, max 2000)\n"
+            "    jog_u_to <u>                Jog U to absolute position (mm)\n"
+            "    jog_xy_rel [x] [y]          Jog XY relative (uses configured defaults)\n"
+            "    jog_x_rel [x]               Jog X relative (uses configured default)\n"
+            "    jog_y_rel [y]               Jog Y relative (uses configured default)\n"
+            "    jog_z_rel [z]               Jog Z relative (uses configured default)\n"
+            "    jog_u_rel [u]               Jog U relative (uses configured default)\n"
+            "    jog_set_xy_speed <speed>    Set XY jog speed (mm/s)\n"
+            "    jog_set_z_speed <speed>     Set Z jog speed (mm/s)\n"
+            "    jog_set_u_speed <speed>     Set U jog speed (mm/s)\n"
+            "    jog_set_xy_rel <delta>      Set relative XY jog distance (mm)\n"
+            "    jog_set_z_rel <delta>       Set relative Z jog distance (mm)\n"
+            "    jog_set_u_rel <delta>       Set relative U jog distance (mm)\n"
             "  <rpascript command>       Send command to controller\n"
             "\n"
             "[bold]Flow Control[/bold] (for loaded scripts):\n"
@@ -2596,6 +2655,57 @@ class TuiAdapter(App):
         else:
             self._log_error(f"Unknown gluescript subcommand: {sub}")
             self._log_info("Available: new, show, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa")
+
+    def _handle_jog_command(self, line: str) -> None:
+        """Dispatch a bare jog command (live-only) to the driver."""
+        try:
+            tokens = line.split()
+            name = tokens[0]
+            args = tokens[1:]
+
+            driver = self._ruida_driver
+            if driver is None:
+                self._log_error(
+                    "No active session. Use 'session start udp=<IP> usb=<device>' first."
+                )
+                return
+
+            method = getattr(driver, name, None)
+            if method is None:
+                self._log_error(f"Unknown jog command: {name}")
+                return
+
+            values: list[float] = []
+            for a in args:
+                try:
+                    values.append(float(a))
+                except ValueError:
+                    self._log_error(f"Invalid number for {name}: '{a}'")
+                    return
+
+            try:
+                result = method(*values)
+            except TypeError:
+                self._log_error(f"Usage: {self._cmd_descriptions.get(name, name)}")
+                return
+
+            if isinstance(result, list):
+                if not result:
+                    self._log_warning(f"{name} ignored — command produced no rpascript lines")
+                    return
+                if not driver.is_connected:
+                    self._log_warning(f"{name} ignored — no active session")
+                    return
+                try:
+                    driver.run(result)
+                except RuntimeError as e:
+                    self._log_warning(f"{name} not sent — {e}")
+                    return
+                self._log_info(f"{name} sent to controller")
+            else:
+                self._log_info(f"{name} applied")
+        except (ValueError, RuntimeError, TypeError) as e:
+            self._log_error(f"{type(e).__name__}: {e}")
 
     def _cmd_edit(self, args: str = "") -> None:
         """Open the loaded script in a full-screen editor."""

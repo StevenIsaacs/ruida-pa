@@ -783,6 +783,13 @@ server start host=0.0.0.0 \
 
 To stop the server, use `server stop` from within the TUI.
 
+Like `session`/`server`, the 16 jog commands (`jog_*`, including the
+`jog_set_*` config setters) are available as bare commands in the TUI —
+they are live-only (movement jogs run immediately against a connected
+session; setters configure the live jog session) and are never persisted
+to `.cglu` files. See the [rpascript guide](rpascript-guide.md#jog-commands)
+for the argument forms.
+
 | Parameter | Default      | Description                                    |
 |-----------|--------------|------------------------------------------------|
 | `host`    | `localhost`  | Bind address. `localhost`/`127.0.0.1` skips auth/TLS |

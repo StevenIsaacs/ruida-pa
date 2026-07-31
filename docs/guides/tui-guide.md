@@ -141,7 +141,39 @@ session end
 Directives that control the connection lifecycle, handled internally
 without involving the controller.
 
-### 5.2 Slash Commands
+### 5.2 Jog Commands
+
+The 16 jog commands are bare commands (no `/` prefix) that act on the
+live session:
+
+```
+jog_xy_to 10 20             # Jog XY to absolute position (mm)
+jog_x_to 50                 # Jog X to absolute position (mm)
+jog_y_to 50                 # Jog Y to absolute position (mm)
+jog_z_to 5                  # Jog Z to absolute position (mm, max 2000)
+jog_u_to 30                 # Jog U to absolute position (mm)
+jog_xy_rel                  # Jog XY relative ([x] [y] optional — uses configured defaults)
+jog_x_rel 5                 # Jog X relative ([x] optional)
+jog_y_rel 5                 # Jog Y relative ([y] optional)
+jog_z_rel 2                 # Jog Z relative ([z] optional)
+jog_u_rel 2                 # Jog U relative ([u] optional)
+jog_set_xy_speed 150        # Set XY jog speed (mm/s)
+jog_set_z_speed 50          # Set Z jog speed (mm/s)
+jog_set_u_speed 50          # Set U jog speed (mm/s)
+jog_set_xy_rel 25           # Set relative XY jog distance (mm)
+jog_set_z_rel 10            # Set relative Z jog distance (mm)
+jog_set_u_rel 10            # Set relative U jog distance (mm)
+```
+
+- **Live-only semantics** — movement jogs run immediately against a connected
+  controller (requiring an active session) and are never persisted to `.cglu`
+  files; `jog_set_*` setters configure the live jog session (speeds and
+  relative distances) and never produce gluescript lines.
+- **Autocomplete** — typing a `jog` prefix in the command input shows
+  suggestions with usage text.
+- **Help** — `/help` lists all 16 under "Jog commands (live-only)".
+
+### 5.3 Slash Commands
 
 ```
 /help
@@ -151,7 +183,7 @@ without involving the controller.
 
 TUI meta-commands starting with `/` (see Section 6 for full reference).
 
-### 5.3 rpascript Commands
+### 5.4 rpascript Commands
 
 Any valid rpascript command line:
 
@@ -164,7 +196,7 @@ CUT_FAR_XY X=200mm Y=100mm
 
 Sent to the controller as a single-line script. Requires an active session.
 
-### 5.4 Flow Control Commands
+### 5.5 Flow Control Commands
 
 These are special directives recognized within loaded scripts:
 

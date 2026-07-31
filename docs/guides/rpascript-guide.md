@@ -55,6 +55,38 @@ server stop
 - These are processed by `start_rpyc_server()` / `server.stop()`, not
   sent to the controller as commands.
 
+### Jog Commands
+
+The 16 jog commands are bare commands (no `/` prefix) processed by the TUI
+before rpascript parsing. They are **live-only** — they act on the live session
+and are never persisted to, or replayed from, `.cglu` files:
+
+```rds
+jog_xy_to 10 20             # Jog XY to absolute position (mm)
+jog_x_to 50                 # Jog X to absolute position (mm)
+jog_y_to 50                 # Jog Y to absolute position (mm)
+jog_z_to 5                  # Jog Z to absolute position (mm, max 2000)
+jog_u_to 30                 # Jog U to absolute position (mm)
+jog_xy_rel                  # Jog XY relative ([x] [y] optional — uses configured defaults)
+jog_x_rel 5                 # Jog X relative ([x] optional)
+jog_y_rel 5                 # Jog Y relative ([y] optional)
+jog_z_rel 2                 # Jog Z relative ([z] optional)
+jog_u_rel 2                 # Jog U relative ([u] optional)
+jog_set_xy_speed 150        # Set XY jog speed (mm/s)
+jog_set_z_speed 50          # Set Z jog speed (mm/s)
+jog_set_u_speed 50          # Set U jog speed (mm/s)
+jog_set_xy_rel 25           # Set relative XY jog distance (mm)
+jog_set_z_rel 10            # Set relative Z jog distance (mm)
+jog_set_u_rel 10            # Set relative U jog distance (mm)
+```
+
+- **Movement jogs** (`jog_*_to`, `jog_*_rel`) require a connected session and
+  run immediately against the controller; with no active session they
+  warn-and-ignore.
+- **Setters** (`jog_set_*`) configure the live jog session (speeds and relative
+  defaults) and never produce rpascript lines.
+- These commands are not rpascript — the rpascript parser is not involved.
+
 ### new_packet Directive
 
 ```rds

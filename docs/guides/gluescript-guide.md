@@ -28,9 +28,10 @@ a more expressive interface for defining laser jobs.
 - **Command registry for re-staging** — gluescript lines can be re-processed
   through the command registry to regenerate rpascript, enabling iterative
   job editing.
-- **Jogs are live-only** — Movement jog commands (`jog_*`) execute immediately
-  against the controller and are never persisted to `.cglu` files nor replayed
-  from them.
+- **Jogs are live-only** — Jog commands (`jog_*`) act on the live session and are
+  never persisted to `.cglu` files nor replayed from them. Movement jogs execute
+  immediately against the controller; `jog_set_*` config setters configure the
+  live jog session (speeds and relative distances).
 
 ### Why GlueScript?
 
@@ -124,9 +125,9 @@ run_job()
 
 4. **Add operations** — Within each layer, add moves, cuts, and power
    changes. Each of these operations generates both a gluescript line and
-   corresponding rpascript lines. (Movement jog commands are live-only:
-   they execute immediately and are never part of the saved job — see
-   Section 5.)
+   corresponding rpascript lines. (Jog commands are live-only: movement
+   jogs execute immediately and `jog_set_*` setters configure the live jog
+   session — none of them are ever part of the saved job — see Section 5.)
 
 5. **`end_job()`** — Complete the job definition. Emits `END_JOB` in the
    rpascript and marks the job ready for staging.
@@ -303,13 +304,13 @@ driver.air_assist_off()
 # Produces: AIR_ASSIST_OFF
 ```
 
-#### `jog_xy_to(layer: int, x: float, y: float)`
+#### `jog_xy_to(x: float, y: float)`
 
 Jog the laser head to an absolute XY coordinate. Generates a speed command
 followed by a `JOG_XY` command relative to the machine origin.
 
 ```python
-driver.jog_xy_to(layer=0, x=50.0, y=50.0)
+driver.jog_xy_to(x=50.0, y=50.0)
 # Produces:
 #   SPEED_LASER_1 100
 #   JOG_XY Rel:MACHINE X=50.000mm Y=50.000mm
@@ -325,8 +326,8 @@ GlueScript also provides single-axis variants for each operation:
 | `move_y_to(layer, y)` | Move on Y axis only |
 | `cut_x_to(layer, x)` | Cut on X axis only |
 | `cut_y_to(layer, y)` | Cut on Y axis only |
-| `jog_x_to(layer, x)` | Jog on X axis only |
-| `jog_y_to(layer, y)` | Jog on Y axis only |
+| `jog_x_to(x)` | Jog on X axis only |
+| `jog_y_to(y)` | Jog on Y axis only |
 
 ### 4.5 Jog Configuration
 
@@ -340,6 +341,9 @@ driver.jog_set_xy_rel(25.0)       # Relative XY jog distance
 driver.jog_set_z_rel(10.0)        # Relative Z jog distance
 driver.jog_set_u_rel(10.0)        # Relative U jog distance
 ```
+
+The setters configure the live jog session only — they never produce
+gluescript lines (they are live-only, see Section 5).
 
 Relative jog methods use the configured distances as defaults when called
 without arguments:
@@ -454,8 +458,11 @@ and a validation failure reported as `Load failed: ...`.
 
 ### Jog Commands Are Live-Only
 
-Jog commands (`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to`,
-`jog_xy_rel`, `jog_x_rel`, `jog_y_rel`, `jog_z_rel`, `jog_u_rel`) are live-only:
+All 16 jog commands (`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`,
+`jog_u_to`, `jog_xy_rel`, `jog_x_rel`, `jog_y_rel`, `jog_z_rel`, `jog_u_rel`,
+plus the `jog_set_*` config setters: `jog_set_xy_speed`, `jog_set_z_speed`,
+`jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`) are
+live-only:
 
 - **In the TUI**, `/gluescript layer <N> jog_xy_to <x> <y>` never appends to the
   gluescript. It immediately runs the returned rpascript lines against the
@@ -465,9 +472,30 @@ Jog commands (`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to`,
 - **In a `.cglu` file**, jog lines are ignored with a warning on load
   (`ignoring live-only jog line on load`) and are never used for position
   tracking — the re-stage loop skips all `LIVE_ONLY_COMMANDS`.
-- **`jog_set_*` config setters** (speed / relative distance) remain loadable —
-  they return `None`, configure defaults for future jogs, and have no position
-  effect.
+- **`jog_set_*` config setters** (speed / relative distance) are live-only too —
+  they configure defaults for the live jog session, are never appended to the
+  gluescript, and lines in a `.cglu` file are ignored with a warning on load.
+
+### Bare Jog Commands
+
+All 16 jog commands are also available in the TUI as **bare commands** (no
+`/gluescript layer` wrapper), alongside `session`/`server`:
+
+```
+jog_xy_to 10 20            # Jog XY to absolute position (mm)
+jog_z_to 5                 # Jog Z to absolute position (mm, max 2000)
+jog_xy_rel                 # Jog XY relative, using configured defaults
+jog_set_xy_speed 150       # Set XY jog speed (mm/s) — applies live
+jog_set_xy_rel 25          # Set relative XY jog distance (mm) — applies live
+```
+
+- Bare jog commands are live-only: movement jogs run immediately against a
+  connected controller; `jog_set_*` setters configure the live jog session and
+  never produce gluescript lines.
+- Typing a `jog` prefix brings up autocomplete with usage text; `/help` lists
+  all 16 under "Jog commands (live-only)".
+- Movement jogs without an active session warn-and-ignore; `jog_z_to` with
+  `z > 2000` is refused (no rpascript lines are produced).
 
 ### Example Session
 
@@ -643,8 +671,9 @@ Re-staging (calling `stage_rpascript()` with a gluescript list) parses each
 gluescript command line and replays it through the command registry:
 
 - Standard commands are replayed via their corresponding methods
-- Movement jog commands (`jog_*`) are skipped — they are live-only and are never replayed
-  or used for position tracking during re-staging
+- Jog commands (`jog_*`, including `jog_set_*` config setters) are skipped —
+  they are live-only and are never replayed or used for position tracking
+  during re-staging
 - `inline()` commands are passed through verbatim — they are stored as-is and
   not re-parsed
 - The command registry maps method names to bound methods; if a gluescript line

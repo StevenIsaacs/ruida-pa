@@ -55,10 +55,12 @@ class GlueScript:
 
     _version = "1.0.0"
 
-    # Movement jog commands execute live on the controller and are never
-    # part of a saved job. They also mutate _current_x/_current_y as a side
-    # effect, so they must not be invoked during re-stage.
-    LIVE_ONLY_COMMANDS: frozenset[str] = frozenset({
+    # Jog commands are live-only: movement jogs execute live on the
+    # controller and are never part of a saved job (they also mutate
+    # _current_x/_current_y as a side effect, so they must not be invoked
+    # during re-stage); jog_set_* methods configure the live jog session
+    # (speeds + relative defaults) without producing script lines.
+    JOG_COMMANDS: frozenset[str] = frozenset({
         "jog_xy_to",
         "jog_x_to",
         "jog_y_to",
@@ -69,7 +71,16 @@ class GlueScript:
         "jog_y_rel",
         "jog_z_rel",
         "jog_u_rel",
+        "jog_set_xy_speed",
+        "jog_set_z_speed",
+        "jog_set_u_speed",
+        "jog_set_xy_rel",
+        "jog_set_z_rel",
+        "jog_set_u_rel",
     })
+    # If a future live-only command is not a jog it must be added to
+    # LIVE_ONLY_COMMANDS separately (e.g. LIVE_ONLY_COMMANDS = JOG_COMMANDS | {...}).
+    LIVE_ONLY_COMMANDS: frozenset[str] = JOG_COMMANDS
 
     def __init__(self) -> None:
         """Initialize GlueScript with empty scripts and default state."""
@@ -582,33 +593,27 @@ class GlueScript:
     def jog_set_xy_speed(self, speed: float) -> None:
         """Set XY jog speed in mm/s."""
         self.jog_xy_speed = speed
-        self.gluescript.append(f"jog_set_xy_speed({speed!r})")
 
     def jog_set_z_speed(self, speed: float) -> None:
         """Set Z jog speed in mm/s."""
         self.jog_z_speed = speed
-        self.gluescript.append(f"jog_set_z_speed({speed!r})")
 
     def jog_set_u_speed(self, speed: float) -> None:
         """Set U jog speed in mm/s."""
         self.jog_u_speed = speed
-        self.gluescript.append(f"jog_set_u_speed({speed!r})")
 
     def jog_set_xy_rel(self, delta: float) -> None:
         """Set relative XY jog distance in mm."""
         self.x_rel = delta
         self.y_rel = delta
-        self.gluescript.append(f"jog_set_xy_rel({delta!r})")
 
     def jog_set_z_rel(self, delta: float) -> None:
         """Set relative Z jog distance in mm."""
         self.z_rel = delta
-        self.gluescript.append(f"jog_set_z_rel({delta!r})")
 
     def jog_set_u_rel(self, delta: float) -> None:
         """Set relative U jog distance in mm."""
         self.u_rel = delta
-        self.gluescript.append(f"jog_set_u_rel({delta!r})")
 
     def jog_xy_to(self, x: float, y: float) -> list[str]:
         """Generate jog rpascript to move XY to absolute coordinate.
@@ -939,8 +944,8 @@ class GlueScript:
                     )
                 if name in self.LIVE_ONLY_COMMANDS:
                     logger.warning(
-                        "Skipping live-only jog command %r during re-stage "
-                        "(jogs execute live and are not part of a saved job)",
+                        "Skipping live-only command %r during re-stage "
+                        "(jog commands act on the live session and are not part of a saved job)",
                         name,
                     )
                     continue
