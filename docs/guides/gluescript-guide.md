@@ -114,8 +114,10 @@ run_job()
 ### Step-by-Step
 
 1. **`new_gluescript()`** — Reset all script data for a fresh job. Clears both
-   gluescript and rpascript lists, resets position tracking, bounding boxes,
-   and the layer counter.
+   gluescript and rpascript lists, resets bounding boxes and the layer
+   counter. Tracked position is preserved — only a fresh GlueScript instance
+   starts at (0, 0, 0, 0); subsequent calls keep the tracked position, which
+   during a live session follows the controller-reported machine position.
 
 2. **`declare_job(ref=...)`** — Declare a new job with a reference point type.
    This resets all data (like `new_gluescript()`) and emits job header commands:
@@ -152,8 +154,11 @@ run_job()
 #### `new_gluescript()`
 
 Reset all script data for a new job. Clears both gluescript (`self.gluescript`)
-and rpascript (`self.rpascript`) lists, resets current position to (0, 0),
-bounding boxes to 0, and the layer counter to 0.
+and rpascript (`self.rpascript`) lists, resets bounding boxes to their empty
+(±inf) state, and the layer counter to 0. Tracked position is preserved — only
+a fresh GlueScript instance starts at (0, 0, 0, 0); subsequent calls keep the
+tracked position, which during a live session follows the controller-reported
+machine position.
 
 ```python
 driver = RdDriver()
@@ -644,7 +649,7 @@ divided by 1000, giving a range of approximately ±8.192mm:
 ```
 delta = target_position - current_position
 
-if abs(delta_x) <= 8.191 and abs(delta_y) <= 8.191:
+if -8.192 <= delta_x <= 8.191 and -8.192 <= delta_y <= 8.191:
     use NEAR form (MOVE_NEAR_XY / CUT_NEAR_XY)
 else:
     use FAR form (MOVE_FAR_XY / CUT_FAR_XY)
@@ -652,6 +657,10 @@ else:
 
 For single-axis operations (`move_x_to`, `move_y_to`, `cut_x_to`, `cut_y_to`),
 the check is performed on the single axis delta.
+
+The boundary is the signed range -8.192 mm to +8.191 mm — a signed 14-bit
+value divided by 1000, so it is asymmetric by 0.001 mm (near-form fits values
+from -8.192 inclusive through +8.191 inclusive).
 
 ### Why Two Forms?
 
@@ -662,6 +671,23 @@ point on the bed.
 
 GlueScript selects the appropriate form automatically — you always use
 absolute target coordinates in your code.
+
+### Position Tracking During a Live Session
+
+During an active live session, GlueScript's tracked position (X/Y/Z/U) is
+updated from the controller's `MEM_CURRENT_POSITION` replies received by the
+reply listener — but **only between jobs**. While a job is being assembled
+(`declare_job` → `end_job`) or re-staged, the tracked position is the
+trajectory cursor and replies are ignored.
+
+Tracked position is preserved across `new_gluescript()` and re-stage; only a
+fresh GlueScript instance starts at (0, 0, 0, 0). A consequence of this is
+that near/far form selection for the first move of a new job is computed from
+the machine's actual position — a jog to (100, 50) followed by
+`move_xy_to(1, 0)` selects **FAR**, not a wrong NEAR.
+
+After homing (`home`/`home_z`/`home_u`), replies resync the tracked position
+to the controller-reported home position (0, 0, 0, 0 after homing).
 
 ---
 

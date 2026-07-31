@@ -327,6 +327,31 @@ class RdDriver(GlueScript):
         return formatted
 
     @staticmethod
+    def _build_decoder(address: int) -> tuple[str | None, RdDecoder | None]:
+        """Look up an MT entry and return (mnemonic, configured decoder).
+
+        Returns (None, None) if the address is not in the MT table. The
+        decoder's `decoder` attribute carries the rd_<fn> method name.
+        """
+        from protocols.ruida.ruida_protocol import MT, RD_TYPES, RDT_BYTES
+        msb = (address >> 8) & 0xFF
+        lsb = address & 0xFF
+        mt_entry = MT.get(msb, {}).get(lsb)
+        if mt_entry is None:
+            return (None, None)
+        mnemonic = mt_entry[0]
+        spec = mt_entry[1]  # (format_string, decoder_fn, raw_type)
+        d = RdDecoder()
+        d.format = spec[0]
+        d.rd_type = spec[2]
+        d.data = bytearray([])
+        d.value = None
+        d.cstring = d.rd_type == "cstring"
+        d._length = RD_TYPES.get(d.rd_type, [0, 5])[RDT_BYTES]
+        d.decoder = spec[1]
+        return (mnemonic, d)
+
+    @staticmethod
     def format_reply_value(
         address: int, raw_reply: bytearray
     ) -> tuple[str | None, str]:
@@ -341,33 +366,37 @@ class RdDriver(GlueScript):
             mnemonic is None if the address is not in the MT table.
             formatted_value_string is always a string (fallback on decode failure).
         """
-        from protocols.ruida.ruida_protocol import MT, RD_TYPES, RDT_BYTES
-
-        msb = (address >> 8) & 0xFF
-        lsb = address & 0xFF
-        mt_entry = MT.get(msb, {}).get(lsb)
-        if mt_entry is None:
+        mnemonic, d = RdDriver._build_decoder(address)
+        if d is None:
             # Fallback: TBD format (binary, hex, decimal)
             from protocols.ruida.ruida_protocol import TBD
             val = RdDecoder().decode_value(raw_reply)
             return (None, TBD[0].format(val))
-
-        mnemonic = mt_entry[0]
-        spec = mt_entry[1]  # (format_string, decoder_fn, raw_type)
-        d = RdDecoder()
-        d.format = spec[0]
-        d.rd_type = spec[2]
-        d.data = bytearray([])
-        d.value = None
-        d.cstring = d.rd_type == "cstring"
-        d._length = RD_TYPES.get(d.rd_type, [0, 5])[RDT_BYTES]
-        decoder_method = getattr(d, f"rd_{spec[1]}")
+        decoder_method = getattr(d, f"rd_{d.decoder}")
         try:
             decoded = decoder_method(raw_reply[4:9])
             return (mnemonic, str(decoded))
         except Exception:
             val = RdDecoder().decode_value(raw_reply)
             return (mnemonic, str(val))
+
+    @staticmethod
+    def decode_status_value(address: int, raw_reply: bytearray) -> Any:
+        """Decode a reply into its typed value (RdDecoder.value).
+
+        For MT-table addresses, invokes the rd_<decoder> method and returns
+        the typed value (e.g. float mm for dim). Falls back to the raw
+        unsigned value on non-MT addresses or decode failure.
+        """
+        _, d = RdDriver._build_decoder(address)
+        if d is None:
+            return RdDecoder().decode_value(raw_reply)
+        decoder_method = getattr(d, f"rd_{d.decoder}")
+        try:
+            decoder_method(raw_reply[4:9])
+            return d.value
+        except Exception:
+            return RdDecoder().decode_value(raw_reply)
 
     @staticmethod
     def format_reply(reply: bytearray) -> str:
@@ -420,15 +449,13 @@ class RdDriver(GlueScript):
 
         for raw_reply in replies:
             address = decoder.decode_address(raw_reply)
+            mnemonic = self._address_to_mnemonic.get(address, f"0x{address:04X}")
 
             if address in self._handled_addresses:
                 new_value = decoder.decode_value(raw_reply)
                 prev = self._decoded_values.get(address, _UNSET)
 
                 if prev is _UNSET or prev != new_value:
-                    mnemonic = self._address_to_mnemonic.get(
-                        address, f"0x{address:04X}"
-                    )
                     formatted = self._format_status_value(address, raw_reply)
                     changes[mnemonic] = (new_value, formatted)
 
@@ -439,6 +466,13 @@ class RdDriver(GlueScript):
                     )
 
                 self._decoded_values[address] = new_value
+
+                if mnemonic.startswith("MEM_CURRENT_POSITION_"):
+                    axis = mnemonic.rsplit("_", 1)[-1].lower()
+                    if axis in ("x", "y", "z", "u"):
+                        self.update_position(
+                            **{axis: RdDriver.decode_status_value(address, raw_reply)}
+                        )
 
                 if address == 0x057E:
                     self.run(self._BED_SIZE_SCRIPT)

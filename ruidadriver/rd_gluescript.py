@@ -57,9 +57,11 @@ class GlueScript:
 
     # Jog commands are live-only: movement jogs execute live on the
     # controller and are never part of a saved job (they also mutate
-    # _current_x/_current_y as a side effect, so they must not be invoked
-    # during re-stage); jog_set_* methods configure the live jog session
-    # (speeds + relative defaults) without producing script lines.
+    # _current_x/_current_y/_current_z/_current_u as a side effect, so they
+    # must not be invoked during re-stage); jog_set_* methods configure the
+    # live jog session (speeds + relative defaults) without producing script
+    # lines. Tracked position (X/Y/Z/U) is also synced from controller
+    # replies during a live session between jobs.
     JOG_COMMANDS: frozenset[str] = frozenset({
         "jog_xy_to",
         "jog_x_to",
@@ -106,6 +108,9 @@ class GlueScript:
         self._layer_attributes: dict[int, list[str]] = {}  # Attributes per layer
         self._layer_actions: dict[int, list[str]] = {}     # Actions per layer
         self._job_declared: bool = False
+        # True while a job is being assembled or re-staged — position sync
+        # from controller replies is suspended.
+        self._assembling: bool = False
         
         # Bounding boxes (doc-level)
         self.doc_tr_x: float = float('inf')
@@ -116,6 +121,8 @@ class GlueScript:
         # Current position tracking
         self._current_x: float = 0.0
         self._current_y: float = 0.0
+        self._current_z: float = 0.0
+        self._current_u: float = 0.0
         self._abs_xy: list[float] = [0.0, 0.0]
         
         # Layer counter and current mode
@@ -347,14 +354,13 @@ class GlueScript:
         self._layer_attributes = {}
         self._layer_actions = {}
         self._job_complete = False
+        self._assembling = False
         self._inline_used = False
         self._stage_complete = False
         self.doc_tr_x = float('inf')
         self.doc_tr_y = float('inf')
         self.doc_bl_x = -float('inf')
         self.doc_bl_y = -float('inf')
-        self._current_x = 0.0
-        self._current_y = 0.0
         self._layer = 0
         self._current_layer_mode = "VECTOR"
         self._layer_trx = float('inf')
@@ -449,6 +455,9 @@ class GlueScript:
 
         # Update state
         self._job_declared = True
+        # _assembling window: new_gluescript reset it, so a reply-driven
+        # update_position may reflect the live head position — harmless.
+        self._assembling = True
         self._abs_xy = abs_xy
 
         # gluescript
@@ -493,6 +502,7 @@ class GlueScript:
             )
 
         self._job_complete = True
+        self._assembling = False
         self.gluescript.append("end_job()")
 
     # ------------------------------------------------------------------ #
@@ -679,6 +689,7 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_z_speed}",
             f"JOG_Z Rel:MACHINE Z={z}mm",
         ]
+        self._current_z = z
         return lines
 
     def jog_u_to(self, u: float) -> list[str]:
@@ -687,6 +698,7 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_u_speed}",
             f"JOG_U Rel:MACHINE U={u}mm",
         ]
+        self._current_u = u
         return lines
 
     def jog_xy_rel(self, x: float | None = None, y: float | None = None) -> list[str]:
@@ -739,6 +751,7 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_z_speed}",
             f"JOG_Z Rel:CURRENT Z={z}mm",
         ]
+        self._current_z += z
         return lines
 
     def jog_u_rel(self, u: float | None = None) -> list[str]:
@@ -749,7 +762,36 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_u_speed}",
             f"JOG_U Rel:CURRENT U={u}mm",
         ]
+        self._current_u += u
         return lines
+
+    def update_position(
+        self,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        u: float | None = None,
+    ) -> None:
+        """Sync tracked position from controller-reported coordinates.
+
+        Called when a live session receives MEM_CURRENT_POSITION replies.
+        While a job is being assembled or re-staged (_assembling), the
+        position model is the trajectory cursor and must not be overwritten
+        by replies — the update is then ignored.
+
+        Args:
+            x/y/z/u: New axis position in mm; None leaves that axis unchanged.
+        """
+        if self._assembling:
+            return
+        if x is not None:
+            self._current_x = float(x)
+        if y is not None:
+            self._current_y = float(y)
+        if z is not None:
+            self._current_z = float(z)
+        if u is not None:
+            self._current_u = float(u)
 
     def home(self) -> list[str]:
         """Generate rpascript to home the X and Y axes.
@@ -959,47 +1001,49 @@ class GlueScript:
             self._layer_actions = {}
             self._job_complete = False
             self._layer = 0
-            self._current_x = 0.0
-            self._current_y = 0.0
             self._layer_trx = float('inf')
             self._layer_try = float('inf')
             self._layer_blx = -float('inf')
             self._layer_bly = -float('inf')
             self._last_layer_has_content = False
+            self._assembling = True
 
-            for line in gluescript:
-                if not line.strip():
-                    continue
-                if line.lstrip().startswith("#"):
-                    continue
-                try:
-                    name, args = self._parse_gluescript_line(line)
-                except (ValueError, SyntaxError) as exc:
-                    raise RuntimeError(
-                        f"Failed to parse gluescript line: {line!r}: {exc}"
-                    ) from exc
-                if name not in self._command_registry:
-                    raise RuntimeError(
-                        f"Unknown gluescript command: {name!r} in line {line!r}"
-                    )
-                if name in self.LIVE_ONLY_COMMANDS:
-                    logger.warning(
-                        "Skipping live-only command %r during re-stage "
-                        "(jog and home commands act on the live session and are not part of a saved job)",
-                        name,
-                    )
-                    continue
-                try:
-                    self._command_registry[name](*args)
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"Error re-staging command {name!r} with args {args!r}: {exc}"
-                    ) from exc
+            try:
+                for line in gluescript:
+                    if not line.strip():
+                        continue
+                    if line.lstrip().startswith("#"):
+                        continue
+                    try:
+                        name, args = self._parse_gluescript_line(line)
+                    except (ValueError, SyntaxError) as exc:
+                        raise RuntimeError(
+                            f"Failed to parse gluescript line: {line!r}: {exc}"
+                        ) from exc
+                    if name not in self._command_registry:
+                        raise RuntimeError(
+                            f"Unknown gluescript command: {name!r} in line {line!r}"
+                        )
+                    if name in self.LIVE_ONLY_COMMANDS:
+                        logger.warning(
+                            "Skipping live-only command %r during re-stage "
+                            "(jog and home commands act on the live session and are not part of a saved job)",
+                            name,
+                        )
+                        continue
+                    try:
+                        self._command_registry[name](*args)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Error re-staging command {name!r} with args {args!r}: {exc}"
+                        ) from exc
 
-            if not self._job_complete:
-                raise RuntimeError(
-                    "Re-staged gluescript is missing end_job() — job was not completed"
-                )
+                if not self._job_complete:
+                    raise RuntimeError(
+                        "Re-staged gluescript is missing end_job() — job was not completed"
+                    )
+            finally:
+                self._assembling = False
 
         # Finalization — require end_job() for non-re-staging path
         if gluescript is None and not self._job_complete:
