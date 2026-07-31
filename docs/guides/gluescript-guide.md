@@ -488,6 +488,7 @@ The TUI provides interactive access to GlueScript via the `/gluescript` command.
 | `run` | Stage and execute the job |
 | `save <path>` | Persist the current gluescript to a `.cglu` file |
 | `load <path>` | Load a `.cglu` file, validate it, and stage it |
+| `edit` | Open the gluescript in a full-screen editor; on save, validate and re-stage it |
 | `list` | Display high-level gluescript commands |
 | `list_rpa` | Display generated low-level rpascript commands |
 
@@ -511,6 +512,24 @@ complete when `end_job()` is replayed). Load errors fail loud without corrupting
 live state and cover: file not found, permission denied, non-text file,
 empty/blank-only file, "no stageable commands" (all-live-only or comments-only
 files), and a validation failure reported as `Load failed: ...`.
+
+### Editing: `edit`
+
+`/gluescript edit` opens the current gluescript transcript in the TUI's
+full-screen editor (Ctrl+S saves, Esc cancels). The editor shows the same
+lines that `/gluescript list` displays — the canonical `.cglu` format that
+`save` writes.
+
+On save the edited lines go through the same pipeline as `load`: live-only
+jog/home lines are ignored with a warning (`ignoring live-only command line
+after edit`), the result is validated on a throwaway `GlueScript` instance,
+and only then applied via `driver.stage_rpascript(lines)` — which rebuilds
+both the rpascript and the transcript. A failed validation reports
+`Edit failed: ...` and leaves the live state untouched. Success logs
+`GlueScript: Edited — N gluescript lines, staged M rpascript lines`.
+Cancelling logs `GlueScript: Edit cancelled.` With nothing to edit the
+command reports `Nothing to edit (gluescript is empty). Use /gluescript new
+or /gluescript load first.`
 
 ### Jog & Home Commands Are Live-Only
 

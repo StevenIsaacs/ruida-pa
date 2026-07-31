@@ -137,7 +137,8 @@ class ScriptEditor(ModalScreen):
 
     Opens with the current _loaded_script content as editable text.
     Ctrl+S saves (strips blank lines, updates _loaded_script).
-    Escape cancels (discards changes).
+    Escape cancels (discards changes). An optional title is shown in
+    the editor header.
     """
 
     CSS = """
@@ -149,6 +150,14 @@ class ScriptEditor(ModalScreen):
         height: 90%;
         border: thick $primary;
         background: $surface;
+    }
+    #editor-title {
+        dock: top;
+        height: 1;
+        padding: 0 1;
+        background: $primary-darken-1;
+        text-style: bold;
+        content-align: left middle;
     }
     #find-bar {
         dock: top;
@@ -186,15 +195,18 @@ class ScriptEditor(ModalScreen):
         ("escape", "cancel", "Cancel"),
     ]
 
-    def __init__(self, initial_text: str) -> None:
+    def __init__(self, initial_text: str, title: str | None = None) -> None:
         super().__init__()
         self._initial = initial_text
+        self._title = title
         self._find_matches: list[tuple[int, int]] = []
         self._find_index: int = -1
         self._find_active: bool = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="editor-box"):
+            if self._title:
+                yield Static(self._title, id="editor-title")
             with Horizontal(id="find-bar"):
                 yield Input(placeholder="Find...", id="find-input")
                 yield Static("", id="find-info")
@@ -593,7 +605,7 @@ class TuiAdapter(App):
             "plot": "Plot loaded script moves in a Bokeh visualization",
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
-            "gluescript": "GlueScript high-level scripting. Subcommands: new, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa, show",
+            "gluescript": "GlueScript high-level scripting. Subcommands: new, declare_job, end_job, declare_layer, layer, stage, run, save, load, edit, list, list_rpa, show",
             "home": "home: Home X and Y axes (machine origin)",
             "home_z": "home_z: Home Z axis",
             "home_u": "home_u: Home U axis (rotary)",
@@ -1268,6 +1280,7 @@ class TuiAdapter(App):
             "  /gluescript run                              Stage and execute the job\n"
             "  /gluescript save <path>                         Save gluescript to a .cglu file\n"
             "  /gluescript load <path>                         Load a .cglu gluescript file and stage it\n"
+            "  /gluescript edit                            Edit the gluescript in a full-screen editor\n"
             "  /gluescript list                             Display high-level gluescript commands\n"
             "  /gluescript list_rpa                         Display generated low-level rpascript commands\n"
         )
@@ -2582,56 +2595,39 @@ class TuiAdapter(App):
             if not [ln for ln in lines if ln.strip()]:
                 self._log_error(f"File is empty or contains only blank lines: {path}")
                 return
-            # Live-only commands (jogs and homing) act on the live session —
-            # never replay them from a file. Warn and drop them before
-            # validation and staging.
-            gluescript_parser = GlueScript()
-            kept_lines: list[str] = []
-            live_only_dropped = False
-            for line in lines:
-                if not line.strip() or line.lstrip().startswith("#"):
-                    kept_lines.append(line)
-                    continue
-                try:
-                    name, _args = gluescript_parser._parse_gluescript_line(line)
-                except (ValueError, SyntaxError):
-                    kept_lines.append(line)
-                    continue
-                if name in GlueScript.LIVE_ONLY_COMMANDS:
-                    live_only_dropped = True
-                    self._log_warning(f"GlueScript: ignoring live-only command line on load: {line.strip()}")
-                    continue
-                kept_lines.append(line)
-            lines = kept_lines
-            # A file whose only commands were live-only lines has nothing left to
-            # stage — say so instead of surfacing the misleading
-            # "missing end_job()" validation error.
-            if not [ln for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]:
-                if live_only_dropped:
-                    self._log_error(
-                        f"GlueScript: no stageable commands in {path} "
-                        "(live-only commands — jogs and homing — were ignored)"
-                    )
-                else:
-                    self._log_error(f"GlueScript: no stageable commands in {path}")
+            kept = self._apply_gluescript_lines(lines, "on load", f"in {path}", "Load")
+            if kept is None:
                 return
-            # Validate on a throwaway instance first — fail loud without
-            # corrupting the live driver's state. Suppress the inline()
-            # staging warning on this throwaway: the real apply below keeps
-            # the default flag, so the warning fires exactly once.
-            try:
-                validation = GlueScript()
-                validation._warn_inline = False
-                validation.stage_rpascript(lines)
-            except RuntimeError as e:
-                self._log_error(f"Load failed: {e}")
-                return
-            # Apply — same input, already validated, cannot fail.
-            driver.stage_rpascript(lines)
             self._gluescript_was_run = False
             self._log_info(
-                f"Loaded {len(lines)} gluescript lines from {path}, "
+                f"Loaded {len(kept)} gluescript lines from {path}, "
                 f"staged {len(driver.rpascript)} rpascript lines"
+            )
+
+        elif sub == "edit":
+            if not driver.gluescript:
+                self._log_error(
+                    "GlueScript: Nothing to edit (gluescript is empty). "
+                    "Use /gluescript new or /gluescript load first."
+                )
+                return
+
+            def on_edit(result: list[str] | None) -> None:
+                if result is None:
+                    self._log_info("GlueScript: Edit cancelled.")
+                    return
+                kept = self._apply_gluescript_lines(result, "after edit", "after edit", "Edit")
+                if kept is None:
+                    return
+                self._gluescript_was_run = False
+                self._log_info(
+                    f"GlueScript: Edited — {len(kept)} gluescript lines, "
+                    f"staged {len(driver.rpascript)} rpascript lines"
+                )
+
+            self.push_screen(
+                ScriptEditor("\n".join(driver.gluescript), title="Edit GlueScript"),
+                on_edit,
             )
 
         elif sub == "list":
@@ -2650,7 +2646,65 @@ class TuiAdapter(App):
 
         else:
             self._log_error(f"Unknown gluescript subcommand: {sub}")
-            self._log_info("Available: new, show, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa")
+            self._log_info("Available: new, show, declare_job, end_job, declare_layer, layer, stage, run, save, load, edit, list, list_rpa")
+
+    def _apply_gluescript_lines(
+        self,
+        lines: list[str],
+        live_ctx: str,
+        where_ctx: str,
+        fail_prefix: str,
+    ) -> list[str] | None:
+        """Filter live-only lines, validate, and apply a gluescript to the driver.
+
+        Shared pipeline for ``/gluescript load`` and ``/gluescript edit``:
+        drops live-only jog/home lines with a warning, requires at least one
+        stageable command, validates on a throwaway GlueScript instance
+        (suppressing the inline() staging warning), then applies via
+        ``driver.stage_rpascript()``. Returns the kept lines, or None if the
+        input cannot be staged (the error is already logged).
+        """
+        driver = self._ruida_driver
+        if driver is None:
+            self._log_error("No active session. Use 'session start' first.")
+            return None
+        gluescript_parser = GlueScript()
+        kept_lines: list[str] = []
+        live_only_dropped = False
+        for line in lines:
+            if not line.strip() or line.lstrip().startswith("#"):
+                kept_lines.append(line)
+                continue
+            try:
+                name, _args = gluescript_parser._parse_gluescript_line(line)
+            except (ValueError, SyntaxError):
+                kept_lines.append(line)
+                continue
+            if name in GlueScript.LIVE_ONLY_COMMANDS:
+                live_only_dropped = True
+                self._log_warning(
+                    f"GlueScript: ignoring live-only command line {live_ctx}: {line.strip()}"
+                )
+                continue
+            kept_lines.append(line)
+        if not [ln for ln in kept_lines if ln.strip() and not ln.lstrip().startswith("#")]:
+            if live_only_dropped:
+                self._log_error(
+                    f"GlueScript: no stageable commands {where_ctx} "
+                    "(live-only commands — jogs and homing — were ignored)"
+                )
+            else:
+                self._log_error(f"GlueScript: no stageable commands {where_ctx}")
+            return None
+        try:
+            validation = GlueScript()
+            validation._warn_inline = False
+            validation.stage_rpascript(kept_lines)
+        except RuntimeError as e:
+            self._log_error(f"{fail_prefix} failed: {e}")
+            return None
+        driver.stage_rpascript(kept_lines)
+        return kept_lines
 
     def _handle_live_command(self, line: str) -> None:
         """Dispatch a bare live-only command (jog or home) to the driver."""
@@ -2722,7 +2776,7 @@ class TuiAdapter(App):
                 self._log_info(f"Script updated: {len(result)} lines")
 
         text = "\n".join(self._loaded_script) if self._loaded_script else ""
-        self.push_screen(ScriptEditor(text), on_edit)
+        self.push_screen(ScriptEditor(text, title="Edit loaded script"), on_edit)
 
     @staticmethod
     def _file_extensions_for_cmd(cmd: str) -> set[str] | None:
