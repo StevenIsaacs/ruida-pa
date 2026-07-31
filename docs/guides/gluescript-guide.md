@@ -494,8 +494,9 @@ plus the `jog_set_*` config setters: `jog_set_xy_speed`, `jog_set_z_speed`,
   gluescript. It immediately runs the returned rpascript lines against the
   controller when there is an active session (`driver.is_connected`). With no
   active session it warns and ignores the jog; if the background script runner
-  is dead it warns `not sent — <reason>`. Homing commands behave the same way:
-  `home`/`home_z`/`home_u` run immediately against a connected controller.
+  is dead it warns `not sent — <reason>`. Used as bare TUI commands, homing
+  behaves the same way: `home`/`home_z`/`home_u` run immediately against a
+  connected controller (the `/gluescript layer` action list is jog-only).
 - **In a `.cglu` file**, jog and home lines are ignored with a warning on load
   (`ignoring live-only command line on load`) and are never used for position
   tracking — the re-stage loop skips all `LIVE_ONLY_COMMANDS`.

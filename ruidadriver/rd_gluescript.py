@@ -89,6 +89,10 @@ class GlueScript:
     # Home commands are the live-only non-jog commands. Any FUTURE live-only
     # command that is neither a jog nor a home must be added to
     # LIVE_ONLY_COMMANDS separately (e.g. LIVE_ONLY_COMMANDS = JOG_COMMANDS | {...}).
+    # Register any future live-only command in BOTH LIVE_ONLY_COMMANDS and
+    # registry_methods: the re-stage check consults the registry first, so a
+    # missing registry entry would surface as "Unknown gluescript command"
+    # instead of the live-only skip.
     LIVE_ONLY_COMMANDS: frozenset[str] = JOG_COMMANDS | HOME_COMMANDS
 
     def __init__(self) -> None:
@@ -599,7 +603,7 @@ class GlueScript:
         self._on_action_boundary()
 
     # ------------------------------------------------------------------ #
-    #  Phase 4: Jogging Methods
+    #  Phase 4: Jogging & Homing Methods
     # ------------------------------------------------------------------ #
 
     def jog_set_xy_speed(self, speed: float) -> None:
@@ -756,11 +760,19 @@ class GlueScript:
         return ["HOME_XY"]
 
     def home_z(self) -> list[str]:
-        """Generate rpascript to home the Z axis."""
+        """Generate rpascript to home the Z axis.
+
+        Returns:
+            ["HOME_Z"] as rpascript to home the Z axis.
+        """
         return ["HOME_Z"]
 
     def home_u(self) -> list[str]:
-        """Generate rpascript to home the U axis (rotary)."""
+        """Generate rpascript to home the U axis (rotary).
+
+        Returns:
+            ["HOME_U"] as rpascript to home the U axis (rotary).
+        """
         return ["HOME_U"]
 
     # ------------------------------------------------------------------ #

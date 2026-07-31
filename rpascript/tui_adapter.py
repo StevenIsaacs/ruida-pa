@@ -2582,11 +2582,12 @@ class TuiAdapter(App):
             if not [ln for ln in lines if ln.strip()]:
                 self._log_error(f"File is empty or contains only blank lines: {path}")
                 return
-            # Jog commands are live-only actions — never replay them from a
-            # file. Warn and drop them before validation and staging.
+            # Live-only commands (jogs and homing) act on the live session —
+            # never replay them from a file. Warn and drop them before
+            # validation and staging.
             gluescript_parser = GlueScript()
             kept_lines: list[str] = []
-            jogs_dropped = False
+            live_only_dropped = False
             for line in lines:
                 if not line.strip() or line.lstrip().startswith("#"):
                     kept_lines.append(line)
@@ -2597,16 +2598,16 @@ class TuiAdapter(App):
                     kept_lines.append(line)
                     continue
                 if name in GlueScript.LIVE_ONLY_COMMANDS:
-                    jogs_dropped = True
+                    live_only_dropped = True
                     self._log_warning(f"GlueScript: ignoring live-only command line on load: {line.strip()}")
                     continue
                 kept_lines.append(line)
             lines = kept_lines
-            # A file whose only commands were jog lines has nothing left to
+            # A file whose only commands were live-only lines has nothing left to
             # stage — say so instead of surfacing the misleading
             # "missing end_job()" validation error.
             if not [ln for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]:
-                if jogs_dropped:
+                if live_only_dropped:
                     self._log_error(
                         f"GlueScript: no stageable commands in {path} "
                         "(live-only commands — jogs and homing — were ignored)"
