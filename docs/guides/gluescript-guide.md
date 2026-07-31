@@ -313,7 +313,7 @@ followed by a `JOG_XY` command relative to the machine origin.
 driver.jog_xy_to(x=50.0, y=50.0)
 # Produces:
 #   SPEED_LASER_1 100
-#   JOG_XY Rel:MACHINE X=50.000mm Y=50.000mm
+#   JOG_XY Rel:MACHINE X=50.0mm Y=50.0mm
 ```
 
 ### 4.4 Single-Axis Operations

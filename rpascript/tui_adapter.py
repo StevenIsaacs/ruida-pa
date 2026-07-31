@@ -14,6 +14,7 @@ import functools
 import inspect
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -457,28 +458,11 @@ class TuiAdapter(App):
         "monitor",
         "scan_mem",
     )
-    # 3 spots must stay in sync for a future new jog command —
-    # GlueScript.JOG_COMMANDS (recognition), _NORMAL_COMMANDS +
-    # _cmd_descriptions + /help block (autocomplete/usage/help).
-    _NORMAL_COMMANDS: tuple[str, ...] = (
-        "session",
-        "server",
-        "jog_xy_to",
-        "jog_x_to",
-        "jog_y_to",
-        "jog_z_to",
-        "jog_u_to",
-        "jog_xy_rel",
-        "jog_x_rel",
-        "jog_y_rel",
-        "jog_z_rel",
-        "jog_u_rel",
-        "jog_set_xy_speed",
-        "jog_set_z_speed",
-        "jog_set_u_speed",
-        "jog_set_xy_rel",
-        "jog_set_z_rel",
-        "jog_set_u_rel",
+    # Only _cmd_descriptions and the /help block (usage text) stay
+    # hand-maintained for jogs; recognition (GlueScript.JOG_COMMANDS) and
+    # this autocomplete list stay in sync automatically.
+    _NORMAL_COMMANDS: tuple[str, ...] = ("session", "server") + tuple(
+        sorted(GlueScript.JOG_COMMANDS)
     )
 
     CSS = """
@@ -609,22 +593,22 @@ class TuiAdapter(App):
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
             "gluescript": "GlueScript high-level scripting. Subcommands: new, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa, show",
-            "jog_xy_to": "Jog XY to absolute position: jog_xy_to <x> <y> (mm)",
-            "jog_x_to": "Jog X to absolute position: jog_x_to <x> (mm)",
-            "jog_y_to": "Jog Y to absolute position: jog_y_to <y> (mm)",
-            "jog_z_to": "Jog Z to absolute position: jog_z_to <z> (mm, max 2000)",
-            "jog_u_to": "Jog U to absolute position: jog_u_to <u> (mm)",
-            "jog_xy_rel": "Jog XY relative: jog_xy_rel [x] [y] (uses configured defaults)",
-            "jog_x_rel": "Jog X relative: jog_x_rel [x] (uses configured default)",
-            "jog_y_rel": "Jog Y relative: jog_y_rel [y] (uses configured default)",
-            "jog_z_rel": "Jog Z relative: jog_z_rel [z] (uses configured default)",
-            "jog_u_rel": "Jog U relative: jog_u_rel [u] (uses configured default)",
-            "jog_set_xy_speed": "Set XY jog speed: jog_set_xy_speed <speed> (mm/s)",
-            "jog_set_z_speed": "Set Z jog speed: jog_set_z_speed <speed> (mm/s)",
-            "jog_set_u_speed": "Set U jog speed: jog_set_u_speed <speed> (mm/s)",
-            "jog_set_xy_rel": "Set relative XY jog distance: jog_set_xy_rel <delta> (mm)",
-            "jog_set_z_rel": "Set relative Z jog distance: jog_set_z_rel <delta> (mm)",
-            "jog_set_u_rel": "Set relative U jog distance: jog_set_u_rel <delta> (mm)",
+            "jog_xy_to": "jog_xy_to <x> <y>: Jog XY to absolute position (mm)",
+            "jog_x_to": "jog_x_to <x>: Jog X to absolute position (mm)",
+            "jog_y_to": "jog_y_to <y>: Jog Y to absolute position (mm)",
+            "jog_z_to": "jog_z_to <z>: Jog Z to absolute position (mm, max 2000)",
+            "jog_u_to": "jog_u_to <u>: Jog U to absolute position (mm)",
+            "jog_xy_rel": "jog_xy_rel [x] [y]: Jog XY relative (uses configured defaults)",
+            "jog_x_rel": "jog_x_rel [x]: Jog X relative (uses configured default)",
+            "jog_y_rel": "jog_y_rel [y]: Jog Y relative (uses configured default)",
+            "jog_z_rel": "jog_z_rel [z]: Jog Z relative (uses configured default)",
+            "jog_u_rel": "jog_u_rel [u]: Jog U relative (uses configured default)",
+            "jog_set_xy_speed": "jog_set_xy_speed <speed>: Set XY jog speed (mm/s)",
+            "jog_set_z_speed": "jog_set_z_speed <speed>: Set Z jog speed (mm/s)",
+            "jog_set_u_speed": "jog_set_u_speed <speed>: Set U jog speed (mm/s)",
+            "jog_set_xy_rel": "jog_set_xy_rel <delta>: Set relative XY jog distance (mm)",
+            "jog_set_z_rel": "jog_set_z_rel <delta>: Set relative Z jog distance (mm)",
+            "jog_set_u_rel": "jog_set_u_rel <delta>: Set relative U jog distance (mm)",
         }
         self._suggest_matches: list[str] = []
         self._suggest_selected: int = 0
@@ -971,7 +955,7 @@ class TuiAdapter(App):
                 self._suggest_popup.write("[bold]Commands:[/bold]")
                 for cmd in matches:
                     self._suggest_popup.write(
-                        f"  {cmd:<12} {self._cmd_descriptions[cmd]}"
+                        f"  {cmd:<22} {self._cmd_descriptions[cmd]}"
                     )
                 return
 
@@ -2677,11 +2661,24 @@ class TuiAdapter(App):
 
             values: list[float] = []
             for a in args:
+                msg = f"Invalid number for {name}: '{a}'"
                 try:
-                    values.append(float(a))
+                    v = float(a)
                 except ValueError:
-                    self._log_error(f"Invalid number for {name}: '{a}'")
+                    self._log_error(msg)
                     return
+                if not math.isfinite(v):
+                    self._log_error(msg)
+                    return
+                values.append(v)
+
+            # Movement jogs mutate position tracking, so check connectivity
+            # before invoking them; is_connected does not guarantee the
+            # background script runner thread is alive — run() raises
+            # RuntimeError when it isn't.
+            if not name.startswith("jog_set_") and not driver.is_connected:
+                self._log_warning(f"{name} ignored — no active session")
+                return
 
             try:
                 result = method(*values)
@@ -2693,9 +2690,6 @@ class TuiAdapter(App):
                 if not result:
                     self._log_warning(f"{name} ignored — command produced no rpascript lines")
                     return
-                if not driver.is_connected:
-                    self._log_warning(f"{name} ignored — no active session")
-                    return
                 try:
                     driver.run(result)
                 except RuntimeError as e:
@@ -2704,7 +2698,7 @@ class TuiAdapter(App):
                 self._log_info(f"{name} sent to controller")
             else:
                 self._log_info(f"{name} applied")
-        except (ValueError, RuntimeError, TypeError) as e:
+        except Exception as e:
             self._log_error(f"{type(e).__name__}: {e}")
 
     def _cmd_edit(self, args: str = "") -> None:
