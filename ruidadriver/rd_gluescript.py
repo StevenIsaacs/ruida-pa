@@ -78,9 +78,18 @@ class GlueScript:
         "jog_set_z_rel",
         "jog_set_u_rel",
     })
-    # If a future live-only command is not a jog it must be added to
+    # Home commands are live-only machine actions: they home the axes on the
+    # live session and are never part of a saved job. They require a
+    # connected session (unlike jog_set_* setters).
+    HOME_COMMANDS: frozenset[str] = frozenset({
+        "home",
+        "home_z",
+        "home_u",
+    })
+    # Home commands are the live-only non-jog commands. Any FUTURE live-only
+    # command that is neither a jog nor a home must be added to
     # LIVE_ONLY_COMMANDS separately (e.g. LIVE_ONLY_COMMANDS = JOG_COMMANDS | {...}).
-    LIVE_ONLY_COMMANDS: frozenset[str] = JOG_COMMANDS
+    LIVE_ONLY_COMMANDS: frozenset[str] = JOG_COMMANDS | HOME_COMMANDS
 
     def __init__(self) -> None:
         """Initialize GlueScript with empty scripts and default state."""
@@ -216,6 +225,9 @@ class GlueScript:
             "jog_y_rel",
             "jog_z_rel",
             "jog_u_rel",
+            "home",
+            "home_z",
+            "home_u",
         ]
         for name in registry_methods:
             self._command_registry[name] = getattr(self, name)
@@ -735,6 +747,22 @@ class GlueScript:
         ]
         return lines
 
+    def home(self) -> list[str]:
+        """Generate rpascript to home the X and Y axes.
+
+        Returns:
+            list[str]: rpascript lines for the home command.
+        """
+        return ["HOME_XY"]
+
+    def home_z(self) -> list[str]:
+        """Generate rpascript to home the Z axis."""
+        return ["HOME_Z"]
+
+    def home_u(self) -> list[str]:
+        """Generate rpascript to home the U axis (rotary)."""
+        return ["HOME_U"]
+
     # ------------------------------------------------------------------ #
     #  Phase 5: Layer Actions — Moves, Cuts & Power
     # ------------------------------------------------------------------ #
@@ -945,7 +973,7 @@ class GlueScript:
                 if name in self.LIVE_ONLY_COMMANDS:
                     logger.warning(
                         "Skipping live-only command %r during re-stage "
-                        "(jog commands act on the live session and are not part of a saved job)",
+                        "(jog and home commands act on the live session and are not part of a saved job)",
                         name,
                     )
                     continue

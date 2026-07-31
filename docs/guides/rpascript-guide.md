@@ -55,13 +55,17 @@ server stop
 - These are processed by `start_rpyc_server()` / `server.stop()`, not
   sent to the controller as commands.
 
-### Jog Commands
+### Jog & Home Commands
 
-The 16 jog commands are bare commands (no `/` prefix) processed by the TUI
-before rpascript parsing. They are **live-only** — they act on the live session
-and are never persisted to, or replayed from, `.cglu` files:
+The 16 jog commands and 3 homing commands (`home`, `home_z`, `home_u`) are bare
+commands (no `/` prefix) processed by the TUI before rpascript parsing. They
+are **live-only** — they act on the live session and are never persisted to, or
+replayed from, `.cglu` files:
 
 ```rds
+home                            # Home X and Y axes (machine origin)
+home_z                          # Home Z axis
+home_u                          # Home U axis (rotary)
 jog_xy_to 10 20             # Jog XY to absolute position (mm)
 jog_x_to 50                 # Jog X to absolute position (mm)
 jog_y_to 50                 # Jog Y to absolute position (mm)
@@ -85,6 +89,9 @@ jog_set_u_rel 10            # Set relative U jog distance (mm)
   warn-and-ignore.
 - **Setters** (`jog_set_*`) configure the live jog session (speeds and relative
   defaults) and never produce rpascript lines.
+- **Homing commands** (`home`, `home_z`, `home_u`) require a connected session
+  and run immediately (expanding to `HOME_XY`/`HOME_Z`/`HOME_U`); they never
+  produce gluescript lines.
 - These commands are not rpascript — the rpascript parser is not involved.
 
 ### new_packet Directive

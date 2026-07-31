@@ -98,7 +98,42 @@ Jogging and job coordinates are relative to defined reference points. The refere
 
 **AGENT:** Valid reference points are defined in `ruida_protocol.py`. The valid reference point mnemonics are defined by the `RELT` table and the format specifier is `REL`.
 ## Jogging Moves
-Jogging moves are to be used to move the laser when a job is not running. Movement jogs are **live-only**: in the TUI they are executed immediately against the controller and are never appended to the `gluescript`, and movement jog lines in a persisted file are ignored with a warning on load. The jog settings methods (`jog_set_*`) are live-only as well — they configure the live jog session (speeds and relative distances) without transmitting anything, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The on-disk GlueScript format is `.cglu` (the `.gs` extension is deliberately unused because it conflicts with Google Apps Script); `/gluescript save` and `/gluescript load` read and write this format.
+Jogging moves are to be used to move the laser when a job is not running. Movement jogs are **live-only**: in the TUI they are executed immediately against the controller and are never appended to the `gluescript`, and movement jog lines in a persisted file are ignored with a warning on load. The jog settings methods (`jog_set_*`) are live-only as well — they configure the live jog session (speeds and relative distances) without transmitting anything, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The homing methods (`home`, `home_z`, `home_u` — machine homing actions) are live-only too: they run against a connected session, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The on-disk GlueScript format is `.cglu` (the `.gs` extension is deliberately unused because it conflicts with Google Apps Script); `/gluescript save` and `/gluescript load` read and write this format.
+### Homing methods
+Home the machine axes. Homing methods are live-only like movement jogs — they run immediately against a connected session and never append to the `gluescript`:
+#### home(...)
+Home the X and Y axes (machine origin).
+
+Prototype:
+```
+home() -> list[str]
+```
+Expands to and returns:
+```
+["HOME_XY"]
+```
+#### home_z(...)
+Home the Z axis.
+
+Prototype:
+```
+home_z() -> list[str]
+```
+Expands to and returns:
+```
+["HOME_Z"]
+```
+#### home_u(...)
+Home the U axis (rotary).
+
+Prototype:
+```
+home_u() -> list[str]
+```
+Expands to and returns:
+```
+["HOME_U"]
+```
 ### Jog Settings methods
 These methods set variables which are then used by the jog methods to generate the corresponding `rpascript` for jogging.
 #### jog_set_xy_speed(...)
@@ -334,7 +369,7 @@ Parameters:
 ## Script Generator Methods
 This section defines the essential methods and corresponding `gluescript` commands. The `gluescript` command parameters mirror those of the underlying generator   method and in the following are shown only as `<function>(...)`.
 
-Each of these methods append themselves to the `self.gluescript` attribute and the corresponding generated script to the `self.rpascript` attribute. The jog methods (`jog_*`, including the `jog_set_*` config setters) are the exception — they are live-only and never append to the `gluescript`.
+Each of these methods append themselves to the `self.gluescript` attribute and the corresponding generated script to the `self.rpascript` attribute. The jog methods (`jog_*`, including the `jog_set_*` config setters) and the homing methods (`home`, `home_z`, `home_u`) are the exception — they are live-only and never append to the `gluescript`.
 
 NOTE: When re-staging a `gluescript`, calling a `gluescript` command involves tokenizing the line with `shlex.split()`, converting arguments with `ast.literal_eval()`, and looking up the method name in an internal command registry (`_command_registry` mapping method name strings to bound methods). This avoids the security and fragility issues of `exec()`.
 

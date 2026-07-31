@@ -28,10 +28,12 @@ a more expressive interface for defining laser jobs.
 - **Command registry for re-staging** — gluescript lines can be re-processed
   through the command registry to regenerate rpascript, enabling iterative
   job editing.
-- **Jogs are live-only** — Jog commands (`jog_*`) act on the live session and are
-  never persisted to `.cglu` files nor replayed from them. Movement jogs execute
-  immediately against the controller; `jog_set_*` config setters configure the
-  live jog session (speeds and relative distances).
+- **Jogs and homing are live-only** — Jog commands (`jog_*`) and homing
+  commands (`home`, `home_z`, `home_u`) act on the live session and are never
+  part of a saved job. Movement jogs and homing execute immediately against the
+  controller; `jog_set_*` config setters configure the live jog session (speeds
+  and relative distances). None of these commands are ever persisted to `.cglu`
+  files nor replayed from them.
 
 ### Why GlueScript?
 
@@ -127,7 +129,9 @@ run_job()
    changes. Each of these operations generates both a gluescript line and
    corresponding rpascript lines. (Jog commands are live-only: movement
    jogs execute immediately and `jog_set_*` setters configure the live jog
-   session — none of them are ever part of the saved job — see Section 5.)
+   session — none of them are ever part of the saved job. Homing commands
+   (`home`, `home_z`, `home_u`) are live-only too: they home the machine
+   immediately against the connected controller. See Section 5.)
 
 5. **`end_job()`** — Complete the job definition. Emits `END_JOB` in the
    rpascript and marks the job ready for staging.
@@ -354,6 +358,28 @@ driver.jog_xy_rel(x=20.0, y=15.0)  # Override for this call
 driver.jog_z_rel(z=5.0)
 ```
 
+### 4.5.1 Homing
+
+Home the machine axes. Homing commands are bare no-parameter mnemonics
+expanding to a single rpascript line each:
+
+```python
+driver.home()     # Produces: HOME_XY
+driver.home_z()   # Produces: HOME_Z
+driver.home_u()   # Produces: HOME_U
+```
+
+| Method | Expands to | Description |
+|--------|------------|-------------|
+| `home()` | `HOME_XY` | Home X and Y axes (machine origin) |
+| `home_z()` | `HOME_Z` | Home Z axis |
+| `home_u()` | `HOME_U` | Home U axis (rotary) |
+
+Homing commands are **live-only**, like movement jogs: they execute
+immediately against a connected controller, are never appended to the
+gluescript, and their lines in a `.cglu` file are ignored with a warning
+on load (see Section 5).
+
 ### 4.6 Utilities
 
 #### `comment(comments: list[str])`
@@ -453,35 +479,39 @@ Load **auto-stages** the file: after a successful load the rpascript is ready,
 but finalization still requires `end_job()` in the file (the job is only marked
 complete when `end_job()` is replayed). Load errors fail loud without corrupting
 live state and cover: file not found, permission denied, non-text file,
-empty/blank-only file, "no stageable commands" (all-jog or comments-only files),
-and a validation failure reported as `Load failed: ...`.
+empty/blank-only file, "no stageable commands" (all-live-only or comments-only
+files), and a validation failure reported as `Load failed: ...`.
 
-### Jog Commands Are Live-Only
+### Jog & Home Commands Are Live-Only
 
 All 16 jog commands (`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`,
 `jog_u_to`, `jog_xy_rel`, `jog_x_rel`, `jog_y_rel`, `jog_z_rel`, `jog_u_rel`,
 plus the `jog_set_*` config setters: `jog_set_xy_speed`, `jog_set_z_speed`,
-`jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`) are
-live-only:
+`jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`) and the
+3 homing commands (`home`, `home_z`, `home_u`) are live-only:
 
 - **In the TUI**, `/gluescript layer <N> jog_xy_to <x> <y>` never appends to the
   gluescript. It immediately runs the returned rpascript lines against the
   controller when there is an active session (`driver.is_connected`). With no
   active session it warns and ignores the jog; if the background script runner
-  is dead it warns `not sent — <reason>`.
-- **In a `.cglu` file**, jog lines are ignored with a warning on load
-  (`ignoring live-only jog line on load`) and are never used for position
+  is dead it warns `not sent — <reason>`. Homing commands behave the same way:
+  `home`/`home_z`/`home_u` run immediately against a connected controller.
+- **In a `.cglu` file**, jog and home lines are ignored with a warning on load
+  (`ignoring live-only command line on load`) and are never used for position
   tracking — the re-stage loop skips all `LIVE_ONLY_COMMANDS`.
 - **`jog_set_*` config setters** (speed / relative distance) are live-only too —
   they configure defaults for the live jog session, are never appended to the
   gluescript, and lines in a `.cglu` file are ignored with a warning on load.
 
-### Bare Jog Commands
+### Bare Jog & Home Commands
 
-All 16 jog commands are also available in the TUI as **bare commands** (no
-`/gluescript layer` wrapper), alongside `session`/`server`:
+All 16 jog commands and the 3 homing commands are also available in the TUI as
+**bare commands** (no `/gluescript layer` wrapper), alongside `session`/`server`:
 
 ```
+home                         # Home X and Y axes (machine origin)
+home_z                       # Home Z axis
+home_u                       # Home U axis (rotary)
 jog_xy_to 10 20            # Jog XY to absolute position (mm)
 jog_z_to 5                 # Jog Z to absolute position (mm, max 2000)
 jog_xy_rel                 # Jog XY relative, using configured defaults
@@ -489,11 +519,11 @@ jog_set_xy_speed 150       # Set XY jog speed (mm/s) — applies live
 jog_set_xy_rel 25          # Set relative XY jog distance (mm) — applies live
 ```
 
-- Bare jog commands are live-only: movement jogs run immediately against a
-  connected controller; `jog_set_*` setters configure the live jog session and
-  never produce gluescript lines.
-- Typing a `jog` prefix brings up autocomplete with usage text; `/help` lists
-  all 16 under "Jog commands (live-only)".
+- Bare jog and home commands are live-only: movement jogs and homing run
+  immediately against a connected controller; `jog_set_*` setters configure
+  the live jog session and never produce gluescript lines.
+- Typing a `jog` or `home` prefix brings up autocomplete with usage text;
+  `/help` lists all 19 under "Jog & Home commands (live-only)".
 - Movement jogs without an active session warn-and-ignore; `jog_z_to` with
   `z > 2000` is refused (no rpascript lines are produced).
 
@@ -671,9 +701,9 @@ Re-staging (calling `stage_rpascript()` with a gluescript list) parses each
 gluescript command line and replays it through the command registry:
 
 - Standard commands are replayed via their corresponding methods
-- Jog commands (`jog_*`, including `jog_set_*` config setters) are skipped —
-  they are live-only and are never replayed or used for position tracking
-  during re-staging
+- Jog commands (`jog_*`, including `jog_set_*` config setters) and homing
+  commands (`home`, `home_z`, `home_u`) are skipped — they are live-only and
+  are never replayed or used for position tracking during re-staging
 - `inline()` commands are passed through verbatim — they are stored as-is and
   not re-parsed
 - The command registry maps method names to bound methods; if a gluescript line
@@ -852,6 +882,7 @@ jog_set_xy_speed, jog_set_z_speed, jog_set_u_speed
 jog_set_xy_rel, jog_set_z_rel, jog_set_u_rel
 jog_xy_to, jog_x_to, jog_y_to, jog_z_to, jog_u_to
 jog_xy_rel, jog_x_rel, jog_y_rel, jog_z_rel, jog_u_rel
+home, home_z, home_u
 ```
 
 ### Re-Staging Flow

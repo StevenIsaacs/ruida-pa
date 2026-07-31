@@ -459,10 +459,11 @@ class TuiAdapter(App):
         "scan_mem",
     )
     # Only _cmd_descriptions and the /help block (usage text) stay
-    # hand-maintained for jogs; recognition (GlueScript.JOG_COMMANDS) and
+    # hand-maintained for live-only commands; recognition
+    # (GlueScript.LIVE_ONLY_COMMANDS = JOG_COMMANDS | HOME_COMMANDS) and
     # this autocomplete list stay in sync automatically.
     _NORMAL_COMMANDS: tuple[str, ...] = ("session", "server") + tuple(
-        sorted(GlueScript.JOG_COMMANDS)
+        sorted(GlueScript.LIVE_ONLY_COMMANDS)
     )
 
     CSS = """
@@ -593,6 +594,9 @@ class TuiAdapter(App):
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
             "gluescript": "GlueScript high-level scripting. Subcommands: new, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa, show",
+            "home": "home: Home X and Y axes (machine origin)",
+            "home_z": "home_z: Home Z axis",
+            "home_u": "home_u: Home U axis (rotary)",
             "jog_xy_to": "jog_xy_to <x> <y>: Jog XY to absolute position (mm)",
             "jog_x_to": "jog_x_to <x>: Jog X to absolute position (mm)",
             "jog_y_to": "jog_y_to <y>: Jog Y to absolute position (mm)",
@@ -779,8 +783,8 @@ class TuiAdapter(App):
             return
         self._log_script(line)
         first_word = line.split(None, 1)[0]
-        if first_word in GlueScript.JOG_COMMANDS:
-            self._handle_jog_command(line)
+        if first_word in GlueScript.LIVE_ONLY_COMMANDS:
+            self._handle_live_command(line)
             return
 
         try:
@@ -1216,7 +1220,10 @@ class TuiAdapter(App):
             "  session end               Disconnect\n"
             "  server start host=<IP> port=<N>  Start the RPC server\n"
             "  server stop                Stop the RPC server\n"
-            "  Jog commands (live-only):\n"
+            "  Jog & Home commands (live-only):\n"
+            "    home                        Home X and Y axes (machine origin)\n"
+            "    home_z                      Home Z axis\n"
+            "    home_u                      Home U axis (rotary)\n"
             "    jog_xy_to <x> <y>           Jog XY to absolute position (mm)\n"
             "    jog_x_to <x>                Jog X to absolute position (mm)\n"
             "    jog_y_to <y>                Jog Y to absolute position (mm)\n"
@@ -2591,7 +2598,7 @@ class TuiAdapter(App):
                     continue
                 if name in GlueScript.LIVE_ONLY_COMMANDS:
                     jogs_dropped = True
-                    self._log_warning(f"GlueScript: ignoring live-only jog line on load: {line.strip()}")
+                    self._log_warning(f"GlueScript: ignoring live-only command line on load: {line.strip()}")
                     continue
                 kept_lines.append(line)
             lines = kept_lines
@@ -2602,7 +2609,7 @@ class TuiAdapter(App):
                 if jogs_dropped:
                     self._log_error(
                         f"GlueScript: no stageable commands in {path} "
-                        "(jog commands are live-only and were ignored)"
+                        "(live-only commands — jogs and homing — were ignored)"
                     )
                 else:
                     self._log_error(f"GlueScript: no stageable commands in {path}")
@@ -2640,8 +2647,8 @@ class TuiAdapter(App):
             self._log_error(f"Unknown gluescript subcommand: {sub}")
             self._log_info("Available: new, show, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa")
 
-    def _handle_jog_command(self, line: str) -> None:
-        """Dispatch a bare jog command (live-only) to the driver."""
+    def _handle_live_command(self, line: str) -> None:
+        """Dispatch a bare live-only command (jog or home) to the driver."""
         try:
             tokens = line.split()
             name = tokens[0]
@@ -2656,7 +2663,7 @@ class TuiAdapter(App):
 
             method = getattr(driver, name, None)
             if method is None:
-                self._log_error(f"Unknown jog command: {name}")
+                self._log_error(f"Unknown command: {name}")
                 return
 
             values: list[float] = []
@@ -2672,10 +2679,10 @@ class TuiAdapter(App):
                     return
                 values.append(v)
 
-            # Movement jogs mutate position tracking, so check connectivity
-            # before invoking them; is_connected does not guarantee the
-            # background script runner thread is alive — run() raises
-            # RuntimeError when it isn't.
+            # Movement jogs mutate position tracking, and home commands are
+            # machine actions, so check connectivity before invoking them;
+            # is_connected does not guarantee the background script runner
+            # thread is alive — run() raises RuntimeError when it isn't.
             if not name.startswith("jog_set_") and not driver.is_connected:
                 self._log_warning(f"{name} ignored — no active session")
                 return
