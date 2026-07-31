@@ -44,7 +44,8 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 - Checksum is a running sum of bytes in engrave/cut commands; excludes memory and jog commands. Known ~220-byte discrepancy with LightBurn captures.
 - `discovery/` is a **separate git repo** (submodule). Commit test case changes there, not in the parent.
 - `/gluescript` TUI command for high-level job scripting (see [docs/guides/gluescript-guide.md](docs/guides/gluescript-guide.md)).
-  Subcommands: `new`, `show`, `declare_job`, `end_job`, `declare_layer`, `layer`, `stage`, `run`, `list`, `list_rpa`.
+  Subcommands: `new`, `show`, `declare_job`, `end_job`, `declare_layer`, `layer`, `stage`, `run`, `save`, `load`, `list`, `list_rpa`.
+  `save`/`load` persist the current gluescript to `.cglu` files (the on-disk GlueScript format; `.gs` is deliberately unused). Movement jog commands (`jog_*`) are live-only actions — they execute immediately against a connected controller and are never persisted to, or replayed from, `.cglu` files.
 
 ## No test/lint/CI infrastructure
 
@@ -66,6 +67,7 @@ There are no unit tests, no formatter, no linter, no type checker, and no CI pip
 		- `.log` is a `tshark` capture file.
 		- `.txt` is a decode text file.
 		- `.rds` is a Ruida Script file.
+		- `.cglu` is a GlueScript file.
 		- `.tshark` is a generated `tshark` log file. NOTE: When doing round trip testing packet sequence and content should be identical to the input file. The timestamps can vary.
 	  For example, if the input file is `discovery/selected.log` then first test run using this input file will generate the following files:
 		- `tmp/selected-01.txt` for the decode file.

@@ -55,6 +55,22 @@ class GlueScript:
 
     _version = "1.0.0"
 
+    # Movement jog commands execute live on the controller and are never
+    # part of a saved job. They also mutate _current_x/_current_y as a side
+    # effect, so they must not be invoked during re-stage.
+    LIVE_ONLY_COMMANDS: frozenset[str] = frozenset({
+        "jog_xy_to",
+        "jog_x_to",
+        "jog_y_to",
+        "jog_z_to",
+        "jog_u_to",
+        "jog_xy_rel",
+        "jog_x_rel",
+        "jog_y_rel",
+        "jog_z_rel",
+        "jog_u_rel",
+    })
+
     def __init__(self) -> None:
         """Initialize GlueScript with empty scripts and default state."""
         # Script storage
@@ -921,6 +937,13 @@ class GlueScript:
                     raise RuntimeError(
                         f"Unknown gluescript command: {name!r} in line {line!r}"
                     )
+                if name in self.LIVE_ONLY_COMMANDS:
+                    logger.warning(
+                        "Skipping live-only jog command %r during re-stage "
+                        "(jogs execute live and are not part of a saved job)",
+                        name,
+                    )
+                    continue
                 try:
                     self._command_registry[name](*args)
                 except Exception as exc:

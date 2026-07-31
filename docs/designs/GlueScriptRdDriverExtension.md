@@ -98,7 +98,7 @@ Jogging and job coordinates are relative to defined reference points. The refere
 
 **AGENT:** Valid reference points are defined in `ruida_protocol.py`. The valid reference point mnemonics are defined by the `RELT` table and the format specifier is `REL`.
 ## Jogging Moves
-Jogging moves are to be used to move the laser when a job is not running. 
+Jogging moves are to be used to move the laser when a job is not running. Movement jogs are **live-only**: in the TUI they are executed immediately against the controller and are never appended to the `gluescript`, and movement jog lines in a persisted file are ignored with a warning on load. The on-disk GlueScript format is `.cglu` (the `.gs` extension is deliberately unused because it conflicts with Google Apps Script); `/gluescript save` and `/gluescript load` read and write this format.
 ### Jog Settings methods
 These methods set variables which are then used by the jog methods to generate the corresponding `rpascript` for jogging.
 #### jog_set_xy_speed(...)
@@ -210,7 +210,7 @@ Set the relative jog distance for both the X and Y axis. These default to 10.000
 
 Prototype:
 ```
-jog_set_xy_rel(delta: float) -> list[str]
+jog_set_xy_rel(delta: float) -> None
 ```
 
 Parameters:
@@ -220,7 +220,7 @@ Set the relative jog distance for Z axis. This defaults to 10.000mm.
 
 Prototype:
 ```
-jog_set_z_rel(delta: float) -> list[str]
+jog_set_z_rel(delta: float) -> None
 ```
 
 Parameters:
@@ -230,7 +230,7 @@ Set the relative jog distance for U axis. This defaults to 10.000.mm.
 
 Prototype:
 ```
-jog_set_u_rel(delta: float) -> list[str]
+jog_set_u_rel(delta: float) -> None
 ```
 
 Parameters:
@@ -587,8 +587,8 @@ MOVE_NEAR_XY X=10.000mm Y=10.000mm
 ```
 
 The `SELECT_LAYER` command tells the controller which layer the subsequent
-actions belong to. Layer actions can include moves, cuts, power settings,
-and jog commands.
+actions belong to. Layer actions can include moves, cuts, and power
+settings.
 
 The following are the supported layer actions. Note that which actions can be used for a layer depends upon the layer `mode`.
 #### Moves and Cuts

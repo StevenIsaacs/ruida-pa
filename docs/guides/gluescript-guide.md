@@ -15,14 +15,22 @@ a more expressive interface for defining laser jobs.
 
 ### Key Design
 
-- **Two representations are generated simultaneously** for every operation:
-  - **`.gluescript`** — high-level commands (e.g., `move_xy_to(100.0, 50.0)`)
-  - **`.rpascript`** — low-level protocol commands (e.g., `MOVE_FAR_XY X=100.000mm Y=50.000mm`)
+- **Three representations** are involved:
+  - **gluescript** — the high-level commands (e.g., `move_xy_to(100.0, 50.0)`)
+    that the user builds in the TUI.
+  - **rpascript** — the low-level protocol commands (e.g.,
+    `MOVE_FAR_XY X=100.000mm Y=50.000mm`) generated from gluescript.
+  - **`.cglu`** — the on-disk persistence format for gluescript, used by
+    `/gluescript save` and `/gluescript load`. The `.gs` extension was
+    deliberately rejected (it conflicts with Google Apps Script).
 - **Mixin pattern** — `GlueScript` is designed to be used as a mixin.
   `RdDriver` inherits from it: `class RdDriver(GlueScript)`.
 - **Command registry for re-staging** — gluescript lines can be re-processed
   through the command registry to regenerate rpascript, enabling iterative
   job editing.
+- **Jogs are live-only** — Movement jog commands (`jog_*`) execute immediately
+  against the controller and are never persisted to `.cglu` files nor replayed
+  from them.
 
 ### Why GlueScript?
 
@@ -52,7 +60,7 @@ GlueScript handles all of this automatically:
 ├──────────────────────────────────────────────────────────┤
 │                      GlueScript                           │
 │   ┌─────────────────┐  ┌──────────────────────────────┐   │
-│   │  .gluescript     │  │  .rpascript                   │   │
+│   │  gluescript      │  │  rpascript                    │   │
 │   │  (high-level)    │  │  (low-level protocol lines)   │   │
 │   ├─────────────────┤  ├──────────────────────────────┤   │
 │   │ declare_job()   │  │ REF_POINT_ABSOLUTE            │   │
@@ -114,9 +122,11 @@ run_job()
    mode, color, speed, power, overscan, etc. Increments the internal layer
    counter and emits layer setup rpascript commands.
 
-4. **Add operations** — Within each layer, add moves, cuts, power changes,
-   and jog commands. Each operation generates both a gluescript line and
-   corresponding rpascript lines.
+4. **Add operations** — Within each layer, add moves, cuts, and power
+   changes. Each of these operations generates both a gluescript line and
+   corresponding rpascript lines. (Movement jog commands are live-only:
+   they execute immediately and are never part of the saved job — see
+   Section 5.)
 
 5. **`end_job()`** — Complete the job definition. Emits `END_JOB` in the
    rpascript and marks the job ready for staging.
@@ -413,11 +423,51 @@ The TUI provides interactive access to GlueScript via the `/gluescript` command.
 | `layer <N> power <p>` | Add power action to layer N (IMAGE/DEPTHMAP only) |
 | `layer <N> air_assist_on` | Enable air assist for layer N |
 | `layer <N> air_assist_off` | Disable air assist for layer N |
-| `layer <N> jog_xy_to <x> <y>` | Add XY jog to layer N |
+| `layer <N> jog_xy_to <x> <y>` | Jog XY on layer N (live-only — executes immediately, never persisted) |
 | `stage` | Generate rpascript from gluescript (re-stage if already staged) |
 | `run` | Stage and execute the job |
+| `save <path>` | Persist the current gluescript to a `.cglu` file |
+| `load <path>` | Load a `.cglu` file, validate it, and stage it |
 | `list` | Display high-level gluescript commands |
 | `list_rpa` | Display generated low-level rpascript commands |
+
+### Persistence: `save` and `load`
+
+The current gluescript — the DSL lines built with `declare_job`, `declare_layer`,
+and `layer` actions — can be persisted to disk and reloaded:
+
+- **`/gluescript save <path>`** writes the gluescript to `<path>`. If the path's
+  basename contains no `.`, the tool auto-appends `.cglu`; an explicit path
+  (e.g. `myfile.custom`) is used as-is. Logs
+  `GlueScript saved to <path> (N lines)`.
+- **`/gluescript load <path>`** reads a `.cglu` file (same auto-append rule for
+  the extension), validates it on a throwaway `GlueScript` instance, and — only
+  if validation passes — applies it via `driver.stage_rpascript(lines)`. Logs
+  `Loaded N gluescript lines from <path>, staged M rpascript lines`.
+
+Load **auto-stages** the file: after a successful load the rpascript is ready,
+but finalization still requires `end_job()` in the file (the job is only marked
+complete when `end_job()` is replayed). Load errors fail loud without corrupting
+live state and cover: file not found, permission denied, non-text file,
+empty/blank-only file, "no stageable commands" (all-jog or comments-only files),
+and a validation failure reported as `Load failed: ...`.
+
+### Jog Commands Are Live-Only
+
+Jog commands (`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to`,
+`jog_xy_rel`, `jog_x_rel`, `jog_y_rel`, `jog_z_rel`, `jog_u_rel`) are live-only:
+
+- **In the TUI**, `/gluescript layer <N> jog_xy_to <x> <y>` never appends to the
+  gluescript. It immediately runs the returned rpascript lines against the
+  controller when there is an active session (`driver.is_connected`). With no
+  active session it warns and ignores the jog; if the background script runner
+  is dead it warns `not sent — <reason>`.
+- **In a `.cglu` file**, jog lines are ignored with a warning on load
+  (`ignoring live-only jog line on load`) and are never used for position
+  tracking — the re-stage loop skips all `LIVE_ONLY_COMMANDS`.
+- **`jog_set_*` config setters** (speed / relative distance) remain loadable —
+  they return `None`, configure defaults for future jogs, and have no position
+  effect.
 
 ### Example Session
 
@@ -593,6 +643,8 @@ Re-staging (calling `stage_rpascript()` with a gluescript list) parses each
 gluescript command line and replays it through the command registry:
 
 - Standard commands are replayed via their corresponding methods
+- Movement jog commands (`jog_*`) are skipped — they are live-only and are never replayed
+  or used for position tracking during re-staging
 - `inline()` commands are passed through verbatim — they are stored as-is and
   not re-parsed
 - The command registry maps method names to bound methods; if a gluescript line
@@ -623,8 +675,8 @@ only meaningful when processing raster image data between moves.
 
 ## 9. Dual Representation Example
 
-Each GlueScript method generates a corresponding line in both `.gluescript`
-and `.rpascript`. Here is a complete example showing both representations:
+Each GlueScript method generates a corresponding line in both `gluescript`
+and `rpascript`. Here is a complete example showing both representations:
 
 ### GlueScript (high-level)
 

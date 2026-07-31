@@ -49,6 +49,7 @@ from rpascript.encoding import encode_command, is_resolvable_address, parse_valu
 from rpascript.interpreter import ScriptParser, reconstruct_script_line
 from ruidadriver.rd_status import RdStatusEvent
 from ruidadriver.ruida_driver import RdDriver, StatusDict
+from ruidadriver.rd_gluescript import GlueScript
 
 from rpyc.utils.server import ThreadedServer
 
@@ -585,7 +586,7 @@ class TuiAdapter(App):
             "plot": "Plot loaded script moves in a Bokeh visualization",
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
-            "gluescript": "GlueScript high-level scripting. Subcommands: new, declare_job, end_job, declare_layer, layer, stage, run, list, list_rpa, show",
+            "gluescript": "GlueScript high-level scripting. Subcommands: new, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa, show",
         }
         self._suggest_matches: list[str] = []
         self._suggest_selected: int = 0
@@ -1215,6 +1216,8 @@ class TuiAdapter(App):
             "  /gluescript layer <N> air_assist_off              Disable air assist for layer N\n"
             "  /gluescript stage                            Generate rpascript from gluescript (re-stage if already staged)\n"
             "  /gluescript run                              Stage and execute the job\n"
+            "  /gluescript save <path>                         Save gluescript to a .cglu file\n"
+            "  /gluescript load <path>                         Load a .cglu gluescript file and stage it\n"
             "  /gluescript list                             Display high-level gluescript commands\n"
             "  /gluescript list_rpa                         Display generated low-level rpascript commands\n"
         )
@@ -2436,8 +2439,18 @@ class TuiAdapter(App):
                         return
                     x = float(action_args[0])
                     y = float(action_args[1])
-                    driver.add_layer_action(layer_n, driver.jog_xy_to(x, y))
-                    self._log_info(f"GlueScript: jog_xy_to({x:.3f}, {y:.3f})")
+                    if not driver.is_connected:
+                        self._log_warning(f"GlueScript: no active session — jog_xy_to({x:.3f}, {y:.3f}) ignored")
+                    else:
+                        # is_connected does not guarantee the background script
+                        # runner thread is alive — run() raises RuntimeError
+                        # when it isn't. Warn instead of "Layer action failed".
+                        try:
+                            driver.run(driver.jog_xy_to(x, y))
+                        except RuntimeError as e:
+                            self._log_warning(f"GlueScript: jog_xy_to({x:.3f}, {y:.3f}) not sent — {e}")
+                            return
+                        self._log_info(f"GlueScript: jog_xy_to({x:.3f}, {y:.3f}) sent to controller")
                 elif action == "air_assist_on":
                     driver.air_assist_on()
                     self._log_info("GlueScript: air_assist_on()")
@@ -2472,6 +2485,100 @@ class TuiAdapter(App):
             except RuntimeError as e:
                 self._log_error(f"Run failed: {e}")
 
+        elif sub == "save":
+            rest = args.strip().split(None, 1)
+            path = os.path.expanduser(rest[1].strip()) if len(rest) > 1 else ""
+            if not path:
+                self._log_error("Usage: /gluescript save <path>")
+                return
+            if not driver.gluescript:
+                self._log_error("GlueScript: Nothing to save (gluescript is empty).")
+                return
+            if "." not in os.path.basename(path):
+                path += ".cglu"
+            try:
+                with open(path, "w") as f:
+                    f.write("\n".join(driver.gluescript) + "\n")
+                self._log_info(f"GlueScript saved to {path} ({len(driver.gluescript)} lines)")
+            except PermissionError:
+                self._log_error(f"Permission denied: {path}")
+            except OSError as e:
+                self._log_error(f"Error writing {path}: {type(e).__name__}: {e}")
+
+        elif sub == "load":
+            rest = args.strip().split(None, 1)
+            path = os.path.expanduser(rest[1].strip()) if len(rest) > 1 else ""
+            if not path:
+                self._log_error("Usage: /gluescript load <path>")
+                return
+            if "." not in os.path.basename(path):
+                path += ".cglu"
+            try:
+                with open(path, "r") as f:
+                    content = f.read()
+            except FileNotFoundError:
+                self._log_error(f"File not found: {path}")
+                return
+            except PermissionError:
+                self._log_error(f"Permission denied: {path}")
+                return
+            except UnicodeDecodeError:
+                self._log_error(f"File is not a valid text file: {path}")
+                return
+            except Exception as e:
+                self._log_error(f"Error reading {path}: {type(e).__name__}: {e}")
+                return
+            lines = content.splitlines()
+            if not [ln for ln in lines if ln.strip()]:
+                self._log_error(f"File is empty or contains only blank lines: {path}")
+                return
+            # Jog commands are live-only actions — never replay them from a
+            # file. Warn and drop them before validation and staging.
+            gluescript_parser = GlueScript()
+            kept_lines: list[str] = []
+            jogs_dropped = False
+            for line in lines:
+                if not line.strip() or line.lstrip().startswith("#"):
+                    kept_lines.append(line)
+                    continue
+                try:
+                    name, _args = gluescript_parser._parse_gluescript_line(line)
+                except (ValueError, SyntaxError):
+                    kept_lines.append(line)
+                    continue
+                if name in GlueScript.LIVE_ONLY_COMMANDS:
+                    jogs_dropped = True
+                    self._log_warning(f"GlueScript: ignoring live-only jog line on load: {line.strip()}")
+                    continue
+                kept_lines.append(line)
+            lines = kept_lines
+            # A file whose only commands were jog lines has nothing left to
+            # stage — say so instead of surfacing the misleading
+            # "missing end_job()" validation error.
+            if not [ln for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]:
+                if jogs_dropped:
+                    self._log_error(
+                        f"GlueScript: no stageable commands in {path} "
+                        "(jog commands are live-only and were ignored)"
+                    )
+                else:
+                    self._log_error(f"GlueScript: no stageable commands in {path}")
+                return
+            # Validate on a throwaway instance first — fail loud without
+            # corrupting the live driver's state.
+            try:
+                GlueScript().stage_rpascript(lines)
+            except RuntimeError as e:
+                self._log_error(f"Load failed: {e}")
+                return
+            # Apply — same input, already validated, cannot fail.
+            driver.stage_rpascript(lines)
+            self._gluescript_was_run = False
+            self._log_info(
+                f"Loaded {len(lines)} gluescript lines from {path}, "
+                f"staged {len(driver.rpascript)} rpascript lines"
+            )
+
         elif sub == "list":
             if not driver.gluescript:
                 self._log_info("GlueScript: No gluescript commands.")
@@ -2488,7 +2595,7 @@ class TuiAdapter(App):
 
         else:
             self._log_error(f"Unknown gluescript subcommand: {sub}")
-            self._log_info("Available: new, show, declare_job, end_job, declare_layer, layer, stage, run, list, list_rpa")
+            self._log_info("Available: new, show, declare_job, end_job, declare_layer, layer, stage, run, save, load, list, list_rpa")
 
     def _cmd_edit(self, args: str = "") -> None:
         """Open the loaded script in a full-screen editor."""
@@ -2515,6 +2622,8 @@ class TuiAdapter(App):
             return None  # All files
         if cmd == "/export":
             return {".rd"}
+        if cmd in ("/gluescript save", "/gluescript load"):
+            return {".cglu"}
         return set()  # Changed from None to set() — unknown commands show no files
 
     def _resolve_start_path(self, path_part: str) -> Path:
@@ -2570,6 +2679,15 @@ class TuiAdapter(App):
                 path_part = rest[2:].strip() if len(rest) > 2 else ""
                 return ("/save as", path_part)
             return ("/save", self._loaded_script_path or "")
+
+        # /gluescript save <path> or /gluescript load <path>
+        if cmd == "/gluescript":
+            if rest == "save" or rest.startswith("save "):
+                path_part = rest[4:].strip() if len(rest) > 4 else ""
+                return ("/gluescript save", path_part)
+            if rest == "load" or rest.startswith("load "):
+                path_part = rest[4:].strip() if len(rest) > 4 else ""
+                return ("/gluescript load", path_part)
 
         return (None, "")
 
