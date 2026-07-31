@@ -397,12 +397,37 @@ driver.comment(["Setup complete", "Starting engrave pass"])
 
 #### `inline(commands: list[str])`
 
-Append raw rpascript commands directly. Intended for working around issues or
-experimentation — a need for `inline()` suggests a new GlueScript method may
-be needed.
+Insert raw rpascript commands directly into the assembled output at the call
+point. Intended for working around issues or experimentation — a need for
+`inline()` suggests a new GlueScript method may be needed.
+
+Inline commands land positionally, exactly where they were called:
+
+- **Before the first layer is declared** — right after the job header (after
+  the `JOB_COPIES ...` line), before the first layer's attribute lines.
+- **Inside a declared layer** — in that layer's action block, between the
+  surrounding actions at the call position.
+- **After `end_job()`** — just before the closing `END_JOB` line.
+
+For example, an `inline()` call between two actions keeps that position in
+the assembled rpascript:
 
 ```python
-driver.inline(["AIR_ASSIST_ON", "LASER_OFF"])
+driver.declare_job("Plate", "MACHINE")
+driver.declare_layer("Outline", "#0000FF", mode="VECTOR", overscan="NONE", speed=120.0)
+driver.move_xy_to(50.0, 50.0)
+driver.inline(["AIR_ASSIST_ON", "LASER_ON"])   # inserted between the two actions
+driver.cut_xy_to(150.0, 50.0)
+driver.end_job()
+```
+
+stages to:
+
+```
+MOVE_FAR_XY X=50.000mm Y=50.000mm
+AIR_ASSIST_ON
+LASER_ON
+CUT_FAR_XY X=150.000mm Y=50.000mm
 ```
 
 A warning is logged during staging if `inline()` was used.
@@ -732,7 +757,8 @@ gluescript command line and replays it through the command registry:
   commands (`home`, `home_z`, `home_u`) are skipped — they are live-only and
   are never replayed or used for position tracking during re-staging
 - `inline()` commands are passed through verbatim — they are stored as-is and
-  not re-parsed
+  not re-parsed, and land positionally in the output, exactly where they were
+  called
 - The command registry maps method names to bound methods; if a gluescript line
   references an unknown command, a `RuntimeError` is raised
 

@@ -139,6 +139,15 @@ class GlueScript:
         # Script output (assembled by stage_rpascript)
         self.rpascript: list[str] = []
         self._inline_used: bool = False
+        # Caller-set toggle (per-instance): when False, the staging warning
+        # for inline() use is suppressed (the TUI validates a throwaway
+        # instance before applying to the real driver). Never reset by
+        # new_gluescript() or the re-stage reset block — re-stage replays
+        # declare_job(), which calls new_gluescript(); resetting here would
+        # re-arm the flag mid-replay and defeat the suppression.
+        self._warn_inline: bool = True
+        self._inline_prelude: list[str] = []    # inline() before first layer
+        self._inline_epilogue: list[str] = []   # inline() after end_job()
         self._stage_complete: bool = False
         
         # Jog speed defaults (mm/s)
@@ -356,6 +365,8 @@ class GlueScript:
         self._job_complete = False
         self._assembling = False
         self._inline_used = False
+        self._inline_prelude = []
+        self._inline_epilogue = []
         self._stage_complete = False
         self.doc_tr_x = float('inf')
         self.doc_tr_y = float('inf')
@@ -386,21 +397,49 @@ class GlueScript:
             self._job_header.append(line)
 
     def inline(self, commands: list[str]) -> None:
-        """Append raw rpascript commands.
-        
+        """Append raw rpascript commands at the call point.
+
+        Commands are inserted positionally into the assembled rpascript,
+        exactly where they are called:
+          - before any layer is declared: right after the job header
+          - inside a declared layer: in that layer's action block, between
+            the surrounding actions
+          - after end_job(): just before the closing END_JOB line
+
+        Note: inline() called before declare_job() is discarded by the job
+        reset — declare_job() calls new_gluescript(), which wipes both the
+        transcript and the prelude buffer.
+
         This method should only be used for working around issues or
         experimentation. A need to use inline() suggests a new GlueScript
         method may be needed.
-        
+
         Args:
             commands: List of raw rpascript command lines.
+
+        Raises:
+            TypeError: If any command entry is not a string.
         """
         if not commands:
             return
         self._inline_used = True
         for cmd in commands:
+            if not isinstance(cmd, str):
+                raise TypeError(
+                    f"inline() commands must be strings, got {type(cmd).__name__}: {cmd!r}"
+                )
             self.gluescript.append(f"inline({[cmd]!r})")
-            self.rpascript.append(cmd)
+            if self._job_complete:
+                # After end_job() — lands just before END_JOB.
+                self._inline_epilogue.append(cmd)
+            elif self._layer >= 1:
+                # Inside a declared layer — lands in that layer's action
+                # block at the call position. Never route to layer 0.
+                self._layer_actions.setdefault(self._layer, []).append(cmd)
+            else:
+                # Job declared but no layer yet — lands right after the
+                # job header.
+                self._inline_prelude.append(cmd)
 
     # ------------------------------------------------------------------ #
     #  Phase 2: Reference Points & Job Management
@@ -1001,6 +1040,9 @@ class GlueScript:
             self._layer_actions = {}
             self._job_complete = False
             self._layer = 0
+            self._inline_used = False
+            self._inline_prelude = []
+            self._inline_epilogue = []
             self._layer_trx = float('inf')
             self._layer_try = float('inf')
             self._layer_blx = -float('inf')
@@ -1055,6 +1097,10 @@ class GlueScript:
         # Section 1: Job header (reference point, start_job, settings)
         self.rpascript.extend(self._job_header)
 
+        # Inline commands issued before the first layer land right after
+        # the job header, preserving their call position.
+        self.rpascript.extend(self._inline_prelude)
+
         # Section 2: All layer attributes (sorted by layer number)
         for layer_num in sorted(self._layer_attributes):
             self.rpascript.extend(self._layer_attributes[layer_num])
@@ -1065,6 +1111,8 @@ class GlueScript:
             self.rpascript.extend(self._layer_actions[layer_num])
 
         # Section 4: End of job
+        # Inline commands issued after end_job() land just before END_JOB.
+        self.rpascript.extend(self._inline_epilogue)
         self.rpascript.append("END_JOB")
         self.rpascript.append("EOF")
 
@@ -1073,4 +1121,10 @@ class GlueScript:
         self.rpascript = finalized
 
         self._stage_complete = True
+        if self._inline_used and self._warn_inline:
+            logger.warning(
+                "GlueScript used inline() while staging this job — inline "
+                "commands are for experimentation and workarounds; a "
+                "GlueScript method may be needed instead"
+            )
         return finalized

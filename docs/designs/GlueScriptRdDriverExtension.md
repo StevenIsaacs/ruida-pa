@@ -407,7 +407,7 @@ comment([
 ```
 
 ### inline(...)
-Append a list of `rpascript` commands. This appends the list of commands to the `rpascript` being generated. It is highly recommended this method not be used for appending `rpascript` commands except in cases where it is necessary to work around a problem or for experimentation.
+Append a list of `rpascript` commands. This appends the list of commands to the `rpascript` being generated. The lines are inserted at the call point in the assembled rpascript. It is highly recommended this method not be used for appending `rpascript` commands except in cases where it is necessary to work around a problem or for experimentation.
 
 Prototype:
 ```

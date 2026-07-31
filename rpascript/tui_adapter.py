@@ -2616,9 +2616,13 @@ class TuiAdapter(App):
                     self._log_error(f"GlueScript: no stageable commands in {path}")
                 return
             # Validate on a throwaway instance first — fail loud without
-            # corrupting the live driver's state.
+            # corrupting the live driver's state. Suppress the inline()
+            # staging warning on this throwaway: the real apply below keeps
+            # the default flag, so the warning fires exactly once.
             try:
-                GlueScript().stage_rpascript(lines)
+                validation = GlueScript()
+                validation._warn_inline = False
+                validation.stage_rpascript(lines)
             except RuntimeError as e:
                 self._log_error(f"Load failed: {e}")
                 return
