@@ -587,7 +587,7 @@ Per-layer bounding boxes are emitted as concrete values at layer boundaries
 at least one move or cut operation. Empty layers (no content) skip bounding
 box emission entirely.
 
-### Re-Staring
+### Re-Staging
 
 Re-staging (calling `stage_rpascript()` with a gluescript list) parses each
 gluescript command line and replays it through the command registry:
@@ -597,6 +597,13 @@ gluescript command line and replays it through the command registry:
   not re-parsed
 - The command registry maps method names to bound methods; if a gluescript line
   references an unknown command, a `RuntimeError` is raised
+
+**Comment lines:** Raw `#` full-line comments are tolerated as no-ops during
+re-staging — they are skipped and generate nothing in the rpascript output.
+Inline comments (`move_xy_to(285, 175) # note`) are stripped before parsing,
+with `#` characters inside quoted arguments (e.g., a `'#00FF00'` color) left
+intact. To emit comments into the generated rpascript, use the `comment()`
+method instead.
 
 ### Power Command Validity
 

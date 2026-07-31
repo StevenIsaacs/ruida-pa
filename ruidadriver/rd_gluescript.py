@@ -15,6 +15,29 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 
+def _strip_inline_comment(line: str) -> str:
+    """Remove inline # comments, respecting quoted strings and \\# escapes."""
+    in_quote = False
+    quote_char = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        # Track escaped hash: \# — skip it as a literal hash
+        if ch == "\\" and i + 1 < len(line) and line[i + 1] == "#" and not in_quote:
+            i += 2  # skip both \ and #
+            continue
+        if ch in ('"', "'") and not in_quote:
+            in_quote = True
+            quote_char = ch
+        elif ch == quote_char and in_quote:
+            in_quote = False
+            quote_char = None
+        elif ch == "#" and not in_quote:
+            return line[:i].rstrip()
+        i += 1
+    return line
+
+
 class GlueScript:
     """High-level job scripting methods for Ruida laser controllers.
     
@@ -211,6 +234,7 @@ class GlueScript:
         Each arg is a Python literal (via repr) parsed by ast.literal_eval.
         """
         line = line.strip()
+        line = _strip_inline_comment(line)
         if "(" not in line:
             raise ValueError(
                 f"Missing '(' in gluescript line: {line!r}. "
@@ -884,6 +908,8 @@ class GlueScript:
 
             for line in gluescript:
                 if not line.strip():
+                    continue
+                if line.lstrip().startswith("#"):
                     continue
                 try:
                     name, args = self._parse_gluescript_line(line)
