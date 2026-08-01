@@ -43,6 +43,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.events import Callback, Key
+from textual.markup import escape
 from textual.screen import ModalScreen
 from textual.widgets import Header, Input, RichLog, Static, TextArea
 
@@ -541,7 +542,9 @@ class TuiAdapter(App):
         self._last_usb_device: str = ""
         self._last_magic: int = 0x88
         self._parser = ScriptParser(
-            warning_callback=lambda msg, syn: self._log_warning(f"{msg}  |  Syntax: {syn}"),
+            warning_callback=lambda msg, syn: self._log_warning(
+                f"{escape(msg)}  |  Syntax: {escape(syn)}"
+            ),
         )
         self._decoder = RdDecoder()
         self._event_count = 0
@@ -582,21 +585,22 @@ class TuiAdapter(App):
         self._suggest_popup = RichLog(
             id="suggest-popup", highlight=True, markup=True, max_lines=10
         )
+        # Square-bracket optionals are Rich markup escapes: \[ renders a literal [. Keep new optional-parameter segments escaped.
         self._cmd_descriptions: dict[str, str] = {
             "help": "Show help text",
             "load": "Load a script file from disk",
             "run": "Execute job from loaded script (/run script for all lines)",
             "clear": "Clear all log panels, loaded script, head, and tail",
             "quit": "Exit the TUI",
-            "status": "Toggle logging: /status [on|off|status] for status/reply, /status connection [on|off|status] for transport events",
+            "status": "Toggle logging: /status \\[on|off|status] for status/reply, /status connection \\[on|off|status] for transport events",
             "session": "Start or end a controller session (start udp=<IP> usb=<device> to=<timeout> magic=0xNN / end)",
             "server": "Start or stop the RPC server. "
             "Server commands: start host=<IP> port=<N> cert=<path> key=<path> token=<token>, or stop",
             "head": "Load a script file to prepend to job on execution",
-            "import": "Import a tshark log (.log) or RDWorks (.rd) file [magic=0xNN] as a script",
-            "export": "Export loaded script as .rd binary file (/export [path])",
+            "import": "Import a tshark log (.log) or RDWorks (.rd) file \\[magic=0xNN] as a script",
+            "export": "Export loaded script as .rd binary file (/export \\[path])",
             "tail": "Load a script file to append to job on execution",
-            "list": "Display loaded script (/list script), composed job (/list job), head (/list head), tail (/list tail), or toggle auto-display (/list auto [on|off])",
+            "list": "Display loaded script (/list script), composed job (/list job), head (/list head), tail (/list tail), or toggle auto-display (/list auto \\[on|off])",
             "save": "Save composed job (/save job <path>) or full script (/save script <path> | /save as <path>)",
             "stop": "Stop the current operation (session connection or script execution). Also bound to Escape.",
             "dryrun": "Toggle dry-run mode (on|off). When on, /run runs normally but RPC driver.run() only logs to TUI.",
@@ -615,11 +619,11 @@ class TuiAdapter(App):
             "jog_y_to": "jog_y_to <y>: Jog Y to absolute position (mm)",
             "jog_z_to": "jog_z_to <z>: Jog Z to absolute position (mm, max 2000)",
             "jog_u_to": "jog_u_to <u>: Jog U to absolute position (mm)",
-            "jog_xy_rel": "jog_xy_rel [x] [y]: Jog XY relative (uses configured defaults)",
-            "jog_x_rel": "jog_x_rel [x]: Jog X relative (uses configured default)",
-            "jog_y_rel": "jog_y_rel [y]: Jog Y relative (uses configured default)",
-            "jog_z_rel": "jog_z_rel [z]: Jog Z relative (uses configured default)",
-            "jog_u_rel": "jog_u_rel [u]: Jog U relative (uses configured default)",
+            "jog_xy_rel": "jog_xy_rel \\[x] \\[y]: Jog XY relative (uses configured defaults)",
+            "jog_x_rel": "jog_x_rel \\[x]: Jog X relative (uses configured default)",
+            "jog_y_rel": "jog_y_rel \\[y]: Jog Y relative (uses configured default)",
+            "jog_z_rel": "jog_z_rel \\[z]: Jog Z relative (uses configured default)",
+            "jog_u_rel": "jog_u_rel \\[u]: Jog U relative (uses configured default)",
             "jog_set_xy_speed": "jog_set_xy_speed <speed>: Set XY jog speed (mm/s)",
             "jog_set_z_speed": "jog_set_z_speed <speed>: Set Z jog speed (mm/s)",
             "jog_set_u_speed": "jog_set_u_speed <speed>: Set U jog speed (mm/s)",
@@ -1220,11 +1224,12 @@ class TuiAdapter(App):
             f"  /{cmd:<12} {self._cmd_descriptions[cmd]}"
             for cmd in self._SLASH_COMMANDS
         )
+        # Square-bracket optionals are Rich markup escapes: \[ renders a literal [. Keep new optional-parameter segments escaped.
         return (
             "[bold]TUI Commands[/bold] (prefix with /):\n"
             f"{cmd_list}\n"
             "[bold]Introspection[/bold] (prefix with ?):\n"
-            "  ?<object>[.<attr>] [args...]  Inspect or call objects\n"
+            "  ?<object>[.<attr>] \\[args...]  Inspect or call objects\n"
             "  ?                 List available introspection objects\n"
             "  Available: session, transport, driver, status, parser, decoder, rpc\n"
             "\n"
@@ -1242,11 +1247,11 @@ class TuiAdapter(App):
             "    jog_y_to <y>                Jog Y to absolute position (mm)\n"
             "    jog_z_to <z>                Jog Z to absolute position (mm, max 2000)\n"
             "    jog_u_to <u>                Jog U to absolute position (mm)\n"
-            "    jog_xy_rel [x] [y]          Jog XY relative (uses configured defaults)\n"
-            "    jog_x_rel [x]               Jog X relative (uses configured default)\n"
-            "    jog_y_rel [y]               Jog Y relative (uses configured default)\n"
-            "    jog_z_rel [z]               Jog Z relative (uses configured default)\n"
-            "    jog_u_rel [u]               Jog U relative (uses configured default)\n"
+            "    jog_xy_rel \\[x] \\[y]          Jog XY relative (uses configured defaults)\n"
+            "    jog_x_rel \\[x]               Jog X relative (uses configured default)\n"
+            "    jog_y_rel \\[y]               Jog Y relative (uses configured default)\n"
+            "    jog_z_rel \\[z]               Jog Z relative (uses configured default)\n"
+            "    jog_u_rel \\[u]               Jog U relative (uses configured default)\n"
             "    jog_set_xy_speed <speed>    Set XY jog speed (mm/s)\n"
             "    jog_set_z_speed <speed>     Set Z jog speed (mm/s)\n"
             "    jog_set_u_speed <speed>     Set U jog speed (mm/s)\n"
@@ -1257,14 +1262,14 @@ class TuiAdapter(App):
             "\n"
             "[bold]Flow Control[/bold] (for loaded scripts):\n"
             "  delay <time>              Pause execution (e.g. 5s, 100ms)\n"
-            "  wait <status> [to=...]    Wait for MACHINE_STATUS_* bit\n"
-            "  wait !<status> [to=...]   Wait for lifecycle (active then inactive)\n"
+            "  wait <status> \\[to=...]    Wait for MACHINE_STATUS_* bit\n"
+            "  wait !<status> \\[to=...]   Wait for lifecycle (active then inactive)\n"
             "  Statuses: MACHINE_STATUS_MOVING, MACHINE_STATUS_LAYER_END,\n"
             "            MACHINE_STATUS_JOB_RUNNING\n"
             "  to=   Optional timeout (e.g. to=30s). Default: forever\n"
             "\n"
             "[bold]GlueScript Commands[/bold] (prefix with /):\n"
-            "  /gluescript new [label]                     Reset and declare a new job (MACHINE ref)\n"
+            "  /gluescript new \\[label]                     Reset and declare a new job (MACHINE ref)\n"
             "  /gluescript show                             Display current gluescript state summary\n"
             "  /gluescript stage                            Finalize (if needed) and generate rpascript from gluescript\n"
             "  /gluescript run                              Finalize (if needed), stage, and execute the job\n"
@@ -1431,7 +1436,7 @@ class TuiAdapter(App):
         and loads the result into _loaded_script for /run or /save.
         """
         if not args:
-            self._log_error("Usage: /import <path> [magic=0xNN]")
+            self._log_error("Usage: /import <path> \\[magic=0xNN]")
             return
 
         tokens = args.split()
@@ -1633,7 +1638,7 @@ class TuiAdapter(App):
             self._log_info(f"Executing {len(self._loaded_script)} lines...")
             self._ruida_driver.run(self._loaded_script)
         else:
-            self._log_error(f"Unknown run action: '{action}'. Usage: /run [script]")
+            self._log_error(f"Unknown run action: '{action}'. Usage: /run \\[script]")
 
     @staticmethod
     def _filter_job_commands(lines: list[str]) -> list[str]:
@@ -1891,7 +1896,7 @@ class TuiAdapter(App):
                 state = "ON" if self._connection_logging_enabled else "OFF"
                 self._log_info(f"Connection logging is {state}")
             else:
-                self._log_error("Usage: /log connection [on|off|status]")
+                self._log_error("Usage: /log connection \\[on|off|status]")
         elif action in ("", "toggle"):
             self._logging_enabled = not self._logging_enabled
             state = "ON" if self._logging_enabled else "OFF"
@@ -1906,7 +1911,7 @@ class TuiAdapter(App):
             state = "ON" if self._logging_enabled else "OFF"
             self._log_info(f"Logging is {state}")
         else:
-            self._log_error("Usage: /log [on|off|status|connection [on|off|status]]")
+            self._log_error("Usage: /log \\[on|off|status|connection \\[on|off|status]]")
 
     async def _write_lines_chunked(self, lines: list[str], prefix: str = "") -> None:
         """Write lines to the log widget in chunks, yielding between each chunk.
@@ -2004,9 +2009,9 @@ class TuiAdapter(App):
                 state = "ON" if self._auto_display_script else "OFF"
                 self._log_info(f"Auto-display of RPC scripts is {state}")
             else:
-                self._log_error("Usage: /list auto [on|off]")
+                self._log_error("Usage: /list auto \\[on|off]")
         else:
-            self._log_error("Usage: /list [job|script|head|tail|auto]")
+            self._log_error("Usage: /list \\[job|script|head|tail|auto]")
 
     def _cmd_save(self, args: str) -> None:
         """Handle /save subcommands: job <path>, script <path>, or as <path>,
@@ -2325,7 +2330,7 @@ class TuiAdapter(App):
             self._monitor_enabled = False
             self._log_info("Monitor OFF")
         else:
-            self._log_error("Usage: /monitor [on|off]")
+            self._log_error("Usage: /monitor \\[on|off]")
 
     def _cmd_scan_mem(self) -> None:
         """Generate a GET_SETTING script for all MT memory addresses."""
@@ -2370,7 +2375,7 @@ class TuiAdapter(App):
 
         tokens = args.strip().split()
         if not tokens:
-            self._log_info("Usage: /gluescript <subcommand> [args]")
+            self._log_info("Usage: /gluescript <subcommand> \\[args]")
             return
 
         sub = tokens[0].lower()
@@ -2896,7 +2901,7 @@ class TuiAdapter(App):
             except ImportError:
                 self._log_error(
                     "pyserial is not installed. "
-                    "Install it with: pip install ruida-pa[serial]"
+                    "Install it with: pip install ruida-pa\\[serial]"
                 )
                 return
 
@@ -3360,7 +3365,7 @@ class TuiAdapter(App):
         """
         expr = expr.strip()
         if not expr:
-            return "Usage: !<object>[.<attribute>] [args...]"
+            return "Usage: !<object>[.<attribute>] \\[args...]"
 
         # Split on first '(' to detect method call
         paren_idx = expr.find("(")
