@@ -473,19 +473,10 @@ The TUI provides interactive access to GlueScript via the `/gluescript` command.
 
 | Subcommand | Description |
 |------------|-------------|
-| `new` | Reset all gluescript data for a new job |
+| `new [label]` | Reset and declare a new job (MACHINE ref, optional label) |
 | `show` | Display current state summary (line counts, layer, position) |
-| `declare_job ref=<point>` | Declare a new job with reference point |
-| `end_job` | Finalize and complete the current job |
-| `declare_layer mode=<mode>` | Declare a new layer |
-| `layer <N> move_xy_to <x> <y>` | Add XY move to layer N |
-| `layer <N> cut_xy_to <x> <y>` | Add XY cut to layer N |
-| `layer <N> power <p>` | Add power action to layer N (IMAGE/DEPTHMAP only) |
-| `layer <N> air_assist_on` | Enable air assist for layer N |
-| `layer <N> air_assist_off` | Disable air assist for layer N |
-| `layer <N> jog_xy_to <x> <y>` | Jog XY on layer N (live-only — executes immediately, never persisted) |
-| `stage` | Generate rpascript from gluescript (re-stage if already staged) |
-| `run` | Stage and execute the job |
+| `stage` | Finalize (if needed) and generate rpascript from gluescript (re-stage if already staged) |
+| `run` | Finalize (if needed), stage, and execute the job |
 | `save <path>` | Persist the current gluescript to a `.cglu` file |
 | `load <path>` | Load a `.cglu` file, validate it, and stage it |
 | `edit` | Open the gluescript in a full-screen editor; on save, validate and re-stage it |
@@ -494,8 +485,8 @@ The TUI provides interactive access to GlueScript via the `/gluescript` command.
 
 ### Persistence: `save` and `load`
 
-The current gluescript — the DSL lines built with `declare_job`, `declare_layer`,
-and `layer` actions — can be persisted to disk and reloaded:
+The current gluescript — the DSL lines built up with `new` and
+edited through the editor — can be persisted to disk and reloaded:
 
 - **`/gluescript save <path>`** writes the gluescript to `<path>`. If the path's
   basename contains no `.`, the tool auto-appends `.cglu`; an explicit path
@@ -539,13 +530,13 @@ plus the `jog_set_*` config setters: `jog_set_xy_speed`, `jog_set_z_speed`,
 `jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`) and the
 3 homing commands (`home`, `home_z`, `home_u`) are live-only:
 
-- **In the TUI**, `/gluescript layer <N> jog_xy_to <x> <y>` never appends to the
-  gluescript. It immediately runs the returned rpascript lines against the
-  controller when there is an active session (`driver.is_connected`). With no
-  active session it warns and ignores the jog; if the background script runner
-  is dead it warns `not sent — <reason>`. Used as bare TUI commands, homing
-  behaves the same way: `home`/`home_z`/`home_u` run immediately against a
-  connected controller (the `/gluescript layer` action list is jog-only).
+- **In the TUI**, there is no `/gluescript layer` wrapper anymore — jog commands
+  are used as bare TUI commands only (see next paragraph). A bare jog never
+  appends to the gluescript. It immediately runs the returned rpascript lines
+  against the controller when there is an active session (`driver.is_connected`).
+  With no active session it warns and ignores the jog; if the background script
+  runner is dead it warns `not sent — <reason>`. Homing behaves the same way:
+  `home`/`home_z`/`home_u` run immediately against a connected controller.
 - **In a `.cglu` file**, jog and home lines are ignored with a warning on load
   (`ignoring live-only command line on load`) and are never used for position
   tracking — the re-stage loop skips all `LIVE_ONLY_COMMANDS`.
@@ -556,7 +547,7 @@ plus the `jog_set_*` config setters: `jog_set_xy_speed`, `jog_set_z_speed`,
 ### Bare Jog & Home Commands
 
 All 16 jog commands and the 3 homing commands are also available in the TUI as
-**bare commands** (no `/gluescript layer` wrapper), alongside `session`/`server`:
+**bare commands**, alongside `session`/`server`:
 
 ```
 home                         # Home X and Y axes (machine origin)
@@ -580,30 +571,19 @@ jog_set_xy_rel 25          # Set relative XY jog distance (mm) — applies live
 ### Example Session
 
 ```
-> /gluescript new
-GlueScript: New job started.
+> /gluescript new My Job
+GlueScript: New job started (label='My Job', ref=MACHINE).
 
-> /gluescript declare_job ref=MACHINE
-GlueScript: Job declared (ref=MACHINE).
-
-> /gluescript declare_layer mode=VECTOR speed=300 min_power=15 max_power=60
-GlueScript: Layer 1 declared (mode=VECTOR).
-
-> /gluescript layer 0 move_xy_to 100 50
-GlueScript: Layer 0 move_xy_to(100.000, 50.000)
-
-> /gluescript layer 0 cut_xy_to 200 100
-GlueScript: Layer 0 cut_xy_to(200.000, 100.000)
-
-> /gluescript end_job
-GlueScript: Job ended.
+> /gluescript edit
+(opens the full-screen editor with the transcript; add the `declare_layer`, move/cut, and `end_job` lines, Ctrl+S saves)
 
 > /gluescript stage
-GlueScript: Staged 28 rpascript lines (fresh).
+GlueScript: Staged 28 rpascript lines.
+(`/gluescript stage` logs `Job finalized.` only when it auto-finalizes a transcript that has no `end_job()` line yet.)
 
 > /gluescript list
    0: declare_job('My Job', 'MACHINE', [0.0, 0.0], 1, 1, 0.0, 0.0)
-   1: declare_layer('Layer 1', '#000000', mode='VECTOR', overscan='NONE', speed=300.0, ...)
+   1: declare_layer('Layer 1', '#000000', 'VECTOR', 'NONE', 300.0, 20.0, 15.0, 60.0)
    2: move_xy_to(100.0, 50.0)
    3: cut_xy_to(200.0, 100.0)
    4: end_job()
@@ -617,38 +597,6 @@ GlueScript: Staged 28 rpascript lines (fresh).
    5: START_JOB
    ...
 ```
-
-### declare_job Parameters
-
-```
-/gluescript declare_job ref=MACHINE
-/gluescript declare_job ref=ABSOLUTE columns=2 rows=3 xstep=100 ystep=100
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `ref` | `str` | Reference point: `MACHINE`, `ABSOLUTE`, `CURRENT`, `SET_POINT` |
-| `columns` | `int` | Number of columns for job copies (default: 1) |
-| `rows` | `int` | Number of rows for job copies (default: 1) |
-| `xstep` | `float` | X step distance in mm (default: 0.0) |
-| `ystep` | `float` | Y step distance in mm (default: 0.0) |
-
-### declare_layer Parameters
-
-```
-/gluescript declare_layer mode=VECTOR speed=300 min_power=15 max_power=60 color=#000000
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `mode` | `str` | Layer mode (required): `VECTOR`, `RASTER`, `DITHER`, `IMAGE`, `DEPTHMAP`, `CUT`, `PRINT`, `CUT_SCAN`, `PRINT_SCAN` |
-| `speed` | `float` | Layer speed in mm/s (default: 100.0) |
-| `frequency` | `float` | Laser PWM frequency in KHz (default: 20.0) |
-| `min_power` / `min_power_1` | `float` | Minimum power percent (default: 8.0) |
-| `max_power` / `max_power_1` | `float` | Maximum power percent (default: 70.0) |
-| `color` | `str` | Layer color as `#rrggbb` (default: `#000000`) |
-| `overscan` | `str` | Overscan mode: `NONE`, `X`, `X_BI`, `Y`, `Y_BI`, `XY` (default: `NONE`) |
-| `label` | `str` | Layer label (default: auto-generated) |
 
 ---
 

@@ -546,6 +546,11 @@ class GlueScript:
         self._assembling = False
         self.gluescript.append("end_job()")
 
+    @property
+    def job_complete(self) -> bool:
+        """True once end_job() has finalized the current job."""
+        return self._job_complete
+
     # ------------------------------------------------------------------ #
     #  Phase 3: Layer Management
     # ------------------------------------------------------------------ #

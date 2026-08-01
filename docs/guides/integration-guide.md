@@ -668,7 +668,7 @@ Before writing any integration code, read in this order:
 | File | What It Contains |
 |------|-----------------|
 | `ruidadriver/ruida_driver.py` | RdDriver class (full lifecycle, listeners, flow control) — class starts at line 54, 791 lines total |
-| `rpascript/tui_adapter.py` | TuiAdapter emulation layer — API items at lines 2237-2390 |
+| `rpascript/tui_adapter.py` | TuiAdapter emulation layer — `/`-command handlers (`_cmd_*`), incl. `/gluescript` |
 | `rpascript/interpreter.py` | ScriptParser for offline validation |
 
 ### 6.3 What to Give an Agent

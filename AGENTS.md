@@ -44,7 +44,7 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 - Checksum is a running sum of bytes in engrave/cut commands; excludes memory and jog commands. Known ~220-byte discrepancy with LightBurn captures.
 - `discovery/` is a **separate git repo** (submodule). Commit test case changes there, not in the parent.
 - `/gluescript` TUI command for high-level job scripting (see [docs/guides/gluescript-guide.md](docs/guides/gluescript-guide.md)).
-  Subcommands: `new`, `show`, `declare_job`, `end_job`, `declare_layer`, `layer`, `stage`, `run`, `save`, `load`, `list`, `list_rpa`.
+  Subcommands: `new`, `show`, `stage`, `run`, `save`, `load`, `edit`, `list`, `list_rpa`.
   `save`/`load` persist the current gluescript to `.cglu` files (the on-disk GlueScript format; `.gs` is deliberately unused). Jog commands (`jog_*`, including the `jog_set_*` config setters) and homing commands (`home`, `home_z`, `home_u`) are live-only actions — they act on the live session (movement jogs and homing execute immediately; `jog_set_*` configure jog speed/distance) and are never persisted to, or replayed from, `.cglu` files.
 
 ## No test/lint/CI infrastructure
