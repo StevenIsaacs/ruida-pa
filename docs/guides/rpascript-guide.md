@@ -232,8 +232,8 @@ Each line is parsed as:
 | `AIR_ASSIST_OFF`          | *(none)*                | Disable air assist                   |
 | `DB_HEAD`                 | *(none)*                | Dual-head mode                       |
 | `SELECT_LAYER`       | `Layer={n}`              | Select layer by number               |
-| `LAYER_COLOR`             | `Color=#RRGGBB`         | Set layer color                      |
-| `LAYER_COLOR`        | `Layer={n} Color=#RRGGBB` | Set color for a specific layer     |
+| `LAYER_COLOR`             | `Color:\#RRGGBB`        | Set layer color                      |
+| `LAYER_COLOR`        | `Layer={n} Color:\#RRGGBB` | Set color for a specific layer     |
 | `EN_LASER_TUBE_START`     | `State=ON/OFF`         | Enable laser tube at start           |
 | `LAYER_ATTRIBUTES`        | `Layer={n} {n}`          | Layer attribute flags            |
 | `LAST_LAYER`              | `Layer={n}`              | Indicates the last layer index   |
@@ -728,7 +728,7 @@ MIN_POWER_1_LAYER Layer:<layer> Power:19.995%
 MAX_POWER_1_LAYER Layer:<layer> Power:19.995%
 MIN_POWER_2_LAYER Layer:<layer> Power:19.995%
 MAX_POWER_2_LAYER Layer:<layer> Power:19.995%
-LAYER_COLOR Layer:<layer> Color:\\#000000
+LAYER_COLOR Layer:<layer> Color:\#000000
 LAYER_ATTRIBUTES Layer:<layer> 3
 LAYER_TOP_RIGHT Layer:<layer> X=\<X\>mm Y=\<Y\>mm
 LAYER_BOTTOM_LEFT Layer:<layer> X=\<X\>mm Y=\<Y\>mm
@@ -878,7 +878,7 @@ MIN_POWER_1_LAYER Layer:0 Power:19.995%
 MAX_POWER_1_LAYER Layer:0 Power:19.995%
 MIN_POWER_2_LAYER Layer:0 Power:19.995%
 MAX_POWER_2_LAYER Layer:0 Power:19.995%
-LAYER_COLOR Layer:0 Color:\\#000000
+LAYER_COLOR Layer:0 Color:\#000000
 LAYER_ATTRIBUTES Layer:0 3
 LAYER_TOP_RIGHT Layer:0 X=0.000mm Y=0.000mm
 LAYER_BOTTOM_LEFT Layer:0 X=400.000mm Y=300.000mm

@@ -81,4 +81,4 @@ There are no unit tests, no formatter, no linter, no type checker, and no CI pip
 	- `version:` The version number has been bumped.
 	- `feature:` A new feature has been added.
 	- `fix:` A problem has been fixed.
-- Testing logs are maintained in `docs/logs` and have names formatted as `<__version__>-testing.md`. These are updated with detailed problem, solution and verification information. The testing log for the current version is to be updated when `commit.txt` is written.
+- Testing logs are maintained in `docs/logs` and have names formatted as `<__version__>-testing.md`. These are updated with detailed Problem, Solution and Verification information sections. The testing log for the current version is to be updated when `commit.txt` is written.

@@ -640,7 +640,9 @@ class GlueScript:
         # rpascript — store in _layer_attributes (assembled later by stage_rpascript)
         attrs: list[str] = []
         attrs.append(f"# Layer {self._layer}: {label}")
-        attrs.append(f"LAYER_COLOR Layer:{self._layer} Color:{color}")
+        # Escape '#' so the rpascript interpreter's inline-comment stripping
+        # does not eat the color value (matches rpascript/generator.py).
+        attrs.append(f"LAYER_COLOR Layer:{self._layer} Color:{color.replace('#', '\\#')}")
         attrs.extend(self._overscan_modes[resolved_overscan])
         attrs.append(
             f"LAYER_SPEED_LASER_1 Layer:{self._layer} Speed:{speed}mm/S"

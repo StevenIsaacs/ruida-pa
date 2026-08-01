@@ -559,6 +559,8 @@ LAYER_ATTRIBUTES Layer:{self._layer} 0
 # declare_layer() call or end_job(), only for layers that have content.
 ```
 
+Note: The '#' in the color value is escaped to '\\#' on emission (e.g. Color:\\#0000FF) so the rpascript interpreter's inline-comment stripping does not eat it; parse_value un-escapes it on read.
+
 Note: These lines form the **layer attributes** for one layer, stored in
 `_layer_attributes`. All layers' attribute blocks are emitted together
 in the second section of the final rpascript (before any `SELECT_LAYER`
