@@ -28,6 +28,7 @@ from typing import Any, Callable
 
 import argparse
 from rpalib.rpa_emitter import RpaEmitter
+from rpalib.version import __version__
 try:
     from rpalib.bokeh_app import BokehApp
 except ImportError:
@@ -437,7 +438,7 @@ class TuiAdapter(App):
         app.run()  # Blocks until user quits
     """
 
-    TITLE = "Ruida Script TUI"
+    TITLE = f"Ruida Script TUI v{__version__}"
     SUB_TITLE = "Interactive Ruida Controller Interface"
 
     BINDINGS = [

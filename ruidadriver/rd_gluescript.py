@@ -12,6 +12,8 @@ import re
 import shlex
 from typing import Any, Callable
 
+from rpalib.version import __version__
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +55,7 @@ class GlueScript:
         jog_u_speed: float — Jog speed for U axis in mm/s.
     """
 
-    _version = "1.0.0"
+    _version = __version__
 
     # Jog commands are live-only: movement jogs execute live on the
     # controller and are never part of a saved job (they also mutate
