@@ -1,7 +1,7 @@
 # Integration Guide
 
 **Application:** `rpa.py` / `rpa-script`  
-**Source:** `ruidadriver/ruida_driver.py` (RdDriver), `rpascript/tui_adapter.py` (TuiAdapter)  
+**Source:** `ruidadriver/ruida_driver.py` (RdDriver), `ruidadriver/rd_gluescript.py` (GlueScript), `rpascript/tui_adapter.py` (TuiAdapter)  
 **Status:** As-built (describes current implementation)
 
 ---
@@ -12,13 +12,18 @@ This guide covers two integration paths for working with Ruida laser controllers
 
 | Audience | Path | Section |
 |----------|------|---------|
-| Application developers embedding controller control | Direct RdDriver API | [§2](#2-direct-rddriver-integration) |
+| Application developers embedding controller control | Direct RdDriver + GlueScript API | [§2](#2-direct-rddriver-integration) |
 | TUI/testing developers automating session workflows | TuiAdapter emulation | [§3](#3-tui-emulation-for-testing) |
+
+Application developers should build laser jobs with the high-level GlueScript API
+(`declare_job`/`declare_layer`/move/cut/`stage_rpascript`) rather than hand-writing
+low-level rpascript. GlueScript simultaneously generates a high-level transcript
+(persisted to `.cglu` files) and the low-level rpascript that the controller executes.
 
 ### Prerequisites
 
 - Python 3.10+
-- Basic familiarity with Ruida laser controllers and the rpascript format (see [rpascript Guide](rpascript-guide.md))
+- Basic familiarity with the GlueScript API (see [GlueScript Guide](gluescript-guide.md)) and the underlying low-level rpascript format (see [rpascript Guide](rpascript-guide.md))
 - A Ruida controller on the local network (UDP) or connected via USB serial
 
 ### Companion Documents
@@ -26,12 +31,16 @@ This guide covers two integration paths for working with Ruida laser controllers
 | Document | What It Covers |
 |----------|----------------|
 | [RdDriver Interface](../api/RdDriver-interface.md) | Full API reference for the RdDriver class |
-| [rpascript Guide](rpascript-guide.md) | Script format, command reference, flow-control directives |
+| [GlueScript Guide](gluescript-guide.md) | High-level job scripting API — build jobs with declare_job/declare_layer/move/cut/stage_rpascript, .cglu persistence |
+| [rpascript Guide](rpascript-guide.md) | Low-level script format, command reference, flow-control directives (the substrate GlueScript generates) |
 | [TUI User Guide](tui-guide.md) | Interactive terminal application usage |
 
 ---
 
 ## 2. Direct RdDriver Integration
+
+Jobs are assembled with the GlueScript API and staged to low-level rpascript for
+execution. `run()` accepts rpascript lines directly for simple commands.
 
 ### 2.1 Minimal Integration
 
@@ -42,14 +51,37 @@ driver = RdDriver()
 driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
 driver.register_error_listener(lambda m: print(f"[ERROR] {m}"))
 
+# Build a job with the high-level GlueScript API
+driver.declare_job("Panel Cut", ref_point="MACHINE")
+
+driver.declare_layer(
+    "Engrave", "#000000",
+    mode="VECTOR", speed=300.0,
+    min_power_1=15.0, max_power_1=60.0
+)
+
+driver.move_xy_to(10.0, 10.0)
+driver.cut_xy_to(210.0, 10.0)
+driver.cut_xy_to(210.0, 110.0)
+driver.cut_xy_to(10.0, 110.0)
+driver.cut_xy_to(10.0, 10.0)
+
+driver.end_job()
+
+# Stage the job into low-level rpascript (assembled from job/layer storage)
+rpa = driver.stage_rpascript()
+
 if not driver.start(udp_host="192.168.1.100"):
     print("Connection will retry in background...")
 
-driver.run(["GET_SETTING MEM_CARD_ID"])
-driver.run(["GET_SETTING MEM_MACHINE_STATUS"])
-# ... script executes in background ...
+# Compose head + job + tail and execute
+driver.run_job(rpa)
 driver.stop()
 ```
+
+**Note:** `run()` accepts raw rpascript lines for simple commands (e.g.
+`GET_SETTING MEM_CARD_ID`) — see §2.4. Building jobs by hand-writing rpascript
+is discouraged; use the GlueScript API instead.
 
 ### 2.2 Full Lifecycle
 
@@ -104,8 +136,10 @@ def _handle_status(self, event):
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue rpascript-formatted lines for background execution. Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
+| `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue low-level rpascript lines for background execution (as staged by GlueScript's `stage_rpascript()`, or hand-written for simple commands). Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
 | `cancel_script` | `()` | `None` | Clear all queued scripts and prevent current script from requeuing on disconnect. Thread-safe. |
+
+`stage_rpascript()` returns exactly the rpascript list to hand to `run_job()`/`run()`.
 
 **Flow-control commands** are processed inline by the driver (not sent to the controller):
 
@@ -206,6 +240,10 @@ The composition happens atomically at queue time under the driver's
 lock. Subsequent changes to head or tail do not affect already-queued
 jobs.
 
+A GlueScript-staged job (`stage_rpascript()` output) is passed as the
+`job` argument to `run_job()`, so the head/tail scripts wrap the entire
+staged job.
+
 **Typical usage:**
 
 ```python
@@ -244,100 +282,70 @@ concurrently.
 ### 2.10 File Structure Composition
 
 The [rpascript Guide](rpascript-guide.md) defines an `.rd` file as a sequence of
-logical sections (§10 File Structure). When building a job programmatically via
-`RdDriver`, these sections map directly to the head/job/tail composition model:
+logical sections (§10 File Structure). The GlueScript API generates these
+sections for you when you build a job and call `stage_rpascript()`. The mapping
+below shows which section each GlueScript call produces:
 
-| Script Section | Head/Job/Tail | File Structure Reference |
-|----------------|---------------|--------------------------|
-| Header | Head | §10.3 — REF_POINT_ABSOLUTE through SET_FEED_AUTO_PAUSE |
-| Job Settings | Head | §10.4 — JOB_TOP_RIGHT through ARRAY_DIRECTION |
-| Layer Settings | Head | §10.5 — per-layer SPEED/POWER/LAYER/bounding box commands |
-| Offset Settings | Head | §10.6 — PEN_OFFSET_AXIS through DISPLAY_OFFSET |
-| Array Settings | Head | §10.7 — ELEMENT_MAX_INDEX through ARRAY_COPIES |
-| Layer Actions | Job body | §10.8 — OVERSCAN through MOVE/CUT commands |
-| Tail | Tail | §10.9 — ARRAY_END through EOF |
+| rpascript Guide Section | Generated by GlueScript | via |
+|-------------------------|-------------------------|-----|
+| Header (§10.3) | Yes | `declare_job()` |
+| Job Settings (§10.4) | Yes | `declare_job()` (except ARRAY_DIRECTION) |
+| Layer Settings (§10.5) | Yes | `declare_layer()` (+ `LAST_LAYER` from `stage_rpascript`) |
+| Offset Settings (§10.6) | No | `set_head_script` raw rpascript if needed |
+| Array Settings (§10.7) | No | `set_head_script` raw rpascript if needed |
+| Layer Actions (§10.8) | Yes | `move_xy_to()`/`cut_xy_to()`/`power()`/`air_assist_on()`/`air_assist_off()` |
+| Tail (§10.9) | Yes | `stage_rpascript()` emits `END_JOB`/`EOF` (extra tail via `set_tail_script`) |
 
-The head script contains all setup sections that define the environment
-(header, job bounds, layers, offsets, array layout). The job body contains
-the actual move/cut commands for each layer. The tail script terminates
-the job and provides the file checksum.
+The staged output is structured as: job header (Section 1) → inline prelude →
+layer attributes sorted (Section 2) → `LAST_LAYER` → per-layer `SELECT_LAYER` +
+actions (Section 3) → inline epilogue → `END_JOB` → `EOF` (Section 4). Note that
+GlueScript does **not** generate the Offset Settings (§10.6) or Array Settings
+(§10.7) rpascript sections — those would have to come from a raw head script
+(`set_head_script`) or `inline()`.
 
-**Constructing the head script:**
+**Constructing a job with GlueScript:**
 
 ```python
-head = [
-    # ── Header (§10.3) ──
-    "REF_POINT_ABSOLUTE",
-    "SET_ABSOLUTE",
-    "REF_POINT_SET",
-    "ENABLE_BLOCK_CUTTING State:OFF",
-    "START_JOB",
-    "FEED_REPEAT 0 0",
-    "SET_FEED_AUTO_PAUSE State:OFF",
+from ruidadriver.ruida_driver import RdDriver
 
-    # ── Job Settings (§10.4) ──
-    "JOB_TOP_RIGHT X=0.000mm Y=0.000mm",
-    "JOB_BOTTOM_LEFT X=400.000mm Y=300.000mm",
-    "DOCUMENT_TOP_RIGHT X=0.000mm Y=0.000mm",
-    "DOCUMENT_BOTTOM_LEFT X=400.000mm Y=300.000mm",
-    "JOB_COPIES Columns=1 Rows=1 XStep=0.000mm YStep=0.000mm",
-    "ARRAY_DIRECTION Dir:0",
+driver = RdDriver()
 
-    # ── Layer Settings (§10.5) — one block per layer ──
-    "SPEED_LASER_1_LAYER Layer:0 Speed:100.000mm/S",
-    "MIN_POWER_1_LAYER Layer:0 Power:19.995%",
-    "MAX_POWER_1_LAYER Layer:0 Power:19.995%",
-    "MIN_POWER_2_LAYER Layer:0 Power:19.995%",
-    "MAX_POWER_2_LAYER Layer:0 Power:19.995%",
-    "LAYER_COLOR Layer:0 Color:\\#000000",
-    "LAYER_ATTRIBUTES Layer:0 3",
-    "LAYER_TOP_RIGHT Layer:0 X=0.000mm Y=0.000mm",
-    "LAYER_BOTTOM_LEFT Layer:0 X=400.000mm Y=300.000mm",
-    "LAYER_EX_TOP_RIGHT Layer:0 X=0.000mm Y=0.000mm",
-    "LAYER_EX_BOTTOM_LEFT Layer:0 X=400.000mm Y=300.000mm",
+# Phase 1: Define the job (Header §10.3 + Job Settings §10.4)
+driver.declare_job("Panel Cut", ref_point="MACHINE")
 
-    "LAST_LAYER Layer:0",
+# Phase 2: Add layers (Layer Settings §10.5)
+driver.declare_layer(
+    "Engrave", "#000000",
+    mode="VECTOR", speed=300.0,
+    min_power_1=15.0, max_power_1=60.0
+)
 
-    # ── Offset Settings (§10.6) ──
-    "PEN_OFFSET_AXIS Axis:X REL=0.000mm",
-    "PEN_OFFSET_AXIS Axis:Y REL=0.000mm",
-    "LAYER_OFFSET_AXIS Axis:X REL=0.000mm",
-    "LAYER_OFFSET_AXIS Axis:Y REL=0.000mm",
-    "DISPLAY_OFFSET X=0.000mm Y=0.000mm",
+# Phase 3: Add operations to the current layer (Layer Actions §10.8)
+driver.move_xy_to(10.0, 10.0)
+driver.cut_xy_to(210.0, 10.0)
+driver.cut_xy_to(210.0, 110.0)
+driver.cut_xy_to(10.0, 110.0)
+driver.cut_xy_to(10.0, 10.0)
 
-    # ── Array Settings (§10.7) ──
-    "ELEMENT_MAX_INDEX 0",
-    "ELEMENT_NAME_MAX_INDEX 0",
-    "ELEMENT_INDEX 0",
-    "ELEMENT_NAME_INDEX 0",
-    'ELEMENT_NAME String:"UNNAMED "',
-    "ELEMENT_ARRAY_TOP_RIGHT X=0.000mm Y=0.000mm",
-    "ELEMENT_ARRAY_BOTTOM_LEFT X=400.000mm Y=300.000mm",
-    "ELEMENT_COPIES Columns=1 Rows=1 XStep=0.000mm YStep=0.000mm",
-    "ELEMENT_ARRAY_ADD X=0.000mm Y=0.000mm",
-    "ELEMENT_ARRAY_MIRROR 0",
-    "ARRAY_START 0",
-    "SET_CURRENT_ELEMENT_INDEX 0",
-    "ARRAY_TOP_RIGHT X=0.000mm Y=0.000mm",
-    "ARRAY_BOTTOM_LEFT X=400.000mm Y=300.000mm",
-    "ARRAY_ADD X=0.000mm Y=0.000mm",
-    "ARRAY_MIRROR 0",
-    "ARRAY_EVEN_DISTANCE XStep=0.000mm YStep=0.000mm",
-    "ARRAY_COPIES Columns=1 Rows=1 XStep=0.000mm YStep=0.000mm",
-]
+# Phase 4: Complete the job
+driver.end_job()
+
+# Phase 5: Stage — emits header, layer attributes, actions,
+# LAST_LAYER, END_JOB and EOF (Tail §10.9)
+rpa = driver.stage_rpascript()
 ```
 
-**Constructing the tail script:**
+Head/tail (`set_head_script`/`set_tail_script`, see §2.9) remain available for
+optional pre/postamble — e.g., home positioning or a return to origin.
+
+**Constructing an optional tail script:**
 
 ```python
-tail = [
-    # ── Tail (§10.9) ──
-    "ARRAY_END",
-    "BLOCK_END",
-    "SET_SETTING",
-    "END_JOB Sum:0x0000050CF4",
-    "EOF",
-]
+# Return to origin after the job. END_JOB and EOF are already
+# emitted by stage_rpascript() — do not add them to the tail.
+driver.set_tail_script([
+    "MOVE_FAR_XY X=0mm Y=0mm",
+])
 ```
 
 The checksum value in `END_JOB` must match the running sum of all preceding
@@ -348,10 +356,8 @@ the driver recalculates and patches `END_JOB` automatically.
 **Composing and executing:**
 
 ```python
-driver = RdDriver()
-driver.set_head_script(head)
-driver.set_tail_script(tail)
-driver.run_job(job_body, auto_checksum=True)
+rpa = driver.stage_rpascript()   # staged GlueScript output
+driver.run_job(rpa, auto_checksum=True)
 ```
 
 **Generating an .rd binary file programmatically:**
@@ -365,8 +371,9 @@ from rpascript.encoding import encode_command
 from rpalib.ruida_transcoder import RdEncoder
 from rpalib.rpa_swizzler import RpaSwizzler
 
-# Compose full script
-full_script = head + job_body + tail
+# Compose full script — this is the staged GlueScript output
+# (optionally wrapped with head/tail as composed by run_job)
+full_script = driver.rpascript
 
 # Parse to command dicts
 parser = ScriptParser()
@@ -403,7 +410,7 @@ capture-from-software may use `0x89`.
 
 **Verification round-trip:**
 
-1. Generate `.rds` with the composition above
+1. Stage a job with GlueScript (`declare_job` → `declare_layer` → operations → `end_job` → `stage_rpascript`)
 2. Generate `.rd` via the encoding pipeline
 3. Run `python rpa.py output.rd` to decode and verify all sections
 4. Compare command sequence against `rpascript-guide.md §10.10`
@@ -416,7 +423,7 @@ parameter encoding or omitted sections.
 
 ## 3. TUI Emulation for Testing
 
-The `TuiAdapter` class in `rpascript/tui_adapter.py` wraps `RdDriver` with an emulation layer that logs operations and provides a programmatic interface outside the TUI event loop. This is useful for integration testing and automation.
+The `TuiAdapter` class in `rpascript/tui_adapter.py` wraps `RdDriver` with an emulation layer that logs operations and provides a programmatic interface outside the TUI event loop. This is useful for integration testing and automation. High-level job scripting from the TUI uses the `/gluescript` command (subcommands `new`/`show`/`stage`/`run`/`save`/`load`/`edit`/`list`) — see GlueScript Guide §5; the staged rpascript becomes the loaded script (`.rds` slot).
 
 ### 3.1 Delegated API
 
@@ -503,6 +510,10 @@ except ValueError as e:
     print(f"Script validation error: {e}")
 ```
 
+To validate a gluescript transcript instead, re-stage it —
+`stage_rpascript(lines)` raises `RuntimeError` on unknown commands or a missing
+`end_job()`.
+
 ### Pattern 2 — Checksum Verification
 
 Test checksum mismatch handling with `auto_checksum`:
@@ -524,27 +535,37 @@ driver.run(["MOVE_FAR_XY X=100mm Y=200mm", "END_JOB = 99999"],
 
 ### Pattern 3 — Workflow Composition
 
-Test head/job/tail assembly via TUI commands without a connection. Assemble commands from different segments:
+Test job assembly via GlueScript, staged without a connection:
 
 ```python
-head = [
-    "SET_ABSOLUTE",
-    "MOVE_FAR_XY X=0mm Y=0mm",
-]
-job = [
-    "MOVE_FAR_XY X=100mm Y=100mm",
-    "LASER_ON Power=80%",
-    "MOVE_FAR_XY X=200mm Y=200mm",
-    "LASER_OFF",
-]
-tail = [
-    "MOVE_FAR_XY X=0mm Y=0mm",
-    "END_JOB",
-]
+from ruidadriver.ruida_driver import RdDriver
 
-full_script = head + job + tail
-# Compose via TUI: /head → /job → /tail → /list
+driver = RdDriver()
+
+# Assemble a job with the high-level GlueScript API
+driver.declare_job("Panel Cut", ref_point="MACHINE")
+
+driver.declare_layer(
+    "Engrave", "#000000",
+    mode="VECTOR", speed=300.0,
+    min_power_1=15.0, max_power_1=60.0
+)
+
+driver.move_xy_to(10.0, 10.0)
+driver.cut_xy_to(210.0, 10.0)
+driver.cut_xy_to(210.0, 110.0)
+driver.cut_xy_to(10.0, 110.0)
+driver.cut_xy_to(10.0, 10.0)
+
+driver.end_job()
+
+# Stage — validates structure without a connection
+rpa = driver.stage_rpascript()
+# Compose via TUI: /gluescript new → /gluescript show → /gluescript stage → /gluescript list
 ```
+
+Head/tail composition via `set_head_script`/`set_tail_script` remains available
+for optional pre/postamble around the staged job.
 
 ### Pattern 4 — Flow Control
 
@@ -583,6 +604,11 @@ capture → /import log → /save job rds → /load rds → /list
 # TUI command: /load my-job.rds
 # TUI command: /list  # verify line count matches original
 ```
+
+Capture replay is inherently rpascript (the capture decodes straight to
+low-level rpascript). To persist an **authored** gluescript job instead, use
+`/gluescript save my-job.cglu` and `/gluescript load my-job.cglu` (see GlueScript
+Guide §5.3 — 'Persistence: save and load').
 
 ### Pattern 6 — Re-queue on Disconnect
 
@@ -630,6 +656,8 @@ python rpascript/tui.py
 
 The TUI decodes the binary capture into human-readable rpascript format and writes `my-job.rds`.
 
+To author a **new** job rather than replay a capture, use `/gluescript` (see GlueScript Guide §5).
+
 ### Step 3 — Replay via rpa-script
 
 ```bash
@@ -668,6 +696,7 @@ Before writing any integration code, read in this order:
 | File | What It Contains |
 |------|-----------------|
 | `ruidadriver/ruida_driver.py` | RdDriver class (full lifecycle, listeners, flow control) — class starts at line 54, 791 lines total |
+| `ruidadriver/rd_gluescript.py` | GlueScript mixin — high-level job scripting (declare_job, declare_layer, move/cut, stage_rpascript); RdDriver inherits from it (class RdDriver(GlueScript)) |
 | `rpascript/tui_adapter.py` | TuiAdapter emulation layer — `/`-command handlers (`_cmd_*`), incl. `/gluescript` |
 | `rpascript/interpreter.py` | ScriptParser for offline validation |
 
@@ -678,6 +707,7 @@ For best results, include in your prompt:
 - **Concrete integration goal** (e.g., "Write a class that connects to the controller, runs these 3 commands, and reports the response")
 - **Acceptance criteria** (e.g., "Must compile, must handle RuntimeError when start() is not called first")
 - **Target framework/tech stack** (e.g., "FastAPI background task", "Qt application", "CLI script")
+- Use the GlueScript API (`rd_gluescript.py`) to build jobs; reserve raw rpascript for simple commands (`GET_SETTING`) or workarounds (`inline()`).
 
 ### 6.4 Agent-Friendly Patterns
 
@@ -696,6 +726,9 @@ These patterns from §4 require no hardware or minimal hardware:
 - **Checksum discrepancy** — `auto_checksum=True` may not match LightBurn captures. If comparing against LightBurn output, verify checksums independently.
 - **No mock layer** — `TuiAdapter` delegates to real hardware. It cannot simulate controller responses or inject fake status values. Unit tests requiring simulated hardware must implement their own mock layer.
 - **`start()` returns `False` on failure** — this is not an exception. The driver retries in background. Check `is_connected` property to confirm connection status.
+- **`end_job()` is required before `stage_rpascript()`** — otherwise `RuntimeError`. Re-staging a transcript missing `end_job()` also raises (unless `require_complete=False`).
+- **Jog and home commands are live-only** — `jog_*` (incl. `jog_set_*`), `home`, `home_z`, `home_u` act on the live session, are never persisted to `.cglu`, and are skipped with a warning when re-staging.
+- **`power()` is only valid for IMAGE/DEPTHMAP layers** — calling it on a VECTOR layer logs a warning and is ignored.
 
 ### 6.6 Verification Workflow
 
@@ -788,8 +821,9 @@ Like `session`/`server`, the 16 jog commands (`jog_*`, including the
 `home_u`) are available as bare commands in the TUI — they are live-only
 (movement jogs and homing run immediately against a connected session;
 setters configure the live jog session) and are never persisted
-to `.cglu` files. See the [rpascript guide](rpascript-guide.md#jog--home-commands)
-for the argument forms.
+to `.cglu` files. See the [GlueScript guide](gluescript-guide.md#bare-jog--home-commands)
+for the bare-command argument forms (jog/home commands are live-only and never
+persisted to `.cglu` files).
 
 | Parameter | Default      | Description                                    |
 |-----------|--------------|------------------------------------------------|

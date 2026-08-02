@@ -655,13 +655,14 @@ This section describes the structure of an `.rd` file as a sequence of commands 
 a complete laser job. An `.rd` file consists of several major sections which appear in the
 following order:
 
-- 10.4 Header — initial setup and checksum start
-- 10.5 Job settings — job-level configuration and bounding boxes
-- 10.6 Layer settings — per-layer configuration (one block per layer)
-- 10.7 Offset settings — pen and display offset compensation
-- 10.8 Array settings — element and array definitions for step-and-repeat
-- 10.9 Layer actions — the actual move and cut commands for each layer
-- 10.10 Tail — job termination and checksum
+- 10.3 Header — initial setup and checksum start
+- 10.4 Job settings — job-level configuration and bounding boxes
+- 10.5 Layer settings — per-layer configuration (one block per layer)
+- 10.6 Offset settings — pen and display offset compensation
+- 10.7 Array settings — element and array definitions for step-and-repeat
+- 10.8 Layer actions — the actual move and cut commands for each layer
+- 10.9 Tail — job termination and checksum
+- 10.10 Complete Example — complete `.rd` file structure combining all sections
 
 ### 10.1 Coordinate System
 
