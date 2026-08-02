@@ -1034,12 +1034,23 @@ class GlueScript:
         """
         self._layer_actions.setdefault(layer, []).extend(lines)
 
-    def stage_rpascript(self, gluescript: list[str] | None = None) -> list[str]:
+    def stage_rpascript(
+        self, gluescript: list[str] | None = None, require_complete: bool = True
+    ) -> list[str]:
         """Finalize the rpascript or re-stage a gluescript.
-        
+
         Assembles rpascript from structured storage: job header first,
         then all layer attributes, then all layer actions with SELECT_LAYER
         prefix, then END_JOB.
+
+        Args:
+            gluescript: When provided, resets all state and replays the
+                transcript through the command registry (re-staging path).
+            require_complete: On the re-staging path, raises when the
+                replayed transcript never called end_job(). Pass False to
+                tolerate an in-progress job (used when restoring a
+                preserved transcript across session teardown, where the
+                user may still be editing).
         """
         # Re-staging path — skip _job_complete check; gluescript will set it
         if gluescript is not None:
@@ -1089,7 +1100,7 @@ class GlueScript:
                             f"Error re-staging command {name!r} with args {args!r}: {exc}"
                         ) from exc
 
-                if not self._job_complete:
+                if require_complete and not self._job_complete:
                     raise RuntimeError(
                         "Re-staged gluescript is missing end_job() — job was not completed"
                     )

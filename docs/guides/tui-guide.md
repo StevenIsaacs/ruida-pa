@@ -230,7 +230,7 @@ WAIT !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/exec script`        | Execute the loaded script as raw commands (no job extraction).               |
 | `/export <path> [magic=0xNN]` | Export the loaded script as a binary `.rd` file. Default path: `<source>.rd`. Supports `magic=0xNN` to override swizzle byte. |
 | `/import <path>`      | Import a tshark capture file (`.log`/`.txt`/`.rd`) and decode into a script. |
-| `/edit`               | Open the loaded script in a full-screen text editor (Ctrl+S saves, Esc cancels). |
+| `/edit`               | Open the loaded rpascript in a full-screen text editor (Ctrl+S saves, Esc cancels). |
 | `/gluescript <sub>`   | GlueScript high-level scripting (`new`, `stage`, `run`, `save`, `load`, `edit`, ...). See the [GlueScript guide](gluescript-guide.md). |
 | `/save job <path>`    | Save the pure job body (START_JOB to EOF, no head/tail) to a `.rds` file. |
 | `/list`               | Show the composed job with section markers (`# --- Head ---` / `# --- Job ---` / `# --- Tail ---`). |

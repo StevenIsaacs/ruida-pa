@@ -579,6 +579,8 @@ class TuiAdapter(App):
         self._auto_display_script: bool = False
         self._plot_source: str | None = None  # source label for /plot title (filename or "[RPC]")
         self._loaded_script_path: str | None = None  # Full path of last /load-ed file, for /save preselect
+        self._gluescript_cglu_path: str | None = None  # Full path of last saved/loaded .cglu file, for /gluescript preselect
+        self._preserved_gluescript: list[str] | None = None  # Transcript preserved across session teardown, re-staged on next driver creation
         self._bokeh_apps: list[BokehApp] = []  # running Bokeh servers for /clear shutdown
         self._gluescript_was_run: bool = False  # Tracks if staged gluescript has been executed
         self._rpyc_server: ThreadedServer | None = None
@@ -604,13 +606,13 @@ class TuiAdapter(App):
             "save": "Save composed job (/save job <path>) or full script (/save script <path> | /save as <path>)",
             "stop": "Stop the current operation (session connection or script execution). Also bound to Escape.",
             "dryrun": "Toggle dry-run mode (on|off). When on, /run runs normally but RPC driver.run() only logs to TUI.",
-            "edit": "Open loaded script in a full-screen editor",
+            "edit": "Open loaded rpascript in a full-screen editor",
             "protect": "Toggle protect mode (on|off|status). When on, SET_SETTING commands are blocked to prevent hardware damage.",
             "frame": "Frame job or layer boundaries. /frame job | /frame layer <N>",
             "plot": "Plot loaded script moves in a Bokeh visualization",
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
-            "gluescript": "GlueScript high-level scripting. Subcommands: new, show, stage, run, save, load, edit, list, list_rpa",
+            "gluescript": "GlueScript high-level scripting. Subcommands: new, show, stage, run, save, load, edit, list",
             "home": "home: Home X and Y axes (machine origin)",
             "home_z": "home_z: Home Z axis",
             "home_u": "home_u: Home U axis (rotary)",
@@ -724,6 +726,14 @@ class TuiAdapter(App):
         keep the selection on screen when the list exceeds max_lines.
         """
         self._suggest_popup.clear()
+        if self._suggest_mode == "file":
+            # File completions render from _file_completions and populate
+            # _suggest_matches themselves. They must run even when
+            # _suggest_matches is empty — two-word file commands (e.g.
+            # /gluescript save, /save job) clear the slash-mode matches when
+            # the space after the first word is typed.
+            self._render_file_completions()
+            return
         if not self._suggest_matches:
             self._suggest_popup.write("[dim]No matching commands[/dim]")
             return
@@ -756,9 +766,6 @@ class TuiAdapter(App):
                     self._suggest_popup.write(f"[reverse]{line}[/reverse]")
                 else:
                     self._suggest_popup.write(line)
-        elif self._suggest_mode == "file":
-            self._render_file_completions()
-            return
 
     @on(Input.Submitted, "#command-input")
     async def on_command(self, event: Input.Submitted) -> None:
@@ -1277,7 +1284,6 @@ class TuiAdapter(App):
             "  /gluescript load <path>                         Load a .cglu gluescript file and stage it\n"
             "  /gluescript edit                            Edit the gluescript in a full-screen editor\n"
             "  /gluescript list                             Display high-level gluescript commands\n"
-            "  /gluescript list_rpa                         Display generated low-level rpascript commands\n"
         )
 
     async def _handle_slash_command(self, raw: str) -> None:
@@ -1621,7 +1627,7 @@ class TuiAdapter(App):
         if not self._loaded_script:
             self._log_error("No script loaded. Use /load <path> first.")
             return
-        if self._ruida_driver is None:
+        if self._ruida_driver is None or not self._ruida_driver.is_connected:
             self._log_error(
                 "No active session. Use 'session start udp=<IP> usb=<device>' first."
             )
@@ -1633,10 +1639,16 @@ class TuiAdapter(App):
                 self._log_error("No job commands found (no START_JOB/EOF markers).")
                 return
             self._log_info(f"Executing {len(job)} job commands...")
-            self._ruida_driver.run_job(job, auto_checksum=True)
+            try:
+                self._ruida_driver.run_job(job, auto_checksum=True)
+            except RuntimeError as e:
+                self._log_error(f"Run failed: {e}")
         elif action == "script":
             self._log_info(f"Executing {len(self._loaded_script)} lines...")
-            self._ruida_driver.run(self._loaded_script)
+            try:
+                self._ruida_driver.run(self._loaded_script)
+            except RuntimeError as e:
+                self._log_error(f"Run failed: {e}")
         else:
             self._log_error(f"Unknown run action: '{action}'. Usage: /run \\[script]")
 
@@ -1816,6 +1828,7 @@ class TuiAdapter(App):
         self._bokeh_apps = []
         self._plot_source = None
         self._loaded_script_path = None
+        self._gluescript_cglu_path = None
         self._log_info("Logs, head, and tail cleared")
 
     def _cmd_quit(self) -> None:
@@ -2211,7 +2224,7 @@ class TuiAdapter(App):
         if not self._loaded_script:
             self._log_error("No script loaded. Use /load <path> first.")
             return
-        if self._ruida_driver is None:
+        if self._ruida_driver is None or not self._ruida_driver.is_connected:
             self._log_error(
                 "No active session. Use 'session start udp=<IP>' first."
             )
@@ -2285,7 +2298,10 @@ class TuiAdapter(App):
             f"top_right=({top_right[0]:.1f},{top_right[1]:.1f}) "
             f"bottom_left=({bottom_left[0]:.1f},{bottom_left[1]:.1f})"
         )
-        self._ruida_driver.run(frame_script)
+        try:
+            self._ruida_driver.run(frame_script)
+        except RuntimeError as e:
+            self._log_error(f"Frame failed: {e}")
 
     @staticmethod
     def _extract_xy(params: list[str]) -> tuple[float, float] | None:
@@ -2366,13 +2382,104 @@ class TuiAdapter(App):
         self._log_info("GlueScript: Job finalized.")
         return True
 
-    def _cmd_gluescript(self, args: str) -> None:
-        """Handle /gluescript subcommands for high-level scripting."""
+    def _create_driver(self) -> RdDriver:
+        """Create a new RdDriver wired to the TUI.
+
+        Registers the TUI listeners, syncs cached head/tail scripts, and
+        restores any preserved gluescript transcript. Does NOT assign
+        ``self._ruida_driver`` and does NOT call ``start()`` — the caller
+        decides when to connect.
+        """
+        driver = RdDriver()
+        driver.register_status_listener(self.on_status_event)
+        driver.register_error_listener(self.on_error)
+        driver.register_reply_listener(self.on_reply_data)
+
+        # Sync any cached head/tail scripts to the new driver
+        if self._head_script:
+            driver.set_head_script(self._head_script)
+        if self._tail_script:
+            driver.set_tail_script(self._tail_script)
+
+        if self._preserved_gluescript:
+            # Deliberate boundary: do NOT sync _loaded_script here —
+            # _ensure_gluescript_driver runs this at the top of every
+            # session-less subcommand, and syncing would clobber a /load-ed
+            # script on /gluescript show/list after teardown.
+            try:
+                driver.stage_rpascript(
+                    self._preserved_gluescript, require_complete=False
+                )
+            except RuntimeError as exc:
+                recovery_dir = os.path.join("tmp")
+                os.makedirs(recovery_dir, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                recovery_path = os.path.join(
+                    recovery_dir, f"gluescript-recovery-{timestamp}.cglu"
+                )
+                with open(recovery_path, "w") as f:
+                    f.write("\n".join(self._preserved_gluescript) + "\n")
+                self._log_error(
+                    f"Could not restore preserved gluescript: {exc}; "
+                    f"transcript saved to {recovery_path}"
+                )
+            else:
+                # Restored in full — the transcript is no longer "pending run"
+                self._gluescript_was_run = False
+                if not driver._job_complete:
+                    self._log_info(
+                        f"GlueScript: restored {len(self._preserved_gluescript)} lines, transcript incomplete"
+                    )
+            # One-shot restore: consumed whether it succeeded or was dumped
+            self._preserved_gluescript = None
+        return driver
+
+    def _ensure_gluescript_driver(self) -> RdDriver:
+        """Return the current driver, creating one lazily for session-less gluescript use."""
+        if self._ruida_driver is None:
+            self._ruida_driver = self._create_driver()
+        return self._ruida_driver
+
+    def _release_driver(self) -> None:
+        """Stop and release the current driver, preserving its gluescript.
+
+        Copies (never aliases) the gluescript transcript so session-less
+        subcommands can continue editing it after the session ends; the
+        copy is re-staged onto the next driver by ``_create_driver()``.
+        Callers keep responsibility for ``_session_connected.clear()`` and
+        any logging.
+        """
         driver = self._ruida_driver
         if driver is None:
-            self._log_error("No active session. Use 'session start' first.")
             return
+        if driver.gluescript:
+            self._preserved_gluescript = list(driver.gluescript)
+        driver.stop()
+        self._ruida_driver = None
 
+    def _copy_staged_rpascript_to_loaded(self) -> None:
+        """Mirror the staged rpascript into the TUI's loaded-script slot.
+
+        Makes the generated rpascript available exactly as if it had been
+        /load-ed from a .rds file: viewable via /list script and editable
+        via /edit. Deliberately leaves _loaded_script_path and _plot_source
+        untouched (user decision) — the path only feeds the bare-/save
+        preselect and the plot label stays stale until a file is loaded.
+        """
+        driver = self._ruida_driver
+        # NOTE: non-empty is guaranteed at the call sites (stage/run raise on
+        # failure; _apply_gluescript_lines pre-validates; new_gluescript
+        # empties driver.rpascript), so this guard never silently diverges.
+        if driver.rpascript:
+            self._loaded_script = list(driver.rpascript)  # copy, never alias
+        else:
+            self._log_warning(
+                "GlueScript: staged rpascript unexpectedly empty — "
+                "loaded-script slot left unchanged."
+            )
+
+    def _cmd_gluescript(self, args: str) -> None:
+        """Handle /gluescript subcommands for high-level scripting."""
         tokens = args.strip().split()
         if not tokens:
             self._log_info("Usage: /gluescript <subcommand> \\[args]")
@@ -2381,9 +2488,37 @@ class TuiAdapter(App):
         sub = tokens[0].lower()
 
         if sub == "new":
+            # A fresh job wipes any preserved transcript BEFORE the driver
+            # is (re)created — avoids restore-then-wipe waste and the
+            # misleading "restored N lines" path.
+            self._preserved_gluescript = None
+
+        if sub == "run":
+            # Running needs a live controller — never lazy-create here.
+            if self._ruida_driver is None or not self._ruida_driver.is_connected:
+                self._log_error("No active session to run gluescript.")
+                return
+        elif sub in (
+            "new", "show", "list",
+            "stage", "save", "load", "edit",
+        ):
+            # Session-less subcommands work on pure in-memory state; the
+            # driver exists just to hold the transcript.
+            self._ensure_gluescript_driver()
+
+        driver = self._ruida_driver
+
+        if sub == "new":
             label = " ".join(tokens[1:]).strip() or "New Job"
             driver.declare_job(label=label, ref_point="MACHINE")
             self._gluescript_was_run = False
+            self._gluescript_cglu_path = None
+            # Wipe the loaded-script slot too: the previous job's rpascript
+            # no longer exists. _plot_source is intentionally NOT cleared
+            # (user decision) — the stale label is accepted until a file is
+            # loaded.
+            self._loaded_script = []
+            self._loaded_script_path = None
             self._log_info(
                 f"GlueScript: New job started (label={label!r}, ref=MACHINE)."
             )
@@ -2404,6 +2539,7 @@ class TuiAdapter(App):
                 if not self._finalize_gluescript_job(driver):
                     return
                 _ = driver.stage_rpascript()
+                self._copy_staged_rpascript_to_loaded()
                 self._log_info(
                     f"GlueScript: Staged {len(driver.rpascript)} rpascript lines."
                 )
@@ -2415,6 +2551,7 @@ class TuiAdapter(App):
                 if not self._finalize_gluescript_job(driver):
                     return
                 rpa = driver.stage_rpascript()
+                self._copy_staged_rpascript_to_loaded()
                 driver.run_job(rpa)
                 self._gluescript_was_run = True
                 self._log_info(f"GlueScript: Executed job ({len(rpa)} rpascript lines).")
@@ -2441,6 +2578,7 @@ class TuiAdapter(App):
                 with open(path, "w") as f:
                     f.write("\n".join(driver.gluescript) + "\n")
                 self._log_info(f"GlueScript saved to {path} ({len(driver.gluescript)} lines)")
+                self._gluescript_cglu_path = path
             except PermissionError:
                 self._log_error(f"Permission denied: {path}")
             except OSError as e:
@@ -2478,6 +2616,7 @@ class TuiAdapter(App):
                 return
             kept, staged_count = result
             self._gluescript_was_run = False
+            self._gluescript_cglu_path = path
             self._log_info(
                 f"Loaded {len(kept)} gluescript lines from {path}, "
                 f"staged {staged_count} rpascript lines"
@@ -2517,16 +2656,9 @@ class TuiAdapter(App):
             for i, line in enumerate(driver.gluescript):
                 self._log_widget.write(f"[dim]{i:4d}:[/dim] {line}")
 
-        elif sub == "list_rpa" or sub == "listrpa":
-            if not driver.rpascript:
-                self._log_info("GlueScript: No rpascript commands.")
-                return
-            for i, line in enumerate(driver.rpascript):
-                self._log_widget.write(f"[dim]{i:4d}:[/dim] {line}")
-
         else:
             self._log_error(f"Unknown gluescript subcommand: {sub}")
-            self._log_info("Available: new, show, stage, run, save, load, edit, list, list_rpa")
+            self._log_info("Available: new, show, stage, run, save, load, edit, list")
 
     def _apply_gluescript_lines(
         self,
@@ -2547,6 +2679,8 @@ class TuiAdapter(App):
         error is already logged).
         """
         driver = self._ruida_driver
+        # Defensive only — _cmd_gluescript ensures a driver exists before
+        # dispatching load/edit, so this guard is currently unreachable.
         if driver is None:
             self._log_error("No active session. Use 'session start' first.")
             return None
@@ -2586,6 +2720,7 @@ class TuiAdapter(App):
             self._log_error(f"{fail_prefix} failed: {e}")
             return None
         driver.stage_rpascript(kept_lines)
+        self._copy_staged_rpascript_to_loaded()
         return kept_lines, len(driver.rpascript)
 
     def _handle_live_command(self, line: str) -> None:
@@ -2736,9 +2871,13 @@ class TuiAdapter(App):
         if cmd == "/gluescript":
             if rest == "save" or rest.startswith("save "):
                 path_part = rest[4:].strip() if len(rest) > 4 else ""
+                if not path_part:
+                    path_part = self._gluescript_cglu_path or ""
                 return ("/gluescript save", path_part)
             if rest == "load" or rest.startswith("load "):
                 path_part = rest[4:].strip() if len(rest) > 4 else ""
+                if not path_part:
+                    path_part = self._gluescript_cglu_path or ""
                 return ("/gluescript load", path_part)
 
         return (None, "")
@@ -2796,6 +2935,7 @@ class TuiAdapter(App):
         """Render file completions in the suggest popup."""
         self._suggest_popup.clear()
         if not self._file_completions:
+            self._suggest_matches = []
             self._suggest_popup.write("[dim]No matching files[/dim]")
             return
 
@@ -2807,6 +2947,7 @@ class TuiAdapter(App):
         ]
 
         if not filtered:
+            self._suggest_matches = []
             self._suggest_popup.write("[dim]No matching files[/dim]")
             return
 
@@ -2817,8 +2958,21 @@ class TuiAdapter(App):
             display_dir = "." + display_dir[len(cwd):]
         self._suggest_popup.write(f"[bold]Files in {display_dir}:[/bold]")
 
-        # Render matches
-        for i, (name, is_dir) in enumerate(filtered):
+        # Compute visible window centered on the selected entry — same math as
+        # _render_suggest_popup so the selection stays on screen when the list
+        # exceeds max_lines.
+        max_items = self._suggest_popup.max_lines - 1  # reserve 1 line for header
+        total = len(filtered)
+        half = max_items // 2
+        start = max(0, self._suggest_selected - half)
+        end = min(total, start + max_items)
+        # If we're below max_items, shift window up
+        if end - start < max_items:
+            start = max(0, end - max_items)
+
+        # Render matches within the window
+        for i in range(start, end):
+            name, is_dir = filtered[i]
             line = f"  {name}"
             if is_dir:
                 line = f"  [bold]{name}[/bold]"
@@ -2827,7 +2981,8 @@ class TuiAdapter(App):
             else:
                 self._suggest_popup.write(line)
 
-        # Store filtered list for navigation
+        # Store the FULL filtered list for navigation — Enter/Tab/arrows work
+        # over every match even though only the window is rendered.
         self._suggest_matches = [name for name, _ in filtered]
 
     def _clear_file_completion_state(self) -> None:
@@ -2852,7 +3007,8 @@ class TuiAdapter(App):
     ) -> None:
         """Connect to a Ruida controller and start the script runner.
 
-        Creates an RdDriver, registers TUI listeners, then calls
+        Creates an RdDriver (or reuses a detached one from session-less
+        gluescript use), registers TUI listeners, then calls
         driver.start() which creates the session, opens the transport,
         starts the script runner and status monitor, and returns.
         """
@@ -2869,12 +3025,8 @@ class TuiAdapter(App):
             )
             return
 
-        if self._ruida_driver is not None:
-            self._ruida_driver.start(udp_host=udp, usb_device=usb, magic=self._last_magic)
-            self._last_udp_host = udp
-            self._last_usb_device = usb
-            return
-
+        # Parse to=/magic before the reuse branch so both branches honor
+        # the same validation.
         timeout: float | None = None
         if to is not None:
             try:
@@ -2893,6 +3045,13 @@ class TuiAdapter(App):
             except (ValueError, AttributeError):
                 self._log_error(f"Invalid magic number: {magic}")
                 return
+
+        # Live session — reconnect immediately using last-used params.
+        if self._ruida_driver is not None and self._ruida_driver._session is not None:
+            self._ruida_driver.start(udp_host=udp, usb_device=usb, magic=self._last_magic)
+            self._last_udp_host = udp
+            self._last_usb_device = usb
+            return
 
         # Check pyserial availability before attempting USB connection
         if usb:
@@ -2919,25 +3078,24 @@ class TuiAdapter(App):
         try:
             self._log_info(f"Connecting (udp={udp}, usb={usb})...")
 
-            driver = RdDriver()
-            driver.register_status_listener(self.on_status_event)
-
-            driver.register_error_listener(self.on_error)
-            driver.register_reply_listener(self.on_reply_data)
-
-            # Sync any cached head/tail scripts to the new driver
-            if self._head_script:
-                driver.set_head_script(self._head_script)
-            if self._tail_script:
-                driver.set_tail_script(self._tail_script)
+            # Fresh driver when none exists (registers listeners, syncs
+            # head/tail, restores preserved gluescript); otherwise reuse
+            # the detached driver from session-less gluescript use — its
+            # listeners and scripts were wired at creation.
+            driver = (
+                self._ruida_driver if self._ruida_driver is not None
+                else self._create_driver()
+            )
+            # Assign before start() so the except path can preserve the restored
+            # transcript via _release_driver() (stop() is idempotent on a
+            # half-started driver). On the detached-reuse path this is a no-op.
+            self._ruida_driver = driver
 
             opened = driver.start(udp_host=udp, usb_device=usb, magic=self._last_magic)
             self._last_udp_host = udp
             self._last_usb_device = usb
             if not opened:
                 self._log_info("Transport not available yet (retrying in background)")
-
-            self._ruida_driver = driver
 
             # Wait for connection with optional timeout + cancel support
             self._session_connected.clear()
@@ -2977,9 +3135,8 @@ class TuiAdapter(App):
             self._log_error(f"Failed to start session: {e}")
             if self._ruida_driver is not None:
                 self._disable_connection_logging()
-                self._ruida_driver.stop()
                 self._session_connected.clear()
-                self._ruida_driver = None
+                self._release_driver()
 
     async def _stop_session(self) -> None:
         """Disconnect from the controller and clean up resources."""
@@ -2989,16 +3146,15 @@ class TuiAdapter(App):
 
         try:
             self._disable_connection_logging()
-            self._ruida_driver.stop()
+            self._release_driver()
             self._session_connected.clear()
-            self._ruida_driver = None
             self._log_info("Session ended")
             self._update_status_bar()
 
         except Exception as e:
             self._log_error(f"Error stopping session: {e}")
             self._session_connected.clear()
-            self._ruida_driver = None
+            self._release_driver()
 
     async def _start_server(
         self, host: str | None = None, port: int | None = None,
@@ -3088,9 +3244,8 @@ class TuiAdapter(App):
         """
         if self._ruida_driver is not None:
             self._disable_connection_logging()
-            self._ruida_driver.stop()
+            self._release_driver()
             self._session_connected.clear()
-            self._ruida_driver = None
 
         self._session_connected.clear()
         self._update_status_bar()
@@ -3554,6 +3709,9 @@ class TuiAdapter(App):
             conn = "[red]Disconnected[/red]"
         elif self._ruida_driver is not None and self._ruida_driver.is_connected:
             conn = "[green]Connected[/green]"
+        elif self._ruida_driver is not None and self._ruida_driver._session is None:
+            # Session-less gluescript driver — no session, not "Connecting".
+            conn = "[red]Disconnected[/red]"
         elif self._ruida_driver is not None:
             conn = "[yellow]Connecting[/yellow]"
         else:
@@ -3665,16 +3823,7 @@ class TuiAdapter(App):
             True if transport opened immediately, False if retry needed.
         """
         if self._ruida_driver is None:
-            self._ruida_driver = RdDriver()
-            self._ruida_driver.register_status_listener(self.on_status_event)
-            self._ruida_driver.register_error_listener(self.on_error)
-            self._ruida_driver.register_reply_listener(self.on_reply_data)
-
-            # Sync any cached head/tail scripts to the new driver
-            if self._head_script:
-                self._ruida_driver.set_head_script(self._head_script)
-            if self._tail_script:
-                self._ruida_driver.set_tail_script(self._tail_script)
+            self._ruida_driver = self._create_driver()
 
         result = self._ruida_driver.start(udp_host=udp_host, usb_device=usb_device, magic=magic)
         self._log_info(
@@ -3686,8 +3835,8 @@ class TuiAdapter(App):
         """AppAdapter interface — stop the driver if running."""
         if self._ruida_driver is not None:
             self._log_info("[RPC] driver.stop()")
-            self._ruida_driver.stop()
-            self._ruida_driver = None
+            self._release_driver()
+            self._session_connected.clear()
 
     def run(
         self,
@@ -3889,9 +4038,8 @@ class TuiAdapter(App):
             self._mem_timer = None
         self._save_command_history()
         if self._ruida_driver is not None:
-            self._ruida_driver.stop()
             self._session_connected.clear()
-            self._ruida_driver = None
+            self._release_driver()
         await super()._on_exit_app()
 
     @staticmethod
