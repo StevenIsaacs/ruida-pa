@@ -1003,10 +1003,12 @@ class TuiAdapter(App):
     def on_command_key(self, event: Key) -> None:
         """Navigate command history with Up/Down arrow keys.
 
-        Only responds when the command-input widget is focused.
+        Only responds when the command-input widget is focused and the
+        command input's own screen is the current screen (no pushed
+        screen — e.g. the editor modal — on top).
         """
         inp = self.query_one("#command-input", Input)
-        if not inp.has_focus:
+        if not inp.has_focus or self.screen is not inp.screen:
             return
 
         if event.key == "up":
