@@ -534,12 +534,13 @@ class GlueScript:
             raise RuntimeError("declare_job() must be called before end_job()")
 
         # Write final layer's bbox with concrete values
+        # (emitted layer numbers are 0-based; internal gluescript is 1-based)
         if self._layer > 0 and self._last_layer_has_content:
             self._layer_attributes[self._layer].append(
-                f"LAYER_TOP_RIGHT Layer:{self._layer} X={self._layer_trx:.3f}mm Y={self._layer_try:.3f}mm"
+                f"LAYER_TOP_RIGHT Layer:{self._layer - 1} X={self._layer_trx:.3f}mm Y={self._layer_try:.3f}mm"
             )
             self._layer_attributes[self._layer].append(
-                f"LAYER_BOTTOM_LEFT Layer:{self._layer} X={self._layer_blx:.3f}mm Y={self._layer_bly:.3f}mm"
+                f"LAYER_BOTTOM_LEFT Layer:{self._layer - 1} X={self._layer_blx:.3f}mm Y={self._layer_bly:.3f}mm"
             )
 
         self._job_complete = True
@@ -610,13 +611,15 @@ class GlueScript:
         if mode_override:
             resolved_overscan = mode_override
 
-        # Snapshot previous layer's bbox with concrete values
+        # Snapshot previous layer's bbox with concrete values. This runs
+        # BEFORE self._layer += 1 and refers to the just-closed layer, which
+        # is emitted 0-based (internal gluescript numbering is 1-based).
         if self._layer > 0 and self._last_layer_has_content:
             self._layer_attributes.setdefault(self._layer, []).append(
-                f"LAYER_TOP_RIGHT Layer:{self._layer} X={self._layer_trx:.3f}mm Y={self._layer_try:.3f}mm"
+                f"LAYER_TOP_RIGHT Layer:{self._layer - 1} X={self._layer_trx:.3f}mm Y={self._layer_try:.3f}mm"
             )
             self._layer_attributes[self._layer].append(
-                f"LAYER_BOTTOM_LEFT Layer:{self._layer} X={self._layer_blx:.3f}mm Y={self._layer_bly:.3f}mm"
+                f"LAYER_BOTTOM_LEFT Layer:{self._layer - 1} X={self._layer_blx:.3f}mm Y={self._layer_bly:.3f}mm"
             )
 
         # Increment layer counter and set mode
@@ -637,23 +640,26 @@ class GlueScript:
             f"{min_power_1!r}, {max_power_1!r})"
         )
 
-        # rpascript — store in _layer_attributes (assembled later by stage_rpascript)
+        # rpascript — store in _layer_attributes (assembled later by
+        # stage_rpascript). The controller is 0-based, so the emitted layer
+        # numbers are self._layer - 1; internal gluescript numbering stays
+        # 1-based (layer routing and _route_command rely on it).
         attrs: list[str] = []
-        attrs.append(f"# Layer {self._layer}: {label}")
+        attrs.append(f"# Layer {self._layer - 1}: {label}")
         # Escape '#' so the rpascript interpreter's inline-comment stripping
         # does not eat the color value (matches rpascript/generator.py).
-        attrs.append(f"LAYER_COLOR Layer:{self._layer} Color:{color.replace('#', '\\#')}")
+        attrs.append(f"LAYER_COLOR Layer:{self._layer - 1} Color:{color.replace('#', '\\#')}")
         attrs.extend(self._overscan_modes[resolved_overscan])
         attrs.append(
-            f"LAYER_SPEED_LASER_1 Layer:{self._layer} Speed:{speed}mm/S"
+            f"LAYER_SPEED_LASER_1 Layer:{self._layer - 1} Speed:{speed}mm/S"
         )
         attrs.append(
-            f"LAYER_MIN_POWER_1 Layer:{self._layer} Power:{min_power_1}%"
+            f"LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{min_power_1}%"
         )
         attrs.append(
-            f"LAYER_MAX_POWER_1 Layer:{self._layer} Power:{max_power_1}%"
+            f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{max_power_1}%"
         )
-        attrs.append(f"LAYER_ATTRIBUTES Layer:{self._layer} 0")
+        attrs.append(f"LAYER_ATTRIBUTES Layer:{self._layer - 1} 0")
         self._layer_attributes[self._layer] = attrs
 
 
@@ -1030,7 +1036,10 @@ class GlueScript:
         
         Used by external callers (e.g., TUI) to add jog commands or
         other actions to a layer. The lines will be assembled into
-        the final rpascript by stage_rpascript().
+        the final rpascript by stage_rpascript(). `layer` is the internal
+        1-based layer key (TUI/gluescript numbering, starting at 1);
+        rpascript emission converts it to the controller's 0-based index
+        (`layer_num - 1` at the SELECT_LAYER emission).
         """
         self._layer_actions.setdefault(layer, []).extend(lines)
 
@@ -1125,9 +1134,20 @@ class GlueScript:
         for layer_num in sorted(self._layer_attributes):
             self.rpascript.extend(self._layer_attributes[layer_num])
 
+        # Between the layer attributes (Section 2) and the layer actions
+        # (Section 3), tell the controller which layer is the last one in
+        # the job. Layer keys are sequential 1-based ints, so the max key is
+        # the number of layers; subtracting 1 yields the 0-based last index.
+        # A job with no declared layers gets no LAST_LAYER.
+        if self._layer_attributes:
+            self.rpascript.append(
+                f"LAST_LAYER Layer:{max(self._layer_attributes) - 1}"
+            )
+
         # Section 3: All layer actions with SELECT_LAYER prefix
+        # (SELECT_LAYER carries the same 0-based layer index as the attrs)
         for layer_num in sorted(self._layer_actions):
-            self.rpascript.append(f"SELECT_LAYER Layer:{layer_num}")
+            self.rpascript.append(f"SELECT_LAYER Layer:{layer_num - 1}")
             self.rpascript.extend(self._layer_actions[layer_num])
 
         # Section 4: End of job

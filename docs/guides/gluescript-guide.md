@@ -67,7 +67,7 @@ GlueScript handles all of this automatically:
 │   │  (high-level)    │  │  (low-level protocol lines)   │   │
 │   ├─────────────────┤  ├──────────────────────────────┤   │
 │   │ declare_job()   │  │ REF_POINT_ABSOLUTE            │   │
-│   │ declare_layer() │  │ LAYER_COLOR Layer:1 ...       │   │
+│   │ declare_layer() │  │ LAYER_COLOR Layer:0 ...       │   │
 │   │ move_xy_to()    │  │ MOVE_NEAR_XY X=... Y=...     │   │
 │   │ cut_xy_to()     │  │ CUT_FAR_XY X=... Y=...       │   │
 │   │ end_job()       │  │ END_JOB                       │   │
@@ -247,49 +247,50 @@ driver.declare_layer("Grayscale", "#808080", mode="IMAGE", overscan="X")
 
 ### 4.3 Layer Actions
 
-#### `move_xy_to(layer: int, x: float, y: float)`
+#### `move_xy_to(x: float, y: float)`
 
 Move the laser head to absolute XY coordinates relative to the job reference
 point, without firing the laser. Automatically selects near or far form based
-on distance from the current position.
+on distance from the current position. The move is routed to the currently
+active layer (the last declared layer); there is no layer argument.
 
 **Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `layer` | `int` | The layer this move belongs to (0-indexed) |
 | `x` | `float` | Absolute X coordinate in mm |
 | `y` | `float` | Absolute Y coordinate in mm |
 
 ```python
-driver.move_xy_to(layer=0, x=100.0, y=50.0)
+driver.move_xy_to(100.0, 50.0)
 # Produces: MOVE_NEAR_XY X=100.000mm Y=50.000mm  (or MOVE_FAR_XY)
 ```
 
-#### `cut_xy_to(layer: int, x: float, y: float)`
+#### `cut_xy_to(x: float, y: float)`
 
 Move the laser head to absolute XY coordinates while cutting (laser enabled).
-Same near/far form selection as `move_xy_to`.
+Same near/far form selection as `move_xy_to`. The cut is routed to the
+currently active layer.
 
 ```python
-driver.cut_xy_to(layer=0, x=200.0, y=100.0)
+driver.cut_xy_to(200.0, 100.0)
 # Produces: CUT_NEAR_XY X=200.000mm Y=100.000mm  (or CUT_FAR_XY)
 ```
 
-#### `power(layer: int, power: float)`
+#### `power(percent: float | None = None)`
 
-Set the immediate laser power level. Only valid for `IMAGE` and `DEPTHMAP`
-layer modes. In other modes, a warning is logged and the call is ignored.
+Set the immediate laser power percentage for the currently active layer. Only
+valid for `IMAGE` and `DEPTHMAP` layer modes. In other modes, a warning is
+logged and the call is ignored.
 
 **Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `layer` | `int` | The layer this power command belongs to |
-| `power` | `float` | Power percentage (0–100) |
+| `percent` | `float` | Power percentage (0–100) |
 
 ```python
-driver.power(layer=0, power=45.0)
+driver.power(45.0)
 # Produces: IMD_POWER_1 Power:45.0%
 ```
 
@@ -331,10 +332,10 @@ GlueScript also provides single-axis variants for each operation:
 
 | Method | Description |
 |--------|-------------|
-| `move_x_to(layer, x)` | Move on X axis only |
-| `move_y_to(layer, y)` | Move on Y axis only |
-| `cut_x_to(layer, x)` | Cut on X axis only |
-| `cut_y_to(layer, y)` | Cut on Y axis only |
+| `move_x_to(x)` | Move on X axis only |
+| `move_y_to(y)` | Move on Y axis only |
+| `cut_x_to(x)` | Cut on X axis only |
+| `cut_y_to(y)` | Cut on Y axis only |
 | `jog_x_to(x)` | Jog on X axis only |
 | `jog_y_to(y)` | Jog on Y axis only |
 
@@ -822,16 +823,17 @@ JOB_BOTTOM_LEFT X=50.000mm Y=50.000mm
 DOCUMENT_TOP_RIGHT X=150.000mm Y=150.000mm
 DOCUMENT_BOTTOM_LEFT X=50.000mm Y=50.000mm
 JOB_COPIES Columns=1 Rows=1 XStep=0.000mm YStep=0.000mm
-# Layer 1: Outline
-LAYER_COLOR Layer:1 Color:\#0000FF
+# Layer 0: Outline
+LAYER_COLOR Layer:0 Color:\#0000FF
 OVERSCAN_OFF
-LAYER_SPEED_LASER_1 Layer:1 Speed:120.000mm/S
-LAYER_MIN_POWER_1 Layer:1 Power:20.0%
-LAYER_MAX_POWER_1 Layer:1 Power:80.0%
-LAYER_ATTRIBUTES Layer:1 0
-LAYER_TOP_RIGHT Layer:1 X=150.000mm Y=150.000mm
-LAYER_BOTTOM_LEFT Layer:1 X=50.000mm Y=50.000mm
-SELECT_LAYER Layer:1
+LAYER_SPEED_LASER_1 Layer:0 Speed:120.000mm/S
+LAYER_MIN_POWER_1 Layer:0 Power:20.0%
+LAYER_MAX_POWER_1 Layer:0 Power:80.0%
+LAYER_ATTRIBUTES Layer:0 0
+LAYER_TOP_RIGHT Layer:0 X=150.000mm Y=150.000mm
+LAYER_BOTTOM_LEFT Layer:0 X=50.000mm Y=50.000mm
+LAST_LAYER Layer:0
+SELECT_LAYER Layer:0
 MOVE_FAR_XY X=50.000mm Y=50.000mm
 CUT_FAR_XY X=150.000mm Y=50.000mm
 CUT_FAR_XY X=150.000mm Y=150.000mm
@@ -843,6 +845,10 @@ END_JOB
 The rpascript has three sections: (1) job header with reference point setup and
 document settings, (2) all layer attributes sorted by layer number, and (3) layer
 actions where each layer's block is prefixed with `SELECT_LAYER Layer:{n}`.
+Emitted layer indices are 0-based — the Ruida controller numbers layers from 0
+(gluescript's internal numbering stays 1-based). `LAST_LAYER Layer:{n}` is
+emitted between the attributes and the actions, reporting the 0-based index of
+the last layer in the job.
 
 ---
 
@@ -863,12 +869,12 @@ driver.declare_layer(
     min_power_1=15.0, max_power_1=60.0
 )
 
-# Phase 3: Add operations to layer 0
-driver.move_xy_to(layer=0, x=10.0, y=10.0)
-driver.cut_xy_to(layer=0, x=210.0, y=10.0)
-driver.cut_xy_to(layer=0, x=210.0, y=110.0)
-driver.cut_xy_to(layer=0, x=10.0, y=110.0)
-driver.cut_xy_to(layer=0, x=10.0, y=10.0)
+# Phase 3: Add operations to the current layer
+driver.move_xy_to(10.0, 10.0)
+driver.cut_xy_to(210.0, 10.0)
+driver.cut_xy_to(210.0, 110.0)
+driver.cut_xy_to(10.0, 110.0)
+driver.cut_xy_to(10.0, 10.0)
 
 # Phase 4: Complete the job
 driver.end_job()
