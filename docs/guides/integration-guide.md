@@ -44,14 +44,23 @@ execution. `run()` accepts rpascript lines directly for simple commands.
 
 ### 2.1 Minimal Integration
 
+`RdDriver` is a subclass of `GlueScript` (`class RdDriver(GlueScript)`), so the
+full GlueScript API is part of the driver: `declare_job()`, `declare_layer()`,
+`move_xy_to()`, `cut_xy_to()`, `end_job()`, `stage_rpascript()`, and the
+jog/home commands are all directly callable as exposed `RdDriver` methods.
+There is no separate `GlueScript` object to construct — the `driver` instance
+itself *is* the GlueScript, holding both the scripting state (transcript lines,
+job/layer storage) and the live connection.
+
 ```python
 from ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
 driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
-driver.register_error_listener(lambda m: print(f"[ERROR] {m}"))
+driver.register_error_listener(lambda e: print(f"[ERROR] {e}"))
 
-# Build a job with the high-level GlueScript API
+# Build a job — GlueScript methods, inherited by RdDriver and called
+# directly on the driver instance.
 driver.declare_job("Panel Cut", ref_point="MACHINE")
 
 driver.declare_layer(
@@ -751,7 +760,7 @@ Since this project has no automated test infrastructure, agents should:
 
 ## 8. Remote Control via RPyC
 
-This section covers the RPyC (Remote Python Call) integration path, which makes all 10 TuiAdapter API items remotely callable. This enables headless control of Ruida laser controllers from external applications, CI/CD pipelines, or distributed systems.
+This section covers the RPyC (Remote Python Call) integration path, which makes the full `TuiAdapter` surface remotely callable. Beyond the lifecycle methods (`start`/`stop`/`run`), head/tail script management, status listeners, and format utilities, every functional GlueScript job-authoring and live-command method (except the Z/U move/cut stubs, see §8.9) is exposed over RPC. This enables headless control of Ruida laser controllers from external applications, CI/CD pipelines, or distributed systems.
 
 ### 8.1 Architecture
 
@@ -776,7 +785,7 @@ This section covers the RPyC (Remote Python Call) integration path, which makes 
 │  ┌────────────┴─────────────────────────────────┐   │
 │  │  RpycTuiService                               │   │
 │  │  • Wraps TuiAdapter instance                  │   │
-│  │  • Delegates all 10 API items                 │   │
+│  │  • Delegates the full TuiAdapter surface      │   │
 │  │  • Wraps netref callbacks in error handlers   │   │
 │  └────────────┬─────────────────────────────────┘   │
 │  ┌────────────┴─────────────────────────────────┐   │
@@ -988,3 +997,158 @@ underlying accessors are thread-safe.
 **Configuration before connection:** Head and tail scripts can be set
 via RPC before ``start()`` is called — the ``TuiAdapter`` stores them
 locally and pushes to the driver once the session is active.
+
+### 8.9 GlueScript Job Authoring & Live Commands via RPC
+
+All GlueScript methods are directly callable as exposed `RdDriver` methods:
+`RdDriver` is a subclass of `GlueScript` (`class RdDriver(GlueScript)`), so 38 of
+the 40 RPC-exposed GlueScript job-authoring and live-command methods are inherited by the
+driver itself — there is no separate `GlueScript` object; the
+`get_gluescript`/`get_rpascript` methods are adapter-level getters returning
+copies of the driver's gluescript/rpascript state. Developers call these methods
+directly on the `RdDriver` instance, which inherits them from `GlueScript`, and
+the RPC service exposes them through the same **unprefixed** names on that
+instance: `svc.declare_job(...)`, `svc.jog_xy_to(...)`, `svc.stage_rpascript()`.
+Each `RpycTuiService.exposed_*` method delegates to the matching
+`TuiAdapter.gluescript_*` method, which invokes the corresponding method on the
+`RdDriver` instance — inherited from `GlueScript` for all but the
+`get_gluescript`/`get_rpascript` getters; the `exposed_` prefix is a server-side
+detail.
+This complements the [TUI `/gluescript` usage](gluescript-guide.md#5-tui-usage-gluescript):
+the same authoring and live-command methods you drive interactively are also
+callable programmatically. Head/tail composition and the five head/tail RPC
+methods are covered separately in [§8.8](#88-headtail-script-management-via-rpc).
+
+The methods fall into five groups — authoring (session-less), config setters,
+movement jogs, homing, and getters. The table lists each client-facing name,
+its signature, return type, and whether a connected session is required.
+
+| RPC method | Signature | Returns | Session required |
+| ---------- | --------- | ------- | ---------------- |
+| **Authoring (session-less)** | | | |
+| `new_gluescript` | `()` | `None` | No |
+| `comment` | `(comments: list[str])` | `None` | No |
+| `inline` | `(commands: list[str])` | `None` | No |
+| `declare_job` | `(label, ref_point="MACHINE", abs_xy=None, columns=1, rows=1, xstep=0.0, ystep=0.0)` | `None` | No |
+| `end_job` | `()` | `None` | No |
+| `declare_layer` | `(label, color, mode="VECTOR", overscan="NONE", speed=100.0, frequency=20.0, min_power_1=8.0, max_power_1=70.0)` | `None` | No |
+| `move_xy_to` | `(x, y)` | `None` | No |
+| `move_x_to` | `(x)` | `None` | No |
+| `move_y_to` | `(y)` | `None` | No |
+| `cut_xy_to` | `(x, y)` | `None` | No |
+| `cut_x_to` | `(x)` | `None` | No |
+| `cut_y_to` | `(y)` | `None` | No |
+| `power` | `(percent=None)` | `None` | No |
+| `air_assist_on` | `()` | `None` | No |
+| `air_assist_off` | `()` | `None` | No |
+| `add_layer_action` | `(layer, lines: list[str])` | `None` | No |
+| `update_position` | `(x=None, y=None, z=None, u=None)` | `None` | No |
+| `stage_rpascript` | `(gluescript=None, require_complete=True)` | `list[str]` | No |
+| **Config setters (session-less)** | | | |
+| `jog_set_xy_speed` | `(speed)` | `None` | No |
+| `jog_set_z_speed` | `(speed)` | `None` | No |
+| `jog_set_u_speed` | `(speed)` | `None` | No |
+| `jog_set_xy_rel` | `(delta)` | `None` | No |
+| `jog_set_z_rel` | `(delta)` | `None` | No |
+| `jog_set_u_rel` | `(delta)` | `None` | No |
+| **Movement jogs (live)** | | | |
+| `jog_xy_to` | `(x, y)` | `list[str] \| None` | Yes |
+| `jog_x_to` | `(x)` | `list[str] \| None` | Yes |
+| `jog_y_to` | `(y)` | `list[str] \| None` | Yes |
+| `jog_z_to` | `(z)` | `list[str] \| None` | Yes |
+| `jog_u_to` | `(u)` | `list[str] \| None` | Yes |
+| `jog_xy_rel` | `(x=None, y=None)` | `list[str] \| None` | Yes |
+| `jog_x_rel` | `(x=None)` | `list[str] \| None` | Yes |
+| `jog_y_rel` | `(y=None)` | `list[str] \| None` | Yes |
+| `jog_z_rel` | `(z=None)` | `list[str] \| None` | Yes |
+| `jog_u_rel` | `(u=None)` | `list[str] \| None` | Yes |
+| **Homing (live)** | | | |
+| `home` | `()` | `list[str] \| None` | Yes |
+| `home_z` | `()` | `list[str] \| None` | Yes |
+| `home_u` | `()` | `list[str] \| None` | Yes |
+| **Getters** | | | |
+| `get_gluescript` | `()` | `list[str]` | No |
+| `get_rpascript` | `()` | `list[str]` | No |
+| `job_complete` | `()` | `bool` | No |
+
+**Returns for live commands:** Movement jogs and homing return the rpascript
+lines sent to the controller when connected; `None` when disconnected, or when
+the command produces no lines.
+
+**Session-less authoring:** The 18 authoring methods work with no connected
+session — they build a job in the driver's GlueScript state. `stage_rpascript()`
+finalizes it and returns the staged RuidaScript lines, which **already include**
+`END_JOB`/`EOF` framing. `run_job` (see §8.8) later composes head + staged +
+tail scripts around the job. A job authored over RPC is retained in the driver
+and can be executed after `svc.start()`.
+
+```python
+import socket
+import rpyc
+from rpyc.utils.factory import connect_stream
+from rpyc.utils.classic import SocketStream
+
+
+def connect_rpyc(host="127.0.0.1", port=18812, token=None):
+    """Connect to the RPyC server and return the service root."""
+    sock = socket.create_connection((host, port))
+    if token:
+        token_bytes = token.encode("utf-8")
+        sock.sendall(bytes([len(token_bytes)]) + token_bytes)
+    else:
+        sock.sendall(b"\x00")
+    return connect_stream(SocketStream(sock)).root
+
+
+# Author a job before any session exists — no controller required yet.
+svc = connect_rpyc()
+svc.new_gluescript()
+svc.declare_job("plate", ref_point="MACHINE", abs_xy=[0, 0])
+svc.declare_layer("outline", "black", mode="VECTOR", speed=80.0)
+svc.move_xy_to(0, 0)
+svc.cut_xy_to(100, 0)
+svc.cut_xy_to(100, 100)
+svc.cut_xy_to(0, 100)
+svc.cut_xy_to(0, 0)
+svc.end_job()
+
+# Finalize — returns the staged RuidaScript lines, already framed with
+# END_JOB/EOF. The job persists in the driver for later execution.
+staged = svc.stage_rpascript()
+print(f"Staged {len(staged)} lines")
+
+# Later, once a controller is reachable, run it. run_job composes head +
+# staged + tail scripts around the job.
+svc.start(udp_host="192.168.1.100")
+svc.run_job(staged)
+```
+
+**Live jogs and homing require a connected session.** Movement jogs
+(`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to` and the `jog_*_rel`
+relative moves) and homing (`home`, `home_z`, `home_u`) execute immediately
+against the live session. When disconnected, these calls warn and return
+`None`. The `jog_set_*` config setters configure the live jog session's speed
+and relative distance and work without a session.
+
+```python
+# Movement jogs and homing require a connected session.
+if svc.is_connected():
+    svc.jog_xy_to(50, 50)
+    svc.home()
+else:
+    print("Disconnected — jog/home will warn and return None")
+
+# Config setters configure the live jog session and work without one.
+svc.jog_set_xy_speed(120.0)
+svc.jog_set_xy_rel(5.0)
+```
+
+**Netref list arguments:** `comment`, `inline`, `declare_job(abs_xy)`, and
+`stage_rpascript(gluescript)` take list arguments. Over RPyC these arrive as
+netrefs and are converted to plain Python lists on the server side, so clients
+can pass ordinary Python lists, e.g. `svc.inline(["LASER_ON Power=80%"])`.
+
+**Not exposed:** `move_z_to`, `move_u_to`, `cut_z_to`, and `cut_u_to` are
+not exposed over RPC and raise `NotImplementedError` when called directly on
+the driver; over RPC the call fails with `AttributeError` since no `exposed_*`
+method exists.

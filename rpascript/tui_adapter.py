@@ -584,6 +584,9 @@ class TuiAdapter(App):
         self._bokeh_apps: list[BokehApp] = []  # running Bokeh servers for /clear shutdown
         self._gluescript_was_run: bool = False  # Tracks if staged gluescript has been executed
         self._rpyc_server: ThreadedServer | None = None
+        # Serializes session-less GlueScript RPC delegates when the app is
+        # not running (no TUI event loop to marshal onto).
+        self._gluescript_lock = threading.Lock()
         self._suggest_popup = RichLog(
             id="suggest-popup", highlight=True, markup=True, max_lines=10
         )
@@ -2459,6 +2462,356 @@ class TuiAdapter(App):
         driver.stop()
         self._ruida_driver = None
 
+    # ------------------------------------------------------------------
+    # GlueScript RPC delegate surface
+    # ------------------------------------------------------------------
+
+    def _gluescript_bridge(self, fn: Callable[[], Any]) -> Any:
+        """Run a GlueScript delegate on the TUI thread, returning its result.
+
+        Three execution paths, in order:
+        - already on the TUI thread (running app): invoke directly
+        - app not running (owned-adapter path, no event loop): invoke under
+          ``self._gluescript_lock``
+        - running app from another thread: ``call_from_thread`` blocks and
+          returns the callback's result
+
+        ``_thread_id`` and ``_loop`` are set by Textual only while the app's
+        message loop runs, so they are read via ``getattr`` — an owned
+        adapter that never ran has neither attribute.
+        """
+        if getattr(self, "_thread_id", None) == threading.get_ident():
+            return fn()
+        if getattr(self, "_loop", None) is None:
+            with self._gluescript_lock:
+                return fn()
+        return self.call_from_thread(fn)
+
+    def _gluescript_live_command(
+        self, name: str, *args: Any
+    ) -> list[str] | None:
+        """Run a live-only GlueScript command (jog or home) on the driver.
+
+        Mirrors ``_handle_live_command`` for the RPC delegate layer: the
+        driver is created lazily, movement and homing commands require a
+        connected session (``jog_set_*`` setters do not), and generated
+        rpascript lines are sent to the controller. Returns the sent lines,
+        or None when nothing was sent.
+        """
+        driver = self._ensure_gluescript_driver()
+        if not name.startswith("jog_set_") and not driver.is_connected:
+            self._log_warning(f"gluescript {name} ignored — no active session")
+            return None
+        result = getattr(driver, name)(*args)
+        if not isinstance(result, list):
+            return None  # jog_set_* setters return None
+        if not result:
+            self._log_warning(
+                f"gluescript {name} ignored — "
+                "command produced no rpascript lines"
+            )
+            return None
+        try:
+            driver.run(result)
+        except RuntimeError as exc:
+            self._log_warning(f"gluescript {name} not sent — {exc}")
+            return None
+        self._log_info(f"gluescript {name} sent to controller")
+        return result
+
+    def gluescript_new_gluescript(self) -> None:
+        """Reset all script data for a new job (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().new_gluescript()
+        )
+
+    def gluescript_comment(self, comments: list[str]) -> None:
+        """Append comment lines to the generated rpascript (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().comment(comments)
+        )
+
+    def gluescript_inline(self, commands: list[str]) -> None:
+        """Append raw rpascript commands at the call point (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().inline(commands)
+        )
+
+    def gluescript_declare_job(
+        self,
+        label: str,
+        ref_point: str = "MACHINE",
+        abs_xy: list[float] | None = None,
+        columns: int = 1,
+        rows: int = 1,
+        xstep: float = 0.0,
+        ystep: float = 0.0,
+    ) -> None:
+        """Declare a new job via the GlueScript driver (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().declare_job(
+                label, ref_point, abs_xy, columns, rows, xstep, ystep
+            )
+        )
+
+    def gluescript_end_job(self) -> None:
+        """End the current job via the GlueScript driver (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().end_job()
+        )
+
+    def gluescript_declare_layer(
+        self,
+        label: str,
+        color: str,
+        mode: str = "VECTOR",
+        overscan: str = "NONE",
+        speed: float = 100.0,
+        frequency: float = 20.0,
+        min_power_1: float = 8.0,
+        max_power_1: float = 70.0,
+    ) -> None:
+        """Declare a new layer via the GlueScript driver (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().declare_layer(
+                label, color, mode, overscan, speed, frequency,
+                min_power_1, max_power_1,
+            )
+        )
+
+    def gluescript_move_xy_to(self, x: float, y: float) -> None:
+        """Move to an absolute XY coordinate (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().move_xy_to(x, y)
+        )
+
+    def gluescript_move_x_to(self, x: float) -> None:
+        """Move to an absolute X coordinate (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().move_x_to(x)
+        )
+
+    def gluescript_move_y_to(self, y: float) -> None:
+        """Move to an absolute Y coordinate (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().move_y_to(y)
+        )
+
+    def gluescript_cut_xy_to(self, x: float, y: float) -> None:
+        """Cut to an absolute XY coordinate (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().cut_xy_to(x, y)
+        )
+
+    def gluescript_cut_x_to(self, x: float) -> None:
+        """Cut to an absolute X coordinate (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().cut_x_to(x)
+        )
+
+    def gluescript_cut_y_to(self, y: float) -> None:
+        """Cut to an absolute Y coordinate (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().cut_y_to(y)
+        )
+
+    def gluescript_power(self, percent: float | None = None) -> None:
+        """Set laser power percentage; valid for IMAGE/DEPTHMAP layers."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().power(percent)
+        )
+
+    def gluescript_air_assist_on(self) -> None:
+        """Enable air assist for the current layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().air_assist_on()
+        )
+
+    def gluescript_air_assist_off(self) -> None:
+        """Disable air assist for the current layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().air_assist_off()
+        )
+
+    def gluescript_add_layer_action(
+        self, layer: int, lines: list[str]
+    ) -> None:
+        """Add raw rpascript lines to a specific layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().add_layer_action(
+                layer, lines
+            )
+        )
+
+    def gluescript_update_position(
+        self,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        u: float | None = None,
+    ) -> None:
+        """Sync tracked position from controller-reported coordinates."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().update_position(
+                x, y, z, u
+            )
+        )
+
+    def gluescript_stage_rpascript(
+        self,
+        gluescript: list[str] | None = None,
+        require_complete: bool = True,
+    ) -> list[str]:
+        """Finalize the rpascript or re-stage a gluescript.
+
+        Returns the assembled lines.
+        """
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().stage_rpascript(
+                gluescript, require_complete
+            )
+        )
+
+    def gluescript_jog_set_xy_speed(self, speed: float) -> None:
+        """Set XY jog speed (mm/s) on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_set_xy_speed", speed)
+        )
+
+    def gluescript_jog_set_z_speed(self, speed: float) -> None:
+        """Set Z jog speed (mm/s) on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_set_z_speed", speed)
+        )
+
+    def gluescript_jog_set_u_speed(self, speed: float) -> None:
+        """Set U jog speed (mm/s) on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_set_u_speed", speed)
+        )
+
+    def gluescript_jog_set_xy_rel(self, delta: float) -> None:
+        """Set relative XY jog distance (mm) on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_set_xy_rel", delta)
+        )
+
+    def gluescript_jog_set_z_rel(self, delta: float) -> None:
+        """Set relative Z jog distance (mm) on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_set_z_rel", delta)
+        )
+
+    def gluescript_jog_set_u_rel(self, delta: float) -> None:
+        """Set relative U jog distance (mm) on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_set_u_rel", delta)
+        )
+
+    def gluescript_jog_xy_to(self, x: float, y: float) -> list[str] | None:
+        """Jog XY to an absolute position and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_xy_to", x, y)
+        )
+
+    def gluescript_jog_x_to(self, x: float) -> list[str] | None:
+        """Jog X to an absolute position and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_x_to", x)
+        )
+
+    def gluescript_jog_y_to(self, y: float) -> list[str] | None:
+        """Jog Y to an absolute position and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_y_to", y)
+        )
+
+    def gluescript_jog_z_to(self, z: float) -> list[str] | None:
+        """Jog Z to an absolute position and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_z_to", z)
+        )
+
+    def gluescript_jog_u_to(self, u: float) -> list[str] | None:
+        """Jog U to an absolute position and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_u_to", u)
+        )
+
+    def gluescript_jog_xy_rel(
+        self, x: float | None = None, y: float | None = None
+    ) -> list[str] | None:
+        """Jog XY relative to the current position and run it live."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_xy_rel", x, y)
+        )
+
+    def gluescript_jog_x_rel(self, x: float | None = None) -> list[str] | None:
+        """Jog X relative to the current position and run it live."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_x_rel", x)
+        )
+
+    def gluescript_jog_y_rel(self, y: float | None = None) -> list[str] | None:
+        """Jog Y relative to the current position and run it live."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_y_rel", y)
+        )
+
+    def gluescript_jog_z_rel(self, z: float | None = None) -> list[str] | None:
+        """Jog Z relative to the current position and run it live."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_z_rel", z)
+        )
+
+    def gluescript_jog_u_rel(self, u: float | None = None) -> list[str] | None:
+        """Jog U relative to the current position and run it live."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("jog_u_rel", u)
+        )
+
+    def gluescript_home(self) -> list[str] | None:
+        """Home the X and Y axes and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("home")
+        )
+
+    def gluescript_home_z(self) -> list[str] | None:
+        """Home the Z axis and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("home_z")
+        )
+
+    def gluescript_home_u(self) -> list[str] | None:
+        """Home the U axis and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("home_u")
+        )
+
+    def gluescript_get_gluescript(self) -> list[str]:
+        """Return a copy of the driver's gluescript (empty when no driver)."""
+        return self._gluescript_bridge(
+            lambda: list(self._ruida_driver.gluescript)
+            if self._ruida_driver is not None
+            else []
+        )
+
+    def gluescript_get_rpascript(self) -> list[str]:
+        """Return a copy of the staged rpascript (empty when no driver)."""
+        return self._gluescript_bridge(
+            lambda: list(self._ruida_driver.rpascript)
+            if self._ruida_driver is not None
+            else []
+        )
+
+    def gluescript_job_complete(self) -> bool:
+        """Return whether the job is complete (False when no driver)."""
+        return self._gluescript_bridge(
+            lambda: self._ruida_driver.job_complete
+            if self._ruida_driver is not None
+            else False
+        )
+
     def _copy_staged_rpascript_to_loaded(self) -> None:
         """Mirror the staged rpascript into the TUI's loaded-script slot.
 
@@ -3392,7 +3745,7 @@ class TuiAdapter(App):
             def _error() -> None:
                 self._log_error("No active session to run script.")
 
-            if threading.get_ident() == self._thread_id:
+            if threading.get_ident() == getattr(self, "_thread_id", None):
                 _error()
             else:
                 self.post_message(Callback(_error))
@@ -3406,7 +3759,7 @@ class TuiAdapter(App):
             except RuntimeError as e:
                 self._log_error(str(e))
 
-        if threading.get_ident() == self._thread_id:
+        if threading.get_ident() == getattr(self, "_thread_id", None):
             _run()
         else:
             self.post_message(Callback(_run))
@@ -3460,7 +3813,7 @@ class TuiAdapter(App):
             def _error() -> None:
                 self._log_error("No active session to run job.")
 
-            if threading.get_ident() == self._thread_id:
+            if threading.get_ident() == getattr(self, "_thread_id", None):
                 _error()
             else:
                 self.post_message(Callback(_error))
@@ -3472,7 +3825,7 @@ class TuiAdapter(App):
             except RuntimeError as e:
                 self._log_error(str(e))
 
-        if threading.get_ident() == self._thread_id:
+        if threading.get_ident() == getattr(self, "_thread_id", None):
             _run()
         else:
             self.post_message(Callback(_run))

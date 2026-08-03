@@ -470,6 +470,11 @@ driver.run_job(driver.rpascript)
 
 The TUI provides interactive access to GlueScript via the `/gluescript` command.
 
+Every GlueScript method documented below is also callable over RPyC — the
+server exposes all 40 authoring, config-setter, live-jog, homing, and getter methods, so a
+remote client can build and stage a job and drive live commands without the TUI. See the [integration guide §8.9](integration-guide.md#89-gluescript-job-authoring--live-commands-via-rpc)
+for the full method table, session-less authoring example, and the `exposed_`-prefix note.
+
 ### Available Subcommands
 
 | Subcommand | Description |

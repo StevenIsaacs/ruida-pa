@@ -19,13 +19,13 @@ python rpa.py capture.log              # Decode a tshark log file
 
 ## Architecture
 
-| Path | Role |
-|------|------|
-| `rpa.py` | CLI entry — arg parsing, opens input, runs analyzer |
-| `rpalib/` | Output emission, line parsing, plotting UI (Bokeh) |
-| `protocols/ruida/` | Protocol state machine, parser, command tables, checksum logic |
-| `ruidadriver/rd_gluescript.py` | High-level job scripting (GlueScript mixin for RdDriver) |
-| `discovery/` | **Git submodule** — test cases (`tc/`), problems (`prb/`), captured logs |
+| Path                           | Role                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| `rpa.py`                       | CLI entry — arg parsing, opens input, runs analyzer                      |
+| `rpalib/`                      | Output emission, line parsing, plotting UI (Bokeh)                       |
+| `protocols/ruida/`             | Protocol state machine, parser, command tables, checksum logic           |
+| `ruidadriver/rd_gluescript.py` | High-level job scripting (GlueScript mixin for RdDriver)                 |
+| `discovery/`                   | **Git submodule** — test cases (`tc/`), problems (`prb/`), captured logs |
 
 Only the Ruida UDP protocol is currently implemented. Adding a new protocol means creating a parallel `protocols/<name>/` directory with its own analyzer.
 
@@ -54,6 +54,7 @@ There are no unit tests, no formatter, no linter, no type checker, and no CI pip
 ## Dev tips
 
 - README states VSCode or its forks like VSCodium and Antigravity are the recommended IDEs for stepping through code alongside plots.
+- Python is installed in the `.venv` directory.
 - PEP8 compliance expected.
 - `.vscode/launch.json` exists for debugging.
 - `--plot-moves` opens a Bokeh server application in browser showing interactive head moves with power/speed popups, context menus, and filtering.

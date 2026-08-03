@@ -1,8 +1,19 @@
 """
 RPyC service for remote TuiAdapter control.
 
-Exposes all 10 TuiAdapter API items as remote callable methods
-with authentication and TLS support.
+Exposes the full TuiAdapter remote surface as callable methods with
+authentication and TLS support:
+- lifecycle: start, stop, run, run_job, cancel_script
+- head/tail script management: set/get_head_script, set/get_tail_script
+- listeners: register_status_listener, register_error_listener,
+  register_reply_listener
+- properties: is_connected, machine_status
+- static format utilities: format_reply_value, format_reply,
+  format_reply_list
+- GlueScript job authoring, live commands, and getters (40 methods)
+
+Clients call these without the ``exposed_`` prefix
+(e.g. svc.declare_job, svc.jog_xy_to, svc.get_gluescript).
 """
 
 from __future__ import annotations
@@ -296,6 +307,189 @@ class RpycTuiService(rpyc.Service):
             self._adapter.run_job(local_job, auto_checksum=auto_checksum)
         except Exception as e:
             self._adapter._log_error("[RPC] RPC run_job failed: %s", e)
+
+    # --- GlueScript — job authoring (session-less) ---
+
+    def _exposed_gluescript(self, name: str, *args: Any, **kwargs: Any) -> Any:
+        """Dispatch a GlueScript RPC call to the adapter's delegate layer.
+
+        Converts netref lists to local lists on the handler thread, where
+        the RPyC connection is alive (same rationale as ``exposed_run``:
+        RPyC passes lists by reference, and iterating a netref from a
+        background thread or after the handler returns is fragile). Covers
+        the ``comment``/``inline``/``lines`` list args and the ``abs_xy``/
+        ``gluescript`` list kwargs.
+        """
+        self._adapter._log_info("[RPC] gluescript %s(...)" % name)
+        args = tuple(list(a) if isinstance(a, list) else a for a in args)
+        kwargs = {
+            k: (list(v) if isinstance(v, list) else v)
+            for k, v in kwargs.items()
+        }
+        return getattr(self._adapter, "gluescript_" + name)(*args, **kwargs)
+
+    def exposed_new_gluescript(self) -> None:
+        return self._exposed_gluescript("new_gluescript")
+
+    def exposed_comment(self, comments: list[str]) -> None:
+        return self._exposed_gluescript("comment", comments)
+
+    def exposed_inline(self, commands: list[str]) -> None:
+        return self._exposed_gluescript("inline", commands)
+
+    def exposed_declare_job(
+        self,
+        label: str,
+        ref_point: str = "MACHINE",
+        abs_xy: list[float] | None = None,
+        columns: int = 1,
+        rows: int = 1,
+        xstep: float = 0.0,
+        ystep: float = 0.0,
+    ) -> None:
+        return self._exposed_gluescript(
+            "declare_job", label, ref_point, abs_xy, columns, rows,
+            xstep, ystep,
+        )
+
+    def exposed_end_job(self) -> None:
+        return self._exposed_gluescript("end_job")
+
+    def exposed_declare_layer(
+        self,
+        label: str,
+        color: str,
+        mode: str = "VECTOR",
+        overscan: str = "NONE",
+        speed: float = 100.0,
+        frequency: float = 20.0,
+        min_power_1: float = 8.0,
+        max_power_1: float = 70.0,
+    ) -> None:
+        return self._exposed_gluescript(
+            "declare_layer", label, color, mode, overscan, speed, frequency,
+            min_power_1, max_power_1,
+        )
+
+    def exposed_move_xy_to(self, x: float, y: float) -> None:
+        return self._exposed_gluescript("move_xy_to", x, y)
+
+    def exposed_move_x_to(self, x: float) -> None:
+        return self._exposed_gluescript("move_x_to", x)
+
+    def exposed_move_y_to(self, y: float) -> None:
+        return self._exposed_gluescript("move_y_to", y)
+
+    def exposed_cut_xy_to(self, x: float, y: float) -> None:
+        return self._exposed_gluescript("cut_xy_to", x, y)
+
+    def exposed_cut_x_to(self, x: float) -> None:
+        return self._exposed_gluescript("cut_x_to", x)
+
+    def exposed_cut_y_to(self, y: float) -> None:
+        return self._exposed_gluescript("cut_y_to", y)
+
+    def exposed_power(self, percent: float | None = None) -> None:
+        return self._exposed_gluescript("power", percent)
+
+    def exposed_air_assist_on(self) -> None:
+        return self._exposed_gluescript("air_assist_on")
+
+    def exposed_air_assist_off(self) -> None:
+        return self._exposed_gluescript("air_assist_off")
+
+    def exposed_add_layer_action(self, layer: int, lines: list[str]) -> None:
+        return self._exposed_gluescript("add_layer_action", layer, lines)
+
+    def exposed_update_position(
+        self,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        u: float | None = None,
+    ) -> None:
+        return self._exposed_gluescript("update_position", x, y, z, u)
+
+    def exposed_stage_rpascript(
+        self,
+        gluescript: list[str] | None = None,
+        require_complete: bool = True,
+    ) -> list[str]:
+        return self._exposed_gluescript(
+            "stage_rpascript", gluescript, require_complete
+        )
+
+    # --- GlueScript — live-only commands (jogs and homing) ---
+
+    def exposed_jog_set_xy_speed(self, speed: float) -> None:
+        return self._exposed_gluescript("jog_set_xy_speed", speed)
+
+    def exposed_jog_set_z_speed(self, speed: float) -> None:
+        return self._exposed_gluescript("jog_set_z_speed", speed)
+
+    def exposed_jog_set_u_speed(self, speed: float) -> None:
+        return self._exposed_gluescript("jog_set_u_speed", speed)
+
+    def exposed_jog_set_xy_rel(self, delta: float) -> None:
+        return self._exposed_gluescript("jog_set_xy_rel", delta)
+
+    def exposed_jog_set_z_rel(self, delta: float) -> None:
+        return self._exposed_gluescript("jog_set_z_rel", delta)
+
+    def exposed_jog_set_u_rel(self, delta: float) -> None:
+        return self._exposed_gluescript("jog_set_u_rel", delta)
+
+    def exposed_jog_xy_to(self, x: float, y: float) -> list[str] | None:
+        return self._exposed_gluescript("jog_xy_to", x, y)
+
+    def exposed_jog_x_to(self, x: float) -> list[str] | None:
+        return self._exposed_gluescript("jog_x_to", x)
+
+    def exposed_jog_y_to(self, y: float) -> list[str] | None:
+        return self._exposed_gluescript("jog_y_to", y)
+
+    def exposed_jog_z_to(self, z: float) -> list[str] | None:
+        return self._exposed_gluescript("jog_z_to", z)
+
+    def exposed_jog_u_to(self, u: float) -> list[str] | None:
+        return self._exposed_gluescript("jog_u_to", u)
+
+    def exposed_jog_xy_rel(
+        self, x: float | None = None, y: float | None = None
+    ) -> list[str] | None:
+        return self._exposed_gluescript("jog_xy_rel", x, y)
+
+    def exposed_jog_x_rel(self, x: float | None = None) -> list[str] | None:
+        return self._exposed_gluescript("jog_x_rel", x)
+
+    def exposed_jog_y_rel(self, y: float | None = None) -> list[str] | None:
+        return self._exposed_gluescript("jog_y_rel", y)
+
+    def exposed_jog_z_rel(self, z: float | None = None) -> list[str] | None:
+        return self._exposed_gluescript("jog_z_rel", z)
+
+    def exposed_jog_u_rel(self, u: float | None = None) -> list[str] | None:
+        return self._exposed_gluescript("jog_u_rel", u)
+
+    def exposed_home(self) -> list[str] | None:
+        return self._exposed_gluescript("home")
+
+    def exposed_home_z(self) -> list[str] | None:
+        return self._exposed_gluescript("home_z")
+
+    def exposed_home_u(self) -> list[str] | None:
+        return self._exposed_gluescript("home_u")
+
+    # --- GlueScript — getters ---
+
+    def exposed_get_gluescript(self) -> list[str]:
+        return self._exposed_gluescript("get_gluescript")
+
+    def exposed_get_rpascript(self) -> list[str]:
+        return self._exposed_gluescript("get_rpascript")
+
+    def exposed_job_complete(self) -> bool:
+        return self._exposed_gluescript("job_complete")
 
     # --- Listeners (netref callbacks) ---
 
