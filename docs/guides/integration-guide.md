@@ -1152,3 +1152,95 @@ can pass ordinary Python lists, e.g. `svc.inline(["LASER_ON Power=80%"])`.
 not exposed over RPC and raise `NotImplementedError` when called directly on
 the driver; over RPC the call fails with `AttributeError` since no `exposed_*`
 method exists.
+
+#### Batching layer actions over RPC
+
+The direct client flow above sends one RPC per command: every
+`move_*_to`/`cut_*_to` call round-trips individually, so a large job is chatty
+on the wire. `rpalib/rpyc_client.RpcGlueScript` is a thin client-side wrapper
+around the same service root that buffers the high-volume layer actions —
+`move_xy_to`/`move_x_to`/`move_y_to`, `cut_xy_to`/`cut_x_to`/`cut_y_to`,
+`power`, `air_assist_on`/`air_assist_off` — locally and flushes them to the
+server in one `stage_rpascript()` call at each `declare_layer`/`end_job`
+boundary. A job with thousands of moves and cuts reaches the server in a
+handful of round trips instead of one per action.
+
+Structural, non-replayable calls are forwarded immediately rather than
+buffered: `new_gluescript`, `declare_job`, `declare_layer`, `comment`,
+`inline`, `add_layer_action`, `update_position`, the getters
+(`get_gluescript`, `get_rpascript`, `job_complete`), and the live jog/home
+commands (`jog_*`, `home`, `home_z`, `home_u`) plus the `jog_set_*` config
+setters. `power` is buffered only when the current layer mode is
+`IMAGE`/`DEPTHMAP` and `percent` is not `None`; otherwise it is forwarded so
+the server emits the same warning the driver's guard produces.
+
+**Drift guard:** after each flush the wrapper re-reads `svc.get_gluescript()`
+and compares it byte-for-byte with its local transcript. Any mismatch raises
+`RuntimeError` naming the first differing line — fail fast, fail loud — which
+catches client/server format drift (for example, a server upgraded to a
+different line format).
+
+**Getters report the last-flushed server state:** `get_gluescript()`,
+`get_rpascript()`, and `job_complete()` reflect the server's state after the
+most recent flush. Between flushes, buffered actions exist only in the
+client's local transcript and are invisible to the getters until the next
+boundary flush.
+
+**Public `stage_rpascript()` passthrough:** `RpcGlueScript.stage_rpascript()`
+forwards the call unchanged (including `gluescript=None`) and performs no
+local flush and no drift check — mirroring the direct-client flow when you
+want to stage explicitly.
+
+**Server-side token requirement:** the client connect handshake sends a
+1-byte empty-token length prefix (`b"\x00"`) before
+`connect_stream(SocketStream(sock)).root` (see
+`tests/rpyc_poc/test_auth.py`). This works ONLY when the server was started
+WITH a token authenticator — `start_rpyc_server(..., token="...")`
+programmatically, or `server start token="..."` in the TUI. With
+`token=None` no authenticator is installed: the server never reads the token
+byte, and the `b"\x00"` corrupts the RPyC stream (zlib error). With an
+authenticator installed, an empty token is allowed for localhost connections. Note this refines the §8.2 statement that the token is 'ignored if localhost': the *authenticator* must still be installed even for localhost — start the server with `token=...` (any value); the empty-token prefix then passes for localhost.
+
+```python
+import socket
+import rpyc
+from rpyc.utils.factory import connect_stream
+from rpyc.utils.classic import SocketStream
+from rpalib.rpyc_client import RpcGlueScript
+
+# The server MUST have been started with a token authenticator, e.g.
+#   start_rpyc_server(..., token="s3cret!t0k3n")
+# or, from the TUI,  server start token="s3cret!t0k3n"
+sock = socket.create_connection(("127.0.0.1", 18812))
+sock.sendall(b"\x00")  # empty-token length prefix, read by the authenticator
+svc = connect_stream(SocketStream(sock)).root
+rgs = RpcGlueScript(svc)
+
+# Author a job before any session exists — no controller required yet.
+# Moves and cuts are buffered locally, not round-tripped per action.
+rgs.new_gluescript()
+rgs.declare_job("plate", ref_point="MACHINE", abs_xy=[0, 0])
+rgs.declare_layer("outline", "black", mode="VECTOR", speed=80.0)
+rgs.move_xy_to(0, 0)
+rgs.cut_xy_to(100, 0)
+rgs.cut_xy_to(100, 100)
+rgs.cut_xy_to(0, 100)
+rgs.cut_xy_to(0, 0)
+rgs.declare_layer("fill", "red", mode="IMAGE", speed=60.0)
+rgs.power(50)
+rgs.move_xy_to(10, 10)
+rgs.cut_xy_to(90, 10)
+rgs.cut_xy_to(90, 90)
+rgs.cut_xy_to(10, 90)
+rgs.cut_xy_to(10, 10)
+
+# Each declare_layer flushed the buffer; end_job() does the final flush and
+# returns the staged RuidaScript lines (already framed with END_JOB/EOF).
+staged = rgs.end_job()
+print(f"Staged {len(staged)} lines")
+
+# Later, once a controller is reachable, run it — same flow as the direct
+# client above. run_job composes head + staged + tail scripts around the job.
+svc.start(udp_host="192.168.1.100")
+svc.run_job(staged)
+```

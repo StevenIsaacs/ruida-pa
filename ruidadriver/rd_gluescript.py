@@ -546,6 +546,7 @@ class GlueScript:
         self._job_complete = True
         self._assembling = False
         self.gluescript.append("end_job()")
+        self._on_action_boundary()
 
     @property
     def job_complete(self) -> bool:

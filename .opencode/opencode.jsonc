@@ -6,7 +6,7 @@
   ],
   */
   // "model": "opencode-zen/deepseek-v4-flash-free",
-  "model": "lmstudio-kim/qwen3-next-80b-a3b-instruct",
+  // "model": "lmstudio-kim/qwen3-next-80b-a3b-instruct",
   // "disabled_providers": ["opencode"],
   "instructions": [
     "AGENTS.md"
