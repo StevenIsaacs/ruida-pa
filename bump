@@ -1,0 +1,494 @@
+#!/usr/bin/env bash
+#
+# bump - fully automate the ruida-pa version-bump procedure.
+#
+# Usage:
+#   ./bump <new-version>
+#   ./bump --dry-run <new-version>
+#   ./bump --help
+#
+# Exit codes:
+#   0  success (or a valid --dry-run plan)
+#   1  usage or validation error
+#   2  replacement or verification failure
+#
+# The script edits files in the working tree only; it never stages or
+# commits anything. The user reviews and commits manually.
+
+set -euo pipefail
+
+# --- Configuration -----------------------------------------------------------
+
+# Files whose "Ruida Script TUI" header line must keep its ASCII-box borders
+# aligned (the version string is replaced with a same-length string).
+ASCII_FILES=(
+    "docs/guides/tui-guide.md"
+    "docs/designs/RuidaDriver-functional.md"
+)
+
+# Tracked files a bump is expected to modify.
+EXPECTED_TRACKED_FILES=(
+    "pyproject.toml"
+    "rpalib/version.py"
+    "docs/guides/tui-guide.md"
+    "docs/guides/gluescript-guide.md"
+    "docs/designs/RuidaDriver-functional.md"
+)
+
+# file -> byte length of its "Ruida Script TUI" header line before the bump.
+declare -A HEADER_BYTES_BEFORE
+
+# --- Small utilities ----------------------------------------------------------
+
+die() {
+    # Usage/validation error -> exit 1.
+    printf 'error: %s\n' "$*" >&2
+    printf 'usage: ./bump <new-version> | ./bump --dry-run <new-version> | ./bump --help\n' >&2
+    exit 1
+}
+
+fail() {
+    # Replacement/verification failure -> exit 2.
+    printf 'FAIL: %s\n' "$*" >&2
+    exit 2
+}
+
+count_occurrences() {
+    # Print the number of occurrences matching an extended-regex pattern in a file.
+    # grep -oE emits one match per line, so `wc -l` counts true occurrences
+    # rather than matching lines. grep's no-match exit code is absorbed so the
+    # pipeline stays `set -e`/`set -o pipefail`-safe.
+    grep -oE -- "$2" "$1" 2>/dev/null | wc -l || true
+}
+
+require_single_tui_header() {
+    # Fail (exit 2) unless $1 holds exactly one "Ruida Script TUI" header line.
+    # Guards the ASCII checks: a zero- or multi-match file would otherwise be
+    # mis-parsed by the single-line grep -F reads that follow.
+    local file="$1" count
+    count=$(grep -Fc 'Ruida Script TUI' "$ROOT/$file" 2>/dev/null || true)
+    if [[ "$count" -ne 1 ]]; then
+        fail "expected exactly 1 'Ruida Script TUI' header line in $file, found ${count:-0}"
+    fi
+}
+
+# --- Help ---------------------------------------------------------------------
+
+print_usage() {
+    cat <<'EOF'
+usage: ./bump <new-version>
+       ./bump --dry-run <new-version>
+       ./bump --help
+
+Fully automate the ruida-pa version-bump procedure.
+
+<new-version> must match ^[0-9]+\.[0-9]+\.[0-9]+$, must differ from the
+current version read from pyproject.toml, and must have the SAME total
+string length as the current version: the ASCII-art TUI headers in
+docs/guides/tui-guide.md and docs/designs/RuidaDriver-functional.md
+require same-length version strings or their box borders misalign.
+
+The bump edits, in order:
+  pyproject.toml                           version = "<new>"
+  rpalib/version.py                        __version__ fallback  or "<new>"
+  docs/guides/tui-guide.md                 "Ruida Script TUI v<new>" (1x)
+  docs/guides/gluescript-guide.md          "GlueScript <new>" (2x)
+  docs/designs/RuidaDriver-functional.md   "Ruida Script TUI v<new>" (1x)
+  commit.txt                               "version: Bumped version to <new>."
+  docs/logs/v<new>-testing.md              "Version Bumped to <new>" entry
+
+Every expected old-version pattern is validated BEFORE any file is
+touched; a missing or miscounted pattern aborts with exit code 2 with
+nothing modified. After the writes the script verifies version
+resolution, a zero-match `git grep` for the old literal, `git status`,
+and ASCII-box alignment. It never stages or commits anything.
+
+Options:
+  --dry-run   Show every planned change plus the verification commands,
+              without modifying anything. Exit 0 on a valid plan.
+  --help      Print this help and exit.
+
+Exit codes:
+  0  success (or a valid --dry-run plan)
+  1  usage or validation error (bad version format, version unchanged,
+     length mismatch, not a git repo, missing pyproject.toml)
+  2  replacement or verification failure (missing expected patterns,
+     failed verification after writes)
+EOF
+}
+
+# --- Argument parsing ---------------------------------------------------------
+
+parse_args() {
+    # Sets MODE (help|dry|real) and NEW_VERSION.
+    MODE=real
+    NEW_VERSION=""
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --help|-h)
+                MODE=help
+                ;;
+            --dry-run)
+                MODE=dry
+                ;;
+            --*)
+                die "unknown option: $arg"
+                ;;
+            *)
+                if [[ -n "$NEW_VERSION" ]]; then
+                    die "too many arguments: $arg"
+                fi
+                NEW_VERSION="$arg"
+                ;;
+        esac
+    done
+}
+
+# --- Repo and version discovery ------------------------------------------------
+
+resolve_root() {
+    # Print the repository root; exit 1 when not inside a git repo.
+    git rev-parse --show-toplevel 2>/dev/null || die "not inside a git repository"
+}
+
+read_current_version() {
+    # $1: pyproject.toml path. Print the [project] version string.
+    # One awk invocation, no pipeline (the old `sed | head` was exposed to
+    # SIGPIPE under `set -o pipefail`, harmless on a 28-line file but avoidable).
+    awk -F'"' '/^version = "[0-9][0-9.]*"/{print $2; exit}' "$1"
+}
+
+select_python() {
+    # Prefer the checkout venv; fall back to the system python3.
+    if [[ -x "$ROOT/.venv/bin/python" ]]; then
+        PY_CMD="$ROOT/.venv/bin/python"
+        PY_DISPLAY=".venv/bin/python"
+    else
+        PY_CMD="python3"
+        PY_DISPLAY="python3"
+    fi
+}
+
+# --- Validation ----------------------------------------------------------------
+
+validate_new_version() {
+    # $1: old version, $2: proposed new version.
+    local old="$1" new="$2"
+    if [[ ! "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        die "invalid version '$new' - expected format ^[0-9]+\.[0-9]+\.[0-9]+$"
+    fi
+    if [[ "$new" == "$old" ]]; then
+        die "new version '$new' equals the current version '$old' - nothing to bump"
+    fi
+    if [[ "${#new}" -ne "${#old}" ]]; then
+        die "new version '$new' (${#new} chars) must have the SAME string length as the current version '$old' (${#old} chars); the ASCII-art TUI headers require same-length version strings"
+    fi
+}
+
+# --- Replacement specs ---------------------------------------------------------
+
+build_specs() {
+    # Replacement specs: file|expected_count|old_pattern|new_pattern|sed_program
+    # old/new_pattern are grep -E patterns; sed_program is a GNU sed -i program.
+    SPECS=(
+        "pyproject.toml|1|^version = \"$OLD_VERSION\"|^version = \"$NEW_VERSION\"|s/^version = \"$OLD_VERSION\"/version = \"$NEW_VERSION\"/"
+        "rpalib/version.py|1|^__version__ = .*or \"$OLD_VERSION\"|^__version__ = .*or \"$NEW_VERSION\"|/^__version__ = /s/or \"$OLD_VERSION\"/or \"$NEW_VERSION\"/"
+        "docs/guides/tui-guide.md|1|Ruida Script TUI v$OLD_VERSION|Ruida Script TUI v$NEW_VERSION|s/Ruida Script TUI v$OLD_VERSION/Ruida Script TUI v$NEW_VERSION/g"
+        "docs/guides/gluescript-guide.md|2|GlueScript $OLD_VERSION|GlueScript $NEW_VERSION|s/GlueScript $OLD_VERSION/GlueScript $NEW_VERSION/g"
+        "docs/designs/RuidaDriver-functional.md|1|Ruida Script TUI v$OLD_VERSION|Ruida Script TUI v$NEW_VERSION|s/Ruida Script TUI v$OLD_VERSION/Ruida Script TUI v$NEW_VERSION/g"
+    )
+}
+
+preflight_check() {
+    # Every expected old-version pattern must be present exactly the expected
+    # number of times. Aborts with exit 2 BEFORE any file is modified.
+    local spec file expected old_pattern new_pattern sed_program count
+    for spec in "${SPECS[@]}"; do
+        IFS='|' read -r file expected old_pattern new_pattern sed_program <<<"$spec"
+        count=$(count_occurrences "$ROOT/$file" "$old_pattern")
+        if [[ "$count" -ne "$expected" ]]; then
+            fail "expected $expected occurrence(s) of '$old_pattern' in $file but found ${count:-0}; aborting before any change"
+        fi
+    done
+    printf 'Pre-flight: all %d expected old-version patterns present.\n' "${#SPECS[@]}"
+}
+
+# --- Capture pre-bump header lengths (for ASCII verification) ------------------
+
+capture_header_lengths() {
+    local file line
+    for file in "${ASCII_FILES[@]}"; do
+        require_single_tui_header "$file"
+        line=$(grep -F 'Ruida Script TUI' "$ROOT/$file")
+        HEADER_BYTES_BEFORE[$file]=$(printf '%s' "$line" | wc -c)
+    done
+}
+
+# --- Apply the changes ----------------------------------------------------------
+
+apply_replacements() {
+    # Run each sed program, then verify the new pattern count and that the old
+    # pattern is fully gone. Each sed -i rename is atomic per file.
+    # NOTE: sed -i is a GNU extension; this repo is Linux-only, so no guard.
+    local spec file expected old_pattern new_pattern sed_program count
+    for spec in "${SPECS[@]}"; do
+        IFS='|' read -r file expected old_pattern new_pattern sed_program <<<"$spec"
+        sed -i "$sed_program" "$ROOT/$file"
+        count=$(count_occurrences "$ROOT/$file" "$new_pattern")
+        if [[ "$count" -ne "$expected" ]]; then
+            fail "replacement of '$old_pattern' in $file produced $count occurrence(s) of '$new_pattern', expected $expected"
+        fi
+        count=$(count_occurrences "$ROOT/$file" "$old_pattern")
+        if [[ "$count" -ne 0 ]]; then
+            fail "old pattern '$old_pattern' still present ${count:-0} time(s) in $file after replacement"
+        fi
+        printf '  updated %s\n' "$file"
+    done
+}
+
+write_commit_txt() {
+    # Overwrite commit.txt with the single version-bump summary line.
+    local summary="version: Bumped version to $NEW_VERSION."
+    printf '%s\n' "$summary" > "$ROOT/commit.txt"
+    local lines
+    lines=$(wc -l < "$ROOT/commit.txt")
+    if [[ "$lines" -ne 1 ]]; then
+        fail "commit.txt must contain exactly one line; wc -l reports $lines"
+    fi
+    if ! grep -Fxq "$summary" "$ROOT/commit.txt"; then
+        fail "commit.txt content mismatch; expected '$summary'"
+    fi
+    printf '  wrote commit.txt (%s)\n' "$summary"
+}
+
+testing_log_entry() {
+    # Emit the "Version Bumped to <new>" entry, mirroring the prior version's
+    # template entry format.
+    local date_str
+    date_str=$(date +%Y-%m-%d)
+    printf '## Version Bumped to %s\n\n' "$NEW_VERSION"
+    printf '**Date:** %s\n\n' "$date_str"
+    printf '**Files changed:** `pyproject.toml`, `rpalib/version.py`, `docs/guides/tui-guide.md`, `docs/guides/gluescript-guide.md`, `docs/designs/RuidaDriver-functional.md`, `commit.txt`\n\n'
+    printf '### Problem\n\n'
+    printf 'The project version was %s after the previous release; a new release increment was needed to record that state.\n\n' "$OLD_VERSION"
+    printf '### Solution\n\n'
+    printf 'Bumped the version to %s in the pyproject.toml [project] version and the hardcoded fallback in rpalib/version.py, keeping the two in sync as the keep-in-sync comment requires. Updated the documentation example headers that hardcode the old version: the TUI layout diagram in tui-guide.md, the two "Generated by: GlueScript" job headers in gluescript-guide.md, and the TUI layout diagram in RuidaDriver-functional.md. Cleared commit.txt and wrote the single version-bump summary line, and created this testing log for the new version.\n\n' "$NEW_VERSION"
+    printf '### Verification\n\n'
+    printf '`rpalib.version.__version__` resolves to `%s` from pyproject.toml, verified by running `%s -c "import rpalib.version as v; print(v.__version__)"`, which prints `%s`. A repo-wide search for the literal `%s` returns zero matches in the tracked source and documentation; the only remaining matches are in gitignored directories (docs/logs/ historical logs, tmp/, .venv/), which are outside the tracked tree. Both ASCII-art TUI layout headers were re-checked after the same-length replacement and keep their box borders aligned.\n\n' "$NEW_VERSION" "$PY_DISPLAY" "$NEW_VERSION" "$OLD_VERSION"
+    printf '### Review\n\n'
+    printf '  Reviewer verdict: PENDING REVIEW\n\n'
+    printf -- '---\n'
+}
+
+write_testing_log() {
+    # Create docs/logs/v<new>-testing.md with the entry, or append the entry to
+    # the existing log (a blank line then the entry, trailing "---").
+    local log_dir log_file entry
+    log_dir="$ROOT/docs/logs"
+    log_file="$log_dir/v${NEW_VERSION}-testing.md"
+    mkdir -p "$log_dir"
+    entry=$(testing_log_entry)
+    if [[ -f "$log_file" ]]; then
+        { printf '\n'; printf '%s\n' "$entry"; } >> "$log_file"
+        printf '  appended entry to docs/logs/v%s-testing.md\n' "$NEW_VERSION"
+    else
+        printf '# v%s Testing Log\n\n%s\n' "$NEW_VERSION" "$entry" > "$log_file"
+        printf '  created docs/logs/v%s-testing.md\n' "$NEW_VERSION"
+    fi
+    if ! grep -Fq "## Version Bumped to $NEW_VERSION" "$log_file"; then
+        fail "testing log entry '## Version Bumped to $NEW_VERSION' missing from $log_file"
+    fi
+}
+
+# --- Post-write verification ----------------------------------------------------
+
+verify_version_resolution() {
+    # Hard-fail (exit 2) if the package version does not resolve to <new>.
+    printf '  1. version resolution (%s):\n' "$PY_DISPLAY"
+    local resolved
+    resolved=$(cd "$ROOT" && "$PY_CMD" -c "import rpalib.version as v; print(v.__version__)" 2>&1) || true
+    if [[ "$resolved" == "$NEW_VERSION" ]]; then
+        printf '     PASS: resolves to %s\n' "$resolved"
+    else
+        printf '     FAIL: expected %s, got %s\n' "$NEW_VERSION" "$resolved"
+        fail "version resolution does not match $NEW_VERSION"
+    fi
+}
+
+verify_old_version_gone() {
+    # Hard-fail (exit 2) if the old literal survives anywhere in the tracked
+    # tree (commit.txt and docs/logs/ are gitignored, so they are excluded).
+    printf '  2. git grep -F %s (tracked tree):\n' "$OLD_VERSION"
+    local matches
+    matches=$(cd "$ROOT" && git grep -n -F -- "$OLD_VERSION" 2>&1) || true
+    if [[ -z "$matches" ]]; then
+        printf '     PASS: zero matches\n'
+    else
+        printf '     FAIL: matches remain:\n%s\n' "$matches"
+        fail "old version literal '$OLD_VERSION' still present in the tracked tree"
+    fi
+}
+
+verify_git_status() {
+    # Report git status, filter out this script's own filename, and check the
+    # remaining set against the 5 expected tracked files by exact path match.
+    # Additional entries are only a warning (they may be pre-existing
+    # uncommitted work).
+    printf '  3. git status --porcelain:\n'
+    local porcelain path script_name missing=() extra=() seen exp line
+    local -A status_paths=()
+    script_name=$(basename "$0")
+    porcelain=$(cd "$ROOT" && git status --porcelain)
+    if [[ -z "$porcelain" ]]; then
+        printf '     (working tree clean)\n'
+    else
+        printf '%s\n' "$porcelain" | sed 's/^/     /'
+    fi
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        path=${line:3}
+        path=${path%/}
+        [[ "$path" == "$script_name" ]] && continue
+        status_paths[$path]=1
+        seen=0
+        for exp in "${EXPECTED_TRACKED_FILES[@]}"; do
+            if [[ "$path" == "$exp" ]]; then
+                seen=1
+                break
+            fi
+        done
+        if [[ "$seen" -eq 0 ]]; then
+            extra+=("$path")
+        fi
+    done <<<"$porcelain"
+    for exp in "${EXPECTED_TRACKED_FILES[@]}"; do
+        if [[ -z "${status_paths[$exp]+_}" ]]; then
+            missing+=("$exp")
+        fi
+    done
+    if [[ "${#extra[@]}" -eq 0 && "${#missing[@]}" -eq 0 ]]; then
+        printf '     PASS: exactly the %d expected tracked files modified\n' "${#EXPECTED_TRACKED_FILES[@]}"
+    else
+        if [[ "${#missing[@]}" -gt 0 ]]; then
+            printf '     WARN: expected modified files not present in status: %s\n' "${missing[*]}"
+        fi
+        if [[ "${#extra[@]}" -gt 0 ]]; then
+            printf '     WARN: additional changes present (may be pre-existing uncommitted work): %s\n' "${extra[*]}"
+        fi
+    fi
+}
+
+verify_ascii_alignment() {
+    # Confirm each "Ruida Script TUI" header line kept its byte length and that
+    # no header line exceeds its ASCII box (character-width comparison against
+    # the box border line directly above it).
+    printf '  4. ASCII alignment of the "Ruida Script TUI" header lines:\n'
+    local file line after_bytes border header_chars border_chars failed=0
+    for file in "${ASCII_FILES[@]}"; do
+        require_single_tui_header "$file"
+        line=$(grep -F 'Ruida Script TUI' "$ROOT/$file")
+        after_bytes=$(printf '%s' "$line" | wc -c)
+        border=$(awk '/Ruida Script TUI/ { print prev } { prev = $0 }' "$ROOT/$file")
+        if printf '%s' "$border" | grep -q '[┌└├┤┐│]'; then
+            header_chars=${#line}
+            border_chars=${#border}
+            if [[ "$after_bytes" -eq "${HEADER_BYTES_BEFORE[$file]}" && "$header_chars" -le "$border_chars" ]]; then
+                printf '     PASS: %s header %d bytes (unchanged), fits box width %d chars\n' "$file" "$after_bytes" "$border_chars"
+            else
+                printf '     FAIL: %s header %d bytes before vs %d after, box width %d chars\n' "$file" "${HEADER_BYTES_BEFORE[$file]:-?}" "$after_bytes" "$border_chars"
+                failed=1
+            fi
+        else
+            printf '     SKIP: previous line is not a box border in %s; byte length preserved: %d == %d\n' "$file" "${HEADER_BYTES_BEFORE[$file]:-?}" "$after_bytes"
+        fi
+    done
+    if [[ "$failed" -ne 0 ]]; then
+        fail "ASCII header alignment check failed"
+    fi
+}
+
+# --- Dry-run plan ---------------------------------------------------------------
+
+print_plan() {
+    # Print every planned change (file + exact before/after lines) and the
+    # verification commands. Called only in --dry-run mode after validation.
+    printf 'DRY RUN - no files will be modified.\n'
+    printf 'Current version: %s\n' "$OLD_VERSION"
+    printf 'New version:     %s\n\n' "$NEW_VERSION"
+    printf 'Planned changes:\n'
+    local spec file expected old_pattern new_pattern sed_program line transformed first
+    for spec in "${SPECS[@]}"; do
+        IFS='|' read -r file expected old_pattern new_pattern sed_program <<<"$spec"
+        printf '  %s (expect %sx)\n' "$file" "$expected"
+        while IFS= read -r line; do
+            transformed=$(printf '%s' "$line" | sed "$sed_program")
+            printf '    - %s\n' "$line"
+            printf '    + %s\n' "$transformed"
+        done < <(grep -E -- "$old_pattern" "$ROOT/$file" || true)
+    done
+    printf '  commit.txt\n'
+    if [[ -f "$ROOT/commit.txt" ]]; then
+        first=$(head -n 1 "$ROOT/commit.txt")
+        printf '    - %s\n' "$first"
+    else
+        printf '    - (file does not exist yet)\n'
+    fi
+    printf '    + version: Bumped version to %s.\n' "$NEW_VERSION"
+    if [[ -f "$ROOT/docs/logs/v${NEW_VERSION}-testing.md" ]]; then
+        printf '  docs/logs/v%s-testing.md (entry will be appended)\n' "$NEW_VERSION"
+    else
+        printf '  docs/logs/v%s-testing.md (file will be created)\n' "$NEW_VERSION"
+    fi
+    printf '    + ## Version Bumped to %s\n' "$NEW_VERSION"
+    printf '\nVerification commands to run after applying:\n'
+    printf '  1. cd %s && %s -c "import rpalib.version as v; print(v.__version__)"  (expect %s)\n' "$ROOT" "$PY_DISPLAY" "$NEW_VERSION"
+    printf '  2. cd %s && git grep -F %s  (expect zero matches)\n' "$ROOT" "$OLD_VERSION"
+    printf '  3. cd %s && git status --porcelain  (expect exactly the 5 expected tracked files)\n' "$ROOT"
+    printf '  4. ASCII alignment check on the two "Ruida Script TUI" header lines\n'
+}
+
+# --- Main -----------------------------------------------------------------------
+
+main() {
+    parse_args "$@"
+    if [[ "$MODE" == help ]]; then
+        print_usage
+        exit 0
+    fi
+    [[ -n "$NEW_VERSION" ]] || die "missing <new-version>"
+
+    ROOT=$(resolve_root)
+    PYPROJECT="$ROOT/pyproject.toml"
+    [[ -f "$PYPROJECT" ]] || die "pyproject.toml not found at $PYPROJECT"
+    OLD_VERSION=$(read_current_version "$PYPROJECT")
+    [[ -n "$OLD_VERSION" ]] || die "cannot read the [project] version from $PYPROJECT"
+
+    validate_new_version "$OLD_VERSION" "$NEW_VERSION"
+    select_python
+    build_specs
+
+    printf 'Bumping version %s -> %s in %s\n' "$OLD_VERSION" "$NEW_VERSION" "$ROOT"
+    preflight_check
+    capture_header_lengths
+
+    if [[ "$MODE" == dry ]]; then
+        print_plan
+        exit 0
+    fi
+
+    printf 'Applying changes:\n'
+    apply_replacements
+    write_commit_txt
+    write_testing_log
+
+    printf 'Verification:\n'
+    verify_version_resolution
+    verify_old_version_gone
+    verify_git_status
+    verify_ascii_alignment
+
+    printf '\nBump complete: %s -> %s. Nothing was staged or committed; review and commit manually.\n' "$OLD_VERSION" "$NEW_VERSION"
+}
+
+main "$@"
