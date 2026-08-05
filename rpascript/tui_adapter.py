@@ -597,15 +597,15 @@ class TuiAdapter(App):
             "run": "Execute job from loaded script (/run script for all lines)",
             "clear": "Clear all log panels, loaded script, head, and tail",
             "quit": "Exit the TUI",
-            "status": "Toggle logging: /status \\[on|off|status] for status/reply, /status connection \\[on|off|status] for transport events",
+            "status": "Toggle logging: /status \[on|off|status] for status/reply, /status connection \[on|off|status] for transport events",
             "session": "Start or end a controller session (start udp=<IP> usb=<device> to=<timeout> magic=0xNN / end)",
             "server": "Start or stop the RPC server. "
             "Server commands: start host=<IP> port=<N> cert=<path> key=<path> token=<token>, or stop",
             "head": "Load a script file to prepend to job on execution",
-            "import": "Import a tshark log (.log) or RDWorks (.rd) file \\[magic=0xNN] as a script",
-            "export": "Export loaded script as .rd binary file (/export \\[path])",
+            "import": "Import a tshark log (.log) or RDWorks (.rd) file \[magic=0xNN] as a script",
+            "export": "Export loaded script as .rd binary file (/export \[path])",
             "tail": "Load a script file to append to job on execution",
-            "list": "Display loaded script (/list script), composed job (/list job), head (/list head), tail (/list tail), or toggle auto-display (/list auto \\[on|off])",
+            "list": "Display loaded script (/list script), composed job (/list job), head (/list head), tail (/list tail), or toggle auto-display (/list auto \[on|off])",
             "save": "Save composed job (/save job <path>) or full script (/save script <path> | /save as <path>)",
             "stop": "Stop the current operation (session connection or script execution). Also bound to Escape.",
             "dryrun": "Toggle dry-run mode (on|off). When on, /run runs normally but RPC driver.run() only logs to TUI.",
@@ -624,11 +624,11 @@ class TuiAdapter(App):
             "jog_y_to": "jog_y_to <y>: Jog Y to absolute position (mm)",
             "jog_z_to": "jog_z_to <z>: Jog Z to absolute position (mm, max 2000)",
             "jog_u_to": "jog_u_to <u>: Jog U to absolute position (mm)",
-            "jog_xy_rel": "jog_xy_rel \\[x] \\[y]: Jog XY relative (uses configured defaults)",
-            "jog_x_rel": "jog_x_rel \\[x]: Jog X relative (uses configured default)",
-            "jog_y_rel": "jog_y_rel \\[y]: Jog Y relative (uses configured default)",
-            "jog_z_rel": "jog_z_rel \\[z]: Jog Z relative (uses configured default)",
-            "jog_u_rel": "jog_u_rel \\[u]: Jog U relative (uses configured default)",
+            "jog_xy_rel": "jog_xy_rel \[x] \[y]: Jog XY relative (uses configured defaults)",
+            "jog_x_rel": "jog_x_rel \[x]: Jog X relative (uses configured default)",
+            "jog_y_rel": "jog_y_rel \[y]: Jog Y relative (uses configured default)",
+            "jog_z_rel": "jog_z_rel \[z]: Jog Z relative (uses configured default)",
+            "jog_u_rel": "jog_u_rel \[u]: Jog U relative (uses configured default)",
             "jog_set_xy_speed": "jog_set_xy_speed <speed>: Set XY jog speed (mm/s)",
             "jog_set_z_speed": "jog_set_z_speed <speed>: Set Z jog speed (mm/s)",
             "jog_set_u_speed": "jog_set_u_speed <speed>: Set U jog speed (mm/s)",
@@ -644,7 +644,7 @@ class TuiAdapter(App):
         )
         self._file_completions: list[tuple[str, bool]] = []  # (name, is_dir) pairs
         self._file_completion_dir: str = ""  # Current directory being browsed
-        self._file_completion_cmd: str = ""  # Command that triggered completion (e.g., "/load")
+        self._file_completion_cmd: str = ""  # Command that triggered completion (e.g., \"/load\")
         self._file_completion_prefix: str = ""  # Filename prefix typed so far
         self._command_history: list[str] = []
         self._history_index: int | None = None
@@ -681,6 +681,9 @@ class TuiAdapter(App):
         # GC object counter state
         self._gc_prev: dict[str, tuple[int, int, int]] | None = None
         self._gc_initial: dict[str, tuple[int, int, int]] = {}
+        
+        # Track connection status changes
+        self._last_is_connected: bool | None = None
 
     # ------------------------------------------------------------------
     # Textual App lifecycle
@@ -4326,11 +4329,19 @@ class TuiAdapter(App):
     def is_connected(self) -> bool:
         """Return whether the driver is connected.
 
-        Emulates RdDriver.is_connected.
+        Emulates RdDriver.is_connected. Only logs when connection state changes.
         """
-        result = self._ruida_driver is not None and self._ruida_driver.is_connected
-        self._log_info(f"[RPC] is_connected -> {result}")
-        return result
+        current_state = self._ruida_driver is not None and self._ruida_driver.is_connected
+        
+        # Log only if state has changed from last known state
+        if self._last_is_connected != current_state:
+            self._log_info(f"[RPC] is_connected -> {current_state}")
+            self._last_is_connected = current_state
+        else:
+            # Update last state even when no log (in case it was None initially)
+            self._last_is_connected = current_state
+        
+        return current_state
 
     @property
     def machine_status(self) -> dict[int, Any]:
