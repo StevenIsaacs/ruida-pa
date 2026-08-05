@@ -470,7 +470,7 @@ stop()   # Set shutdown, join thread (2s), unregister transport listener, fire T
 #### 4.2.8 Connection Property
 
 ```python
-is_connected -> bool  # True iff transport.is_open AND monitor thread is alive
+is_connected -> bool  # True iff transport is open AND a ping reply confirmed connectivity AND the monitor thread is alive
 ```
 
 ### 4.3 Session Manager — `RdSession`

@@ -89,6 +89,9 @@ class RdStatus:
         # DISCONNECTED guard — prevents double dispatch in CONNECTING state
         self._disconnect_fired = False
 
+        # Confirmed-connection flag — True only after a ping reply is received
+        self._connected: bool = False
+
         # Transport event mechanism
         self._transport_event: threading.Event = threading.Event()
         self._last_event: Optional[TransportEvent] = None
@@ -221,6 +224,7 @@ class RdStatus:
             self._monitor_thread.join(timeout=2.0)
 
         self._monitor_thread = None
+        self._connected = False
 
         try:
             self.transport.unregister_status_listener(self._transport_listener)
@@ -293,9 +297,12 @@ class RdStatus:
 
     @property
     def is_connected(self) -> bool:
-        """True if transport is open AND monitor thread is alive (connection confirmed)."""
+        """True only after the controller confirms connectivity (a ping reply
+        was received) while the transport is still open and the monitor runs.
+        Liveness after confirmation is maintained by the status queries."""
         return (
             self.transport.is_open
+            and self._connected
             and self._monitor_thread is not None
             and self._monitor_thread.is_alive()
         )
@@ -349,6 +356,9 @@ class RdStatus:
         handles whose device has been physically removed.
         """
         while not self._shutdown.is_set():
+            # Any entry into CONNECTING means connectivity is not confirmed
+            self._connected = False
+
             # Notify DISCONNECTED exactly once per disconnect cycle
             if self.transport.is_open and not self._disconnect_fired:
                 self._notify_listeners(RdStatusEvent.DISCONNECTED)
@@ -452,6 +462,7 @@ class RdStatus:
             if self._shutdown.is_set():
                 return ("CONNECTING", retries)
             if event is TransportEvent.REPLY_FORWARDED:
+                self._connected = True
                 self._notify_listeners(RdStatusEvent.PING_REPLIED)
                 self._notify_listeners(RdStatusEvent.CONNECTED)
                 self._log_connection("[STATUS] Ping OK")
@@ -551,6 +562,7 @@ class RdStatus:
             if event is TransportEvent.DROPPED or event is TransportEvent.CLOSED:
                 return "CONNECTING"
             # Timeout
+            self._connected = False
             self._notify_listeners(RdStatusEvent.DISCONNECTED)
             self._log_connection("[STATUS] Query timeout — disconnecting")
             self._disconnect_fired = True
