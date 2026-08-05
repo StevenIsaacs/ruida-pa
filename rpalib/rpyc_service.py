@@ -103,6 +103,11 @@ class RpycTuiService(rpyc.Service):
         """Return whether verbose RPC logging is currently enabled."""
         return self._should_log()
 
+    def _rpc_info(self, message: str) -> None:
+        """Log an RPC line only when verbose RPC logging is enabled."""
+        if self._should_log():
+            self._adapter._log_info(message)
+
     def _callback_loop(self) -> None:
         """Process queued callbacks one at a time on a single background thread.
 
@@ -176,8 +181,7 @@ class RpycTuiService(rpyc.Service):
             self._adapter._log_warning(f"RPC client connect - failed to get peer: {exc}")
             host, port = "unknown", 0
         self._client_peer.value = f"{host}:{port}"
-        if self._should_log():
-            self._adapter._log_info(f"RPC client connected from {host}:{port}")
+        self._rpc_info(f"RPC client connected from {host}:{port}")
 
     def on_disconnect(self, conn):
         """Clean up per-connection state when a client disconnects.
@@ -188,8 +192,7 @@ class RpycTuiService(rpyc.Service):
         """
         peer = getattr(self._client_peer, 'value', 'unknown:0')
         try:
-            if self._should_log():
-                self._adapter._log_info(f"RPC client disconnected ({peer})")
+            self._rpc_info(f"RPC client disconnected ({peer})")
         except RuntimeError:
             pass  # Adapter already GC'd — proceed with cleanup anyway
 
@@ -270,13 +273,11 @@ class RpycTuiService(rpyc.Service):
     # --- Lifecycle ---
 
     def exposed_start(self, udp_host: str | None = None, usb_device: str | None = None) -> bool:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC start(udp_host={udp_host!r}, usb_device={usb_device!r})")
+        self._rpc_info(f"[RPC] RPC start(udp_host={udp_host!r}, usb_device={usb_device!r})")
         return self._adapter.start(udp_host=udp_host, usb_device=usb_device)
 
     def exposed_stop(self) -> None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] RPC stop()")
+        self._rpc_info("[RPC] RPC stop()")
         self._adapter.stop()
 
     def exposed_run(self, script: list[str], auto_checksum: bool = False) -> Any:
@@ -285,8 +286,10 @@ class RpycTuiService(rpyc.Service):
         # value — only tuples and simple types are brine-dumpable. Iterating a
         # netref from a background thread or after the handler returns is fragile.
         local_script = list(script)
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC run(script={len(local_script)} lines, auto_checksum={auto_checksum})")
+        self._rpc_info(
+            f"[RPC] RPC run(script={len(local_script)} lines, "
+            f"auto_checksum={auto_checksum})"
+        )
         # The adapter's run_script() internally uses call_from_thread() to
         # bridge to the TUI event loop thread, then calls driver.run() which
         # queues the script and returns quickly. No separate background thread
@@ -303,42 +306,27 @@ class RpycTuiService(rpyc.Service):
 
     def exposed_set_head_script(self, script: list[str]) -> None:
         local_script = list(script)
-        if self._should_log():
-            self._adapter._log_info(
-                f"[RPC] RPC set_head_script({len(local_script)} lines)"
-            )
+        self._rpc_info(f"[RPC] RPC set_head_script({len(local_script)} lines)")
         self._adapter.set_head_script(local_script)
 
     def exposed_set_tail_script(self, script: list[str]) -> None:
         local_script = list(script)
-        if self._should_log():
-            self._adapter._log_info(
-                f"[RPC] RPC set_tail_script({len(local_script)} lines)"
-            )
+        self._rpc_info(f"[RPC] RPC set_tail_script({len(local_script)} lines)")
         self._adapter.set_tail_script(local_script)
 
     def exposed_get_head_script(self) -> list[str]:
         result = self._adapter.get_head_script()
-        if self._should_log():
-            self._adapter._log_info(
-                f"[RPC] RPC get_head_script -> {len(result)} lines"
-            )
+        self._rpc_info(f"[RPC] RPC get_head_script -> {len(result)} lines")
         return result
 
     def exposed_get_tail_script(self) -> list[str]:
         result = self._adapter.get_tail_script()
-        if self._should_log():
-            self._adapter._log_info(
-                f"[RPC] RPC get_tail_script -> {len(result)} lines"
-            )
+        self._rpc_info(f"[RPC] RPC get_tail_script -> {len(result)} lines")
         return result
 
     def exposed_run_job(self, job: list[str], auto_checksum: bool = False) -> None:
         local_job = list(job)
-        if self._should_log():
-            self._adapter._log_info(
-                f"[RPC] RPC run_job({len(local_job)} lines, auto_checksum={auto_checksum})"
-            )
+        self._rpc_info(f"[RPC] RPC run_job({len(local_job)} lines, auto_checksum={auto_checksum})")
         try:
             self._adapter.run_job(local_job, auto_checksum=auto_checksum)
         except Exception as e:
@@ -357,8 +345,7 @@ class RpycTuiService(rpyc.Service):
         the ``comment``/``inline``/``lines`` list args and the ``abs_xy``/
         ``gluescript`` list kwargs.
         """
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript %s(...)" % name)
+        self._rpc_info("[RPC] gluescript %s(...)" % name)
         args = tuple(list(a) if isinstance(a, list) else a for a in args)
         kwargs = {
             k: (list(v) if isinstance(v, list) else v)
@@ -367,18 +354,15 @@ class RpycTuiService(rpyc.Service):
         return getattr(self._adapter, "gluescript_" + name)(*args, **kwargs)
 
     def exposed_new_gluescript(self) -> None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript new_gluescript()")
+        self._rpc_info("[RPC] gluescript new_gluescript()")
         return self._exposed_gluescript("new_gluescript")
 
     def exposed_comment(self, comments: list[str]) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript comment({len(comments)} lines)")
+        self._rpc_info(f"[RPC] gluescript comment({len(comments)} lines)")
         return self._exposed_gluescript("comment", comments)
 
     def exposed_inline(self, commands: list[str]) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript inline({len(commands)} lines)")
+        self._rpc_info(f"[RPC] gluescript inline({len(commands)} lines)")
         return self._exposed_gluescript("inline", commands)
 
     def exposed_declare_job(
@@ -391,16 +375,17 @@ class RpycTuiService(rpyc.Service):
         xstep: float = 0.0,
         ystep: float = 0.0,
     ) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript declare_job({label}, {ref_point}, columns={columns}, rows={rows})")
+        self._rpc_info(
+            f"[RPC] gluescript declare_job({label}, {ref_point}, "
+            f"columns={columns}, rows={rows})"
+        )
         return self._exposed_gluescript(
             "declare_job", label, ref_point, abs_xy, columns, rows,
             xstep, ystep,
         )
 
     def exposed_end_job(self) -> None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript end_job()")
+        self._rpc_info("[RPC] gluescript end_job()")
         return self._exposed_gluescript("end_job")
 
     def exposed_declare_layer(
@@ -414,61 +399,53 @@ class RpycTuiService(rpyc.Service):
         min_power_1: float = 8.0,
         max_power_1: float = 70.0,
     ) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript declare_layer({label}, {color}, mode={mode}, speed={speed})")
+        self._rpc_info(
+            f"[RPC] gluescript declare_layer({label}, {color}, mode={mode}, "
+            f"speed={speed})"
+        )
         return self._exposed_gluescript(
             "declare_layer", label, color, mode, overscan, speed, frequency,
             min_power_1, max_power_1,
         )
 
     def exposed_move_xy_to(self, x: float, y: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript move_xy_to({x}, {y})")
+        self._rpc_info(f"[RPC] gluescript move_xy_to({x}, {y})")
         return self._exposed_gluescript("move_xy_to", x, y)
 
     def exposed_move_x_to(self, x: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript move_x_to({x})")
+        self._rpc_info(f"[RPC] gluescript move_x_to({x})")
         return self._exposed_gluescript("move_x_to", x)
 
     def exposed_move_y_to(self, y: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript move_y_to({y})")
+        self._rpc_info(f"[RPC] gluescript move_y_to({y})")
         return self._exposed_gluescript("move_y_to", y)
 
     def exposed_cut_xy_to(self, x: float, y: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript cut_xy_to({x}, {y})")
+        self._rpc_info(f"[RPC] gluescript cut_xy_to({x}, {y})")
         return self._exposed_gluescript("cut_xy_to", x, y)
 
     def exposed_cut_x_to(self, x: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript cut_x_to({x})")
+        self._rpc_info(f"[RPC] gluescript cut_x_to({x})")
         return self._exposed_gluescript("cut_x_to", x)
 
     def exposed_cut_y_to(self, y: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript cut_y_to({y})")
+        self._rpc_info(f"[RPC] gluescript cut_y_to({y})")
         return self._exposed_gluescript("cut_y_to", y)
 
     def exposed_power(self, percent: float | None = None) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript power({percent})")
+        self._rpc_info(f"[RPC] gluescript power({percent})")
         return self._exposed_gluescript("power", percent)
 
     def exposed_air_assist_on(self) -> None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript air_assist_on()")
+        self._rpc_info("[RPC] gluescript air_assist_on()")
         return self._exposed_gluescript("air_assist_on")
 
     def exposed_air_assist_off(self) -> None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript air_assist_off()")
+        self._rpc_info("[RPC] gluescript air_assist_off()")
         return self._exposed_gluescript("air_assist_off")
 
     def exposed_add_layer_action(self, layer: int, lines: list[str]) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript add_layer_action(layer={layer}, {len(lines)} lines)")
+        self._rpc_info(f"[RPC] gluescript add_layer_action(layer={layer}, {len(lines)} lines)")
         return self._exposed_gluescript("add_layer_action", layer, lines)
 
     def exposed_update_position(
@@ -478,8 +455,7 @@ class RpycTuiService(rpyc.Service):
         z: float | None = None,
         u: float | None = None,
     ) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript update_position(x={x}, y={y}, z={z}, u={u})")
+        self._rpc_info(f"[RPC] gluescript update_position(x={x}, y={y}, z={z}, u={u})")
         return self._exposed_gluescript("update_position", x, y, z, u)
 
     def exposed_stage_rpascript(
@@ -487,9 +463,11 @@ class RpycTuiService(rpyc.Service):
         gluescript: list[str] | None = None,
         require_complete: bool = True,
     ) -> list[str]:
-        if self._should_log():
-            script_len = len(gluescript) if gluescript is not None else 0
-            self._adapter._log_info(f"[RPC] gluescript stage_rpascript({script_len} lines, require_complete={require_complete})")
+        self._rpc_info(
+            f"[RPC] gluescript stage_rpascript("
+            f"{len(gluescript) if gluescript is not None else 0} lines, "
+            f"require_complete={require_complete})"
+        )
         return self._exposed_gluescript(
             "stage_rpascript", gluescript, require_complete
         )
@@ -497,124 +475,101 @@ class RpycTuiService(rpyc.Service):
     # --- GlueScript — live-only commands (jogs and homing) ---
 
     def exposed_jog_set_xy_speed(self, speed: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_set_xy_speed({speed})")
+        self._rpc_info(f"[RPC] gluescript jog_set_xy_speed({speed})")
         return self._exposed_gluescript("jog_set_xy_speed", speed)
 
     def exposed_jog_set_z_speed(self, speed: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_set_z_speed({speed})")
+        self._rpc_info(f"[RPC] gluescript jog_set_z_speed({speed})")
         return self._exposed_gluescript("jog_set_z_speed", speed)
 
     def exposed_jog_set_u_speed(self, speed: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_set_u_speed({speed})")
+        self._rpc_info(f"[RPC] gluescript jog_set_u_speed({speed})")
         return self._exposed_gluescript("jog_set_u_speed", speed)
 
     def exposed_jog_set_xy_rel(self, delta: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_set_xy_rel({delta})")
+        self._rpc_info(f"[RPC] gluescript jog_set_xy_rel({delta})")
         return self._exposed_gluescript("jog_set_xy_rel", delta)
 
     def exposed_jog_set_z_rel(self, delta: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_set_z_rel({delta})")
+        self._rpc_info(f"[RPC] gluescript jog_set_z_rel({delta})")
         return self._exposed_gluescript("jog_set_z_rel", delta)
 
     def exposed_jog_set_u_rel(self, delta: float) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_set_u_rel({delta})")
+        self._rpc_info(f"[RPC] gluescript jog_set_u_rel({delta})")
         return self._exposed_gluescript("jog_set_u_rel", delta)
 
     def exposed_jog_xy_to(self, x: float, y: float) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_xy_to({x}, {y})")
+        self._rpc_info(f"[RPC] gluescript jog_xy_to({x}, {y})")
         return self._exposed_gluescript("jog_xy_to", x, y)
 
     def exposed_jog_x_to(self, x: float) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_x_to({x})")
+        self._rpc_info(f"[RPC] gluescript jog_x_to({x})")
         return self._exposed_gluescript("jog_x_to", x)
 
     def exposed_jog_y_to(self, y: float) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_y_to({y})")
+        self._rpc_info(f"[RPC] gluescript jog_y_to({y})")
         return self._exposed_gluescript("jog_y_to", y)
 
     def exposed_jog_z_to(self, z: float) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_z_to({z})")
+        self._rpc_info(f"[RPC] gluescript jog_z_to({z})")
         return self._exposed_gluescript("jog_z_to", z)
 
     def exposed_jog_u_to(self, u: float) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_u_to({u})")
+        self._rpc_info(f"[RPC] gluescript jog_u_to({u})")
         return self._exposed_gluescript("jog_u_to", u)
 
     def exposed_jog_xy_rel(
         self, x: float | None = None, y: float | None = None
     ) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_xy_rel(x={x}, y={y})")
+        self._rpc_info(f"[RPC] gluescript jog_xy_rel(x={x}, y={y})")
         return self._exposed_gluescript("jog_xy_rel", x, y)
 
     def exposed_jog_x_rel(self, x: float | None = None) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_x_rel(x={x})")
+        self._rpc_info(f"[RPC] gluescript jog_x_rel(x={x})")
         return self._exposed_gluescript("jog_x_rel", x)
 
     def exposed_jog_y_rel(self, y: float | None = None) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_y_rel(y={y})")
+        self._rpc_info(f"[RPC] gluescript jog_y_rel(y={y})")
         return self._exposed_gluescript("jog_y_rel", y)
 
     def exposed_jog_z_rel(self, z: float | None = None) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_z_rel(z={z})")
+        self._rpc_info(f"[RPC] gluescript jog_z_rel(z={z})")
         return self._exposed_gluescript("jog_z_rel", z)
 
     def exposed_jog_u_rel(self, u: float | None = None) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] gluescript jog_u_rel(u={u})")
+        self._rpc_info(f"[RPC] gluescript jog_u_rel(u={u})")
         return self._exposed_gluescript("jog_u_rel", u)
 
     def exposed_home(self) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript home()")
+        self._rpc_info("[RPC] gluescript home()")
         return self._exposed_gluescript("home")
 
     def exposed_home_z(self) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript home_z()")
+        self._rpc_info("[RPC] gluescript home_z()")
         return self._exposed_gluescript("home_z")
 
     def exposed_home_u(self) -> list[str] | None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript home_u()")
+        self._rpc_info("[RPC] gluescript home_u()")
         return self._exposed_gluescript("home_u")
 
     # --- GlueScript — getters ---
 
     def exposed_get_gluescript(self) -> list[str]:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript get_gluescript()")
+        self._rpc_info("[RPC] gluescript get_gluescript()")
         return self._exposed_gluescript("get_gluescript")
 
     def exposed_get_rpascript(self) -> list[str]:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript get_rpascript()")
+        self._rpc_info("[RPC] gluescript get_rpascript()")
         return self._exposed_gluescript("get_rpascript")
 
     def exposed_job_complete(self) -> bool:
-        if self._should_log():
-            self._adapter._log_info("[RPC] gluescript job_complete()")
+        self._rpc_info("[RPC] gluescript job_complete()")
         return self._exposed_gluescript("job_complete")
 
     # --- Listeners (netref callbacks) ---
 
     def exposed_register_status_listener(self, listener: Callable) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC register_status_listener({listener!r})")
+        self._rpc_info(f"[RPC] RPC register_status_listener({listener!r})")
         def wrapper(event):
             try:
                 # Convert non-serializable types to brine-dumpable forms
@@ -635,8 +590,7 @@ class RpycTuiService(rpyc.Service):
         self._adapter.register_status_listener(wrapper)
 
     def exposed_register_error_listener(self, listener: Callable) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC register_error_listener({listener!r})")
+        self._rpc_info(f"[RPC] RPC register_error_listener({listener!r})")
         def wrapper(msg):
             try:
                 # Fire on background thread to avoid blocking caller
@@ -650,8 +604,7 @@ class RpycTuiService(rpyc.Service):
         self._adapter.register_error_listener(wrapper)
 
     def exposed_register_reply_listener(self, listener: Callable) -> None:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC register_reply_listener({listener!r})")
+        self._rpc_info(f"[RPC] RPC register_reply_listener({listener!r})")
         def wrapper(replies):
             try:
                 # list[str] is not brine-dumpable; tuple[str, ...] is
@@ -667,39 +620,36 @@ class RpycTuiService(rpyc.Service):
         self._adapter.register_reply_listener(wrapper)
 
     def exposed_cancel_script(self) -> None:
-        if self._should_log():
-            self._adapter._log_info("[RPC] RPC cancel_script()")
+        self._rpc_info("[RPC] RPC cancel_script()")
         self._adapter.cancel_script()
 
     # --- Properties ---
 
     def exposed_is_connected(self) -> bool:
         result = self._adapter.is_connected
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC is_connected -> {result}")
+        self._rpc_info(f"[RPC] RPC is_connected -> {result}")
         return result
 
     def exposed_machine_status(self) -> dict[int, Any]:
         result = self._adapter.machine_status
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC machine_status -> {len(result)} items")
+        self._rpc_info(f"[RPC] RPC machine_status -> {len(result)} items")
         return result
 
     # --- Static format utilities ---
 
     def exposed_format_reply_value(self, address: int, raw_reply: bytearray) -> tuple:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC format_reply_value(addr=0x{address:04X}, raw_len={len(raw_reply)})")
+        self._rpc_info(
+            f"[RPC] RPC format_reply_value(addr=0x{address:04X}, "
+            f"raw_len={len(raw_reply)})"
+        )
         return TuiAdapter.format_reply_value(address, raw_reply)
 
     def exposed_format_reply(self, reply: bytearray) -> str:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC format_reply(len={len(reply)})")
+        self._rpc_info(f"[RPC] RPC format_reply(len={len(reply)})")
         return TuiAdapter.format_reply(reply)
 
     def exposed_format_reply_list(self, replies: list[bytearray]) -> list[str]:
-        if self._should_log():
-            self._adapter._log_info(f"[RPC] RPC format_reply_list(count={len(replies)})")
+        self._rpc_info(f"[RPC] RPC format_reply_list(count={len(replies)})")
         return TuiAdapter.format_reply_list(replies)
 
 
