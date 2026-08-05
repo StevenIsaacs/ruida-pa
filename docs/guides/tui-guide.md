@@ -241,9 +241,10 @@ WAIT !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/plot`               | Open an interactive Bokeh visualization of the loaded script.                |
 | `/clear`              | Clear all log panels, loaded script, head/tail, and monitor totals.          |
 | `/stop`               | Cancel pending session connection or stop script execution. Also on Escape.  |
-| `/log on`             | Enable reply logging (controller responses shown in log).                    |
-| `/log off`            | Disable reply logging.                                                       |
-| `/log status`         | Show whether reply logging is currently enabled.                             |
+| `/status on`          | Enable reply logging (controller responses shown in log).                    |
+| `/status off`         | Disable reply logging.                                                       |
+| `/status status`      | Show whether reply logging is currently enabled.                             |
+| `/rpclog [on\|off\|status]` | Toggle verbose RPC server logging (no args toggles).                         |
 | `/quit`               | Exit the TUI. Also on Ctrl+C.                                                |
 
 ### Error Behavior

@@ -468,6 +468,7 @@ class TuiAdapter(App):
         "frame",
         "plot",
         "protect",
+        "rpclog",
         "gluescript",
         "monitor",
         "scan_mem",
@@ -611,6 +612,7 @@ class TuiAdapter(App):
             "dryrun": "Toggle dry-run mode (on|off). When on, /run runs normally but RPC driver.run() only logs to TUI.",
             "edit": "Open loaded rpascript in a full-screen editor",
             "protect": "Toggle protect mode (on|off|status). When on, SET_SETTING commands are blocked to prevent hardware damage.",
+            "rpclog": "Toggle RPC server logging: /rpclog \[on|off|status] (no args toggles)",
             "frame": "Frame job or layer boundaries. /frame job | /frame layer <N>",
             "plot": "Plot loaded script moves in a Bokeh visualization",
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
@@ -1342,6 +1344,8 @@ class TuiAdapter(App):
                 self._cmd_frame(args)
             elif cmd == "protect":
                 self._cmd_protect(args)
+            elif cmd == "rpclog":
+                self._cmd_rpclog(args)
             elif cmd == "plot":
                 self._cmd_plot(args)
             elif cmd == "monitor":
@@ -1894,7 +1898,7 @@ class TuiAdapter(App):
             sys.exit(1)
 
     def _cmd_log(self, args: str) -> None:
-        """Handle /log subcommands: on, off, status, connection, or toggle."""
+        """Handle /status subcommands: on, off, status, connection, or toggle."""
         parts = args.strip().split(None, 1)
         action = parts[0].lower() if parts else ""
 
@@ -2097,6 +2101,28 @@ class TuiAdapter(App):
             self._log_info("Dry-run mode OFF — RPC driver.run() will execute normally")
         else:
             self._log_error("Usage: /dryrun on|off")
+
+    def _cmd_rpclog(self, args: str = "") -> None:
+        """Toggle verbose RPC logging (on|off|status)."""
+        arg = args.strip().lower()
+        if self._rpyc_server is None:
+            self._log_error("No RPC server running. Use 'server start' first.")
+            return
+        service = self._rpyc_server.service  # the live RpycTuiService — NOT self._logging_enabled
+        if arg == "on":
+            service.enable_logging()        # emits "[RPC] Logging enabled" itself
+        elif arg == "off":
+            service.disable_logging()       # emits "[RPC] Logging disabled" itself
+        elif arg == "status":
+            state = "ON" if service.logging_enabled() else "OFF"
+            self._log_info(f"RPC logging is {state}")
+        elif arg == "":
+            if service.logging_enabled():
+                service.disable_logging()
+            else:
+                service.enable_logging()
+        else:
+            self._log_error("Usage: /rpclog [on|off|status]")
 
     def _cmd_protect(self, args: str = "") -> None:
         """Toggle protect mode (on|off|status)."""

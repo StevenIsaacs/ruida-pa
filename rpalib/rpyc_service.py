@@ -87,17 +87,21 @@ class RpycTuiService(rpyc.Service):
         Atomic Predictability: Pure function that returns boolean state."""
         return self._logging_enabled
 
-    def exposed_enable_logging(self) -> None:
+    def enable_logging(self) -> None:
         """Enable verbose RPC logging for debugging."""
         self._logging_enabled = True
         # Log this change since it's a configuration change we want to track
         self._adapter._log_info("[RPC] Logging enabled")
 
-    def exposed_disable_logging(self) -> None:
+    def disable_logging(self) -> None:
         """Disable verbose RPC logging (default state)."""
         self._logging_enabled = False
         # Log this change since it's a configuration change we want to track
         self._adapter._log_info("[RPC] Logging disabled")
+
+    def logging_enabled(self) -> bool:
+        """Return whether verbose RPC logging is currently enabled."""
+        return self._should_log()
 
     def _callback_loop(self) -> None:
         """Process queued callbacks one at a time on a single background thread.

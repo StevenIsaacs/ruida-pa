@@ -825,6 +825,10 @@ server start host=0.0.0.0 \
 
 To stop the server, use `server stop` from within the TUI.
 
+While the server is running, the `/rpclog` TUI command toggles the server's
+verbose per-call logging (see the [TUI guide](tui-guide.md#6-slash-commands));
+the toggle is TUI-only and is not exposed to RPC clients.
+
 Like `session`/`server`, the 16 jog commands (`jog_*`, including the
 `jog_set_*` config setters) and the 3 homing commands (`home`, `home_z`,
 `home_u`) are available as bare commands in the TUI — they are live-only
