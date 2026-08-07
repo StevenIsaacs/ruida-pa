@@ -16,7 +16,7 @@ Batching semantics
   side (``comment``, ``inline``, ``declare_job``, ``declare_layer``) are
   also mirrored into a local ``_transcript``.
 - Layer actions — ``move_*_to``, ``cut_*_to``, ``power``, ``air_assist_*``
-  — are buffered locally and flushed in ONE ``stage_rpascript()`` call at
+  — are buffered locally and flushed in ONE ``stage_gluescript()`` call at
   the next boundary (``declare_layer`` or ``end_job``).
 
 Drift guard
@@ -37,11 +37,11 @@ transcript, not the server, is the source of truth — at the cost of
 re-appending every line per flush. Incremental append of only the new lines
 is deferred as a future optimization.
 
-Public ``stage_rpascript()`` passthrough
-----------------------------------------
-``stage_rpascript()`` forwards the call unchanged (including
-``gluescript=None`` for finalizing the current job) and does not touch the
-local transcript or run the drift check.
+Public ``stage_gluescript()`` passthrough
+-----------------------------------------
+``stage_gluescript()`` forwards the call unchanged (including
+``gluescript=None`` for finalizing the current job), returns ``bool``, and
+does not touch the local transcript or run the drift check.
 
 Getter semantics
 ----------------
@@ -86,26 +86,26 @@ class RpcGlueScript:
         """Buffer one mirrored gluescript line on the client transcript."""
         self._transcript.append(line)
 
-    def _flush(self, require_complete: bool) -> list[str]:
+    def _flush(self, require_complete: bool) -> None:
         """Stage the buffered transcript and verify server parity.
 
-        Sends the full local transcript to ``stage_rpascript()``, then
+        Sends the full local transcript to ``stage_gluescript()``, then
         re-reads the server transcript. Any byte difference raises a
         descriptive ``RuntimeError``.
 
         Args:
-            require_complete: Passed through to ``stage_rpascript()``.
+            require_complete: Passed through to ``stage_gluescript()``.
 
         Returns:
-            list[str]: The staged rpascript lines.
+            None: The staged rpascript is available via the server's
+            ``get_rpascript()`` getter; the staged gluescript via
+            ``get_gluescript()``.
 
         Raises:
             RuntimeError: If the server transcript drifts from the local one.
         """
-        staged = list(
-            self._svc.stage_rpascript(
-                list(self._transcript), require_complete=require_complete
-            )
+        self._svc.stage_gluescript(
+            list(self._transcript), require_complete=require_complete
         )
         server_gs = list(self._svc.get_gluescript())
         if server_gs != self._transcript:
@@ -122,7 +122,6 @@ class RpcGlueScript:
                 f"{len(self._transcript)} lines but server has "
                 f"{len(server_gs)} lines"
             )
-        return staged
 
     def sync(self) -> None:
         """Re-baseline local state from the server's last-flushed state.
@@ -242,23 +241,23 @@ class RpcGlueScript:
         )
         self._flush(require_complete=False)
 
-    def end_job(self) -> list[str]:
+    def end_job(self) -> None:
         """End the job, flush the buffered transcript, and mark complete.
 
         Raises:
             RuntimeError: If end_job() is called twice or no job was declared.
 
         Returns:
-            list[str]: The staged rpascript lines.
+            None: The staged rpascript can be retrieved via get_rpascript()
+            and the staged gluescript via get_gluescript().
         """
         if self._job_complete:
             raise RuntimeError("end_job() called twice")
         if not self._job_declared:
             raise RuntimeError("declare_job() must be called before end_job()")
         self._append("end_job()")
-        staged = self._flush(require_complete=True)
+        self._flush(require_complete=True)
         self._job_complete = True
-        return staged
 
     # ------------------------------------------------------------------ #
     #  Forwarded only — the driver appends no gluescript line
@@ -329,20 +328,20 @@ class RpcGlueScript:
     #  Staging passthrough and getters — last-flushed server state only
     # ------------------------------------------------------------------ #
 
-    def stage_rpascript(
+    def stage_gluescript(
         self,
         gluescript: list[str] | None = None,
         require_complete: bool = True,
-    ) -> list[str]:
-        """Public passthrough to the server's stage_rpascript().
+    ) -> bool:
+        """Public passthrough to the server's stage_gluescript().
 
         Forwarded unchanged (including ``gluescript=None``); no local flush
         and no drift check.
 
         Returns:
-            list[str]: The staged rpascript lines.
+            bool: True when the server successfully staged the gluescript.
         """
-        return list(self._svc.stage_rpascript(gluescript, require_complete))
+        return bool(self._svc.stage_gluescript(gluescript, require_complete))
 
     def get_gluescript(self) -> list[str]:
         """Return the server's gluescript transcript (last-flushed state)."""

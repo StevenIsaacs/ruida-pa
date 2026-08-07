@@ -1633,7 +1633,9 @@ class TuiAdapter(App):
         """Execute the loaded script.
 
         Defaults to executing only the job portion (START_JOB to EOF).
-        Uses driver.run_job() which composes head + job + tail at runtime.
+        Uses driver.run_job(job) — the extracted job body is passed
+        explicitly, so the staged-rpascript default never applies here —
+        which composes head + job + tail at runtime.
         Use '/run script' to execute all loaded commands.
         """
         if not self._loaded_script:
@@ -2441,7 +2443,7 @@ class TuiAdapter(App):
             # session-less subcommand, and syncing would clobber a /load-ed
             # script on /gluescript show/list after teardown.
             try:
-                driver.stage_rpascript(
+                driver.stage_gluescript(
                     self._preserved_gluescript, require_complete=False
                 )
             except RuntimeError as exc:
@@ -2686,17 +2688,17 @@ class TuiAdapter(App):
             )
         )
 
-    def gluescript_stage_rpascript(
+    def gluescript_stage_gluescript(
         self,
         gluescript: list[str] | None = None,
         require_complete: bool = True,
-    ) -> list[str]:
+    ) -> bool:
         """Finalize the rpascript or re-stage a gluescript.
 
-        Returns the assembled lines.
+        Returns True when the gluescript was successfully staged.
         """
         return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().stage_rpascript(
+            lambda: self._ensure_gluescript_driver().stage_gluescript(
                 gluescript, require_complete
             )
         )
@@ -2922,7 +2924,7 @@ class TuiAdapter(App):
             try:
                 if not self._finalize_gluescript_job(driver):
                     return
-                _ = driver.stage_rpascript()
+                driver.stage_gluescript()
                 self._copy_staged_rpascript_to_loaded()
                 self._log_info(
                     f"GlueScript: Staged {len(driver.rpascript)} rpascript lines."
@@ -2934,11 +2936,11 @@ class TuiAdapter(App):
             try:
                 if not self._finalize_gluescript_job(driver):
                     return
-                rpa = driver.stage_rpascript()
+                driver.stage_gluescript()
                 self._copy_staged_rpascript_to_loaded()
-                driver.run_job(rpa)
+                driver.run_job()
                 self._gluescript_was_run = True
-                self._log_info(f"GlueScript: Executed job ({len(rpa)} rpascript lines).")
+                self._log_info(f"GlueScript: Executed job ({len(driver.rpascript)} rpascript lines).")
             except RuntimeError as e:
                 self._log_error(f"Run failed: {e}")
 
@@ -3057,7 +3059,7 @@ class TuiAdapter(App):
         drops live-only jog/home lines with a warning, requires at least one
         stageable command, validates on a throwaway GlueScript instance
         (suppressing the inline() staging warning), then applies via
-        ``driver.stage_rpascript()``. Returns the kept lines and the number
+        ``driver.stage_gluescript()``. Returns the kept lines and the number
         of staged rpascript lines (the length of the driver's rpascript
         right after apply), or None if the input cannot be staged (the
         error is already logged).
@@ -3099,11 +3101,11 @@ class TuiAdapter(App):
         try:
             validation = GlueScript()
             validation._warn_inline = False
-            validation.stage_rpascript(kept_lines)
+            validation.stage_gluescript(kept_lines)
         except RuntimeError as e:
             self._log_error(f"{fail_prefix} failed: {e}")
             return None
-        driver.stage_rpascript(kept_lines)
+        driver.stage_gluescript(kept_lines)
         self._copy_staged_rpascript_to_loaded()
         return kept_lines, len(driver.rpascript)
 
@@ -3827,14 +3829,20 @@ class TuiAdapter(App):
         """
         return list(self._tail_script)
 
-    def run_job(self, job: list[str], auto_checksum: bool = False) -> None:
+    def run_job(self, job: list[str] | None = None, auto_checksum: bool = False) -> None:
         """Queue a job for execution, composing head + job + tail.
 
         Delegates to driver.run_job() which composes head + job + tail
         at queue time. Thread-safe: can be called from any thread.
 
+        When ``job`` is omitted (None), the driver runs the rpascript most
+        recently staged by ``stage_gluescript()``; the driver raises
+        RuntimeError when nothing has been staged (logged here).
+
         Args:
             job: List of rpascript-formatted command lines (job body only).
+                When None, the staged rpascript from ``stage_gluescript()``
+                is run.
             auto_checksum: If True, auto-calculate END_JOB on mismatch.
         """
         if self._ruida_driver is None:

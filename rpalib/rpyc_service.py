@@ -324,9 +324,25 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info(f"[RPC] RPC get_tail_script -> {len(result)} lines")
         return result
 
-    def exposed_run_job(self, job: list[str], auto_checksum: bool = False) -> None:
-        local_job = list(job)
-        self._rpc_info(f"[RPC] RPC run_job({len(local_job)} lines, auto_checksum={auto_checksum})")
+    def exposed_run_job(self, job: list[str] | None = None, auto_checksum: bool = False) -> None:
+        """Run a job, composing head + job + tail.
+
+        When ``job`` is omitted (None), the staged rpascript — the script
+        most recently staged by ``stage_gluescript()`` — is run instead.
+        The adapter logs a RuntimeError from the driver when nothing has
+        been staged.
+
+        Args:
+            job: List of rpascript-formatted command lines (job body only).
+                When None, the staged rpascript is run.
+            auto_checksum: If True, auto-calculate END_JOB on mismatch.
+        """
+        if job is not None:
+            local_job = list(job)
+            self._rpc_info(f"[RPC] RPC run_job({len(local_job)} lines, auto_checksum={auto_checksum})")
+        else:
+            local_job = None
+            self._rpc_info(f"[RPC] RPC run_job(staged rpascript, auto_checksum={auto_checksum})")
         try:
             self._adapter.run_job(local_job, auto_checksum=auto_checksum)
         except Exception as e:
@@ -458,18 +474,18 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info(f"[RPC] gluescript update_position(x={x}, y={y}, z={z}, u={u})")
         return self._exposed_gluescript("update_position", x, y, z, u)
 
-    def exposed_stage_rpascript(
+    def exposed_stage_gluescript(
         self,
         gluescript: list[str] | None = None,
         require_complete: bool = True,
-    ) -> list[str]:
+    ) -> bool:
         self._rpc_info(
-            f"[RPC] gluescript stage_rpascript("
+            f"[RPC] gluescript stage_gluescript("
             f"{len(gluescript) if gluescript is not None else 0} lines, "
             f"require_complete={require_complete})"
         )
         return self._exposed_gluescript(
-            "stage_rpascript", gluescript, require_complete
+            "stage_gluescript", gluescript, require_complete
         )
 
     # --- GlueScript — live-only commands (jogs and homing) ---

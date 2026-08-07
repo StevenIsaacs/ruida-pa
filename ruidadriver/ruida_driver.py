@@ -933,18 +933,35 @@ class RdDriver(GlueScript):
         with self._lock:
             return list(self._tail_script)
 
-    def run_job(self, job: list[str], auto_checksum: bool = False) -> None:
+    def run_job(self, job: list[str] | None = None, auto_checksum: bool = False) -> None:
         """Queue a job for execution, composing head + job + tail.
 
         Composes the final script by concatenating any configured head script,
         the job body, and any configured tail script, then queues the result
         via the existing ``run()`` method.
 
+        When ``job`` is omitted (None), the rpascript most recently staged by
+        ``stage_gluescript()`` is run instead.
+
         Args:
             job: List of rpascript-formatted command lines (the job body only).
+                When None, the staged rpascript from ``stage_gluescript()``
+                is run.
             auto_checksum: If True, auto-calculate END_JOB on mismatch
                 with a warning instead of raising.
+
+        Raises:
+            RuntimeError: If ``job`` is None and no gluescript has been staged
+                via ``stage_gluescript()``.
         """
         with self._lock:
+            if job is None and not self._stage_complete:
+                raise RuntimeError(
+                    "No gluescript staged. Call stage_gluescript() first."
+                )
+            if job is None:
+                # Snapshot the staged rpascript before composing so a later
+                # re-stage cannot mutate the job mid-composition.
+                job = list(self.rpascript)
             composed = list(self._head_script) + list(job) + list(self._tail_script)
         self.run(composed, auto_checksum=auto_checksum)

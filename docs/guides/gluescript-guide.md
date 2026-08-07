@@ -106,9 +106,9 @@ move_xy_to(...) / cut_xy_to(...) / power(...) / air_assist_on() / air_assist_off
     ↓
 end_job()
     ↓
-stage_rpascript()
+stage_gluescript()
     ↓
-run_job()
+run_job()   # no job argument — runs the rpascript most recently staged by stage_gluescript()
 ```
 
 ### Step-by-Step
@@ -138,12 +138,15 @@ run_job()
 5. **`end_job()`** — Complete the job definition. Emits `END_JOB` in the
    rpascript and marks the job ready for staging.
 
-6. **`stage_rpascript()`** — Finalize the rpascript by expanding deferred
-   variable references (like `{self.doc_tr_x}`). Returns the finalized list
-   of rpascript command lines.
+6. **`stage_gluescript()`** — Finalize the rpascript by expanding deferred
+   variable references (like `{self.doc_tr_x}`). Returns `True` when the
+   gluescript was successfully staged; the assembled rpascript is available
+   via `driver.rpascript`.
 
 7. **`run_job()`** — (Inherited from `RdDriver`) Composes head + job + tail
-   scripts and queues them for background execution on the controller.
+   scripts and queues them for background execution on the controller. Called
+   with no `job` argument it runs the rpascript most recently staged by
+   `stage_gluescript()`.
 
 ---
 
@@ -435,7 +438,7 @@ A warning is logged during staging if `inline()` was used.
 
 ### 4.7 Staging and Execution
 
-#### `stage_rpascript(gluescript: list[str] | None = None) -> list[str]`
+#### `stage_gluescript(gluescript: list[str] | None = None) -> bool`
 
 Finalize the rpascript, expanding deferred variable references.
 
@@ -443,26 +446,50 @@ Finalize the rpascript, expanding deferred variable references.
 - When `gluescript` is provided: re-generates rpascript by processing each
   gluescript command line through the command registry, then finalizes.
 
-**Returns:** `list[str]` — the finalized rpascript lines.
+**Returns:** `bool` — `True` when the gluescript was successfully staged
+(the finalized rpascript is available via `driver.rpascript`).
 
 **Raises:** `RuntimeError` if `end_job()` has not been called.
 
 ```python
-rpa_lines = driver.stage_rpascript()
+driver.stage_gluescript()
+rpa_lines = driver.rpascript
 print(f"Generated {len(rpa_lines)} rpascript lines")
 ```
 
-#### `run_job(job: list[str], auto_checksum: bool = False)`
+#### `run_job(job: list[str] | None = None, auto_checksum: bool = False)`
 
 (Inherited from `RdDriver`) Queue a job for execution, composing head + job +
-tail scripts, then sending the result to the controller.
+tail scripts, then sending the result to the controller. When `job` is
+omitted, the rpascript most recently staged by `stage_gluescript()` is run.
 
 ```python
 # Stage then execute
-driver.stage_rpascript()
-driver.run_job(driver.rpascript)
+driver.stage_gluescript()
+driver.run_job()
 # Or use the combined approach via the TUI
 ```
+
+### 4.7.1 Getters
+
+These getters return **copies** of the driver's scripting state — never
+aliases — so mutating the returned list cannot corrupt the driver.
+
+#### `get_gluescript() -> list[str]`
+
+Return a copy of the gluescript transcript (the DSL lines, e.g.
+`declare_job(...)`, `move_xy_to(...)`). Adapter-level getter exposed over
+RPC (also accessible as the `driver.gluescript` attribute on the driver);
+returns `[]` when no driver.
+
+#### `get_rpascript() -> list[str]`
+
+Return a copy of the assembled rpascript. Adapter-level getter exposed over
+RPC (also accessible as the `driver.rpascript` attribute); returns `[]` when
+no driver.
+
+> **Note:** Over RPC these getters report the server's last-flushed state
+> (see the integration guide §8.9 batching section).
 
 ---
 
@@ -521,7 +548,7 @@ edited through the editor — can be persisted to disk and reloaded:
   `GlueScript saved to <path> (N lines)`.
 - **`/gluescript load <path>`** reads a `.cglu` file (same auto-append rule for
   the extension), validates it on a throwaway `GlueScript` instance, and — only
-  if validation passes — applies it via `driver.stage_rpascript(lines)`. Logs
+  if validation passes — applies it via `driver.stage_gluescript(lines)`. Logs
   `Loaded N gluescript lines from <path>, staged M rpascript lines`.
 
 Load **auto-stages** the file: after a successful load the rpascript is ready,
@@ -548,7 +575,7 @@ lines that `/gluescript list` displays — the canonical `.cglu` format that
 On save the edited lines go through the same pipeline as `load`: live-only
 jog/home lines are ignored with a warning (`ignoring live-only command line
 after edit`), the result is validated on a throwaway `GlueScript` instance,
-and only then applied via `driver.stage_rpascript(lines)` — which rebuilds
+and only then applied via `driver.stage_gluescript(lines)` — which rebuilds
 both the rpascript and the transcript. A failed validation reports
 `Edit failed: ...` and leaves the live state untouched. Success logs
 `GlueScript: Edited — N gluescript lines, staged M rpascript lines`.
@@ -757,7 +784,7 @@ box emission entirely.
 
 ### Re-Staging
 
-Re-staging (calling `stage_rpascript()` with a gluescript list) parses each
+Re-staging (calling `stage_gluescript()` with a gluescript list) parses each
 gluescript command line and replays it through the command registry:
 
 - Standard commands are replayed via their corresponding methods
@@ -885,12 +912,13 @@ driver.cut_xy_to(10.0, 10.0)
 driver.end_job()
 
 # Phase 5: Stage and execute
-rpa = driver.stage_rpascript()
+driver.stage_gluescript()
+rpa = driver.rpascript
 print(f"Generated {len(rpa)} rpascript lines")
 
 # Phase 6: Connect and run (requires RdDriver session)
 # driver.start(udp_host="192.168.1.100")
-# driver.run_job(rpa)
+# driver.run_job()
 ```
 
 ---
@@ -898,7 +926,7 @@ print(f"Generated {len(rpa)} rpascript lines")
 ## 11. Deferred Variable Expansion
 
 GlueScript uses deferred variable references in rpascript lines. These are
-expanded at stage time (when `stage_rpascript()` is called), not at generation
+expanded at stage time (when `stage_gluescript()` is called), not at generation
 time. This allows bounding box coordinates to be collected incrementally and
 filled in at the end.
 

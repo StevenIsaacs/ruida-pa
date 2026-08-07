@@ -33,7 +33,7 @@ The final `rpascript` is comprised of the following sections:
 # The GlueScript Methods
  These methods support simultaneous on-the-fly generation of an `gluescript` and the low level `rpascript`. Properties and methods are provided which allow the application to retrieve and re-stage either of these forms.
 
-To generate a new script the application adapter first calls the scripting methods to generate the complete job script. At the end of the job the adapter calls `stage_rpascript` to finalize the job script and prepare it to be run using the existing `RdDriver.run_job` method.
+To generate a new script the application adapter first calls the scripting methods to generate the complete job script. At the end of the job the adapter calls `stage_gluescript` to finalize the job script and prepare it to be run using the existing `RdDriver.run_job` method. Called with no `job` argument, `run_job()` runs the rpascript most recently staged by `stage_gluescript()`.
 
 **AGENT:** All GlueScript methods documented here are exposed in the TUI and callable using RPC.
 ## Generating rpascript From gluescript
@@ -347,12 +347,12 @@ JOG_U Rel:CURRENT U={u}mm
 ```
 ## Script Management Methods
 This section defines the methods provided for retrieving and running generated lists.
-### **stage_rpascript(...)**
+### **stage_gluescript(...)**
 Use this method to finalize a generated `rpascript` or to re-stage a previously generated `gluescript`. Deferred variable expansion occurs at this time.
 
 Method:
 ```
-stage_rpascript(gluescript: list[str]=None) -> list[str]
+stage_gluescript(gluescript: list[str]=None) -> bool
 ```
 Finalizes a freshly generated script or re-stages an existing script.
 
@@ -379,10 +379,10 @@ new_gluescript(...)
 declare_job(...)
 for each layer:
 	declare_layer(...) # 1 or more
-stage_rpascript(...)
+stage_gluescript(...)
 ```
 
-**AGENT:** Use internal classes to generate `rpascript` segments which `stage_rpascript` can then be update and assemble into a complete `rpascript` as part of the staging process.
+**AGENT:** Use internal classes to generate `rpascript` segments which `stage_gluescript` can then be update and assemble into a complete `rpascript` as part of the staging process.
 ### new_gluescript(...)
 Initializes new `self.gluescript` and `self.rpascript` lists. This also initializes the document and job bounding box variables.
 
@@ -480,7 +480,7 @@ JOB_COPIES Columns={columns} Rows={rows} XStep={xstep}mm YStep={ystep}mm
 ```
 
 Note: These lines form the **job header** section of the final rpascript,
-emitted first by `stage_rpascript()` before any layer attributes or actions.
+emitted first by `stage_gluescript()` before any layer attributes or actions.
 
 ### declare_layer(...)
 Initializes a new layer. A layer declaration is expected to be followed by layer actions.
@@ -567,7 +567,7 @@ in the second section of the final rpascript (before any `SELECT_LAYER`
 commands), sorted by layer number.
 
 ### end_job(...)
-Ends the job and prepares the job to be staged using `stage_rpascript`. After this method has been called all accumulated layer actions are sent and the job is ready to be staged using `stage_rpascript` which MUST be called in order to run the job.
+Ends the job and prepares the job to be staged using `stage_gluescript`. After this method has been called all accumulated layer actions are sent and the job is ready to be staged using `stage_gluescript` which MUST be called in order to run the job.
 
 Prototype:
 ```
@@ -578,7 +578,7 @@ Note: `end_job()` also emits the final layer's bounding box with concrete
 values (`LAYER_TOP_RIGHT` and `LAYER_BOTTOM_LEFT`), provided the layer
 has any move/cut content. Empty layers skip bbox emission.
 
-### stage_rpascript(...)
+### stage_gluescript(...)
 Assembles the final rpascript from structured storage in three sections
 and expands deferred variables. The generated rpascript has the following
 structure:
@@ -597,7 +597,7 @@ command registry to regenerate the structured storage before assembly.
 
 Prototype:
 ```
-stage_rpascript(gluescript: list[str] | None = None) -> list[str]
+stage_gluescript(gluescript: list[str] | None = None) -> bool
 ```
 
 Parameters:
@@ -605,12 +605,13 @@ Parameters:
   uses the current structured state.
 
 Returns:
-- The finalized rpascript as a list of strings.
+- `True` when the gluescript was successfully staged; failures
+  raise `RuntimeError`.
 
 ### Layer Actions
 Once a layer has been declared a series of actions for the layer are expected to
 follow. During generation, layer actions are stored in an internal dict keyed by
-layer number. During `stage_rpascript()`, these are assembled into the final
+layer number. During `stage_gluescript()`, these are assembled into the final
 rpascript with `SELECT_LAYER Layer:{n}` prefixing each layer's action block:
 
 ```

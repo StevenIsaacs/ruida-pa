@@ -278,9 +278,9 @@ Head and tail scripts are stored by `RdDriver` and applied at execution time.
 Each command has a different role:
 
 - **`/exec job`** — extracts the job body (START_JOB → EOF), then calls
-  `driver.run_job()` which composes `head + job_body + tail` atomically and
-  queues the result for execution. The composition happens inside the driver,
-  not in the TUI.
+  `driver.run_job(job)` passing the extracted job body explicitly, which
+  composes `head + job_body + tail` atomically and queues the result for
+  execution. The composition happens inside the driver, not in the TUI.
 - **`/list job`** — uses `_format_job_with_markers()` to display the composed
   script with section comment markers:
   ```
@@ -479,9 +479,10 @@ transcript.
 ```
 
 `/exec job` extracts only the portion between `START_JOB` and end-of-file
-markers (or `BLOCK_END`), then delegates to `driver.run_job()` which composes
-head + job + tail atomically at queue time. This ensures only the job commands
-are sent, with setup/teardown wrapped around them.
+markers (or `BLOCK_END`), then delegates to `driver.run_job(job)` passing the
+extracted job body explicitly, which composes head + job + tail atomically at
+queue time. This ensures only the job commands are sent, with setup/teardown
+wrapped around them.
 
 `/exec script` sends the entire loaded script as-is, without job extraction
 or head/tail wrapping. Use this for scripts that don't follow the

@@ -16,7 +16,7 @@ This guide covers two integration paths for working with Ruida laser controllers
 | TUI/testing developers automating session workflows | TuiAdapter emulation | [§3](#3-tui-emulation-for-testing) |
 
 Application developers should build laser jobs with the high-level GlueScript API
-(`declare_job`/`declare_layer`/move/cut/`stage_rpascript`) rather than hand-writing
+(`declare_job`/`declare_layer`/move/cut/`stage_gluescript`) rather than hand-writing
 low-level rpascript. GlueScript simultaneously generates a high-level transcript
 (persisted to `.cglu` files) and the low-level rpascript that the controller executes.
 
@@ -31,7 +31,7 @@ low-level rpascript. GlueScript simultaneously generates a high-level transcript
 | Document | What It Covers |
 |----------|----------------|
 | [RdDriver Interface](../api/RdDriver-interface.md) | Full API reference for the RdDriver class |
-| [GlueScript Guide](gluescript-guide.md) | High-level job scripting API — build jobs with declare_job/declare_layer/move/cut/stage_rpascript, .cglu persistence |
+| [GlueScript Guide](gluescript-guide.md) | High-level job scripting API — build jobs with declare_job/declare_layer/move/cut/stage_gluescript, .cglu persistence |
 | [rpascript Guide](rpascript-guide.md) | Low-level script format, command reference, flow-control directives (the substrate GlueScript generates) |
 | [TUI User Guide](tui-guide.md) | Interactive terminal application usage |
 
@@ -46,7 +46,7 @@ execution. `run()` accepts rpascript lines directly for simple commands.
 
 `RdDriver` is a subclass of `GlueScript` (`class RdDriver(GlueScript)`), so the
 full GlueScript API is part of the driver: `declare_job()`, `declare_layer()`,
-`move_xy_to()`, `cut_xy_to()`, `end_job()`, `stage_rpascript()`, and the
+`move_xy_to()`, `cut_xy_to()`, `end_job()`, `stage_gluescript()`, and the
 jog/home commands are all directly callable as exposed `RdDriver` methods.
 There is no separate `GlueScript` object to construct — the `driver` instance
 itself *is* the GlueScript, holding both the scripting state (transcript lines,
@@ -78,13 +78,14 @@ driver.cut_xy_to(10.0, 10.0)
 driver.end_job()
 
 # Stage the job into low-level rpascript (assembled from job/layer storage)
-rpa = driver.stage_rpascript()
+driver.stage_gluescript()
 
 if not driver.start(udp_host="192.168.1.100"):
     print("Connection will retry in background...")
 
-# Compose head + job + tail and execute
-driver.run_job(rpa)
+# Compose head + job + tail and execute (no job argument — runs the
+# rpascript most recently staged by stage_gluescript())
+driver.run_job()
 driver.stop()
 ```
 
@@ -145,10 +146,11 @@ def _handle_status(self, event):
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue low-level rpascript lines for background execution (as staged by GlueScript's `stage_rpascript()`, or hand-written for simple commands). Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
+| `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue low-level rpascript lines for background execution (as staged by GlueScript's `stage_gluescript()`, or hand-written for simple commands). Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
 | `cancel_script` | `()` | `None` | Clear all queued scripts and prevent current script from requeuing on disconnect. Thread-safe. |
 
-`stage_rpascript()` returns exactly the rpascript list to hand to `run_job()`/`run()`.
+After `stage_gluescript()` returns `True`, the staged rpascript is available
+via `driver.rpascript` (or `get_rpascript()` over RPC).
 
 **Flow-control commands** are processed inline by the driver (not sent to the controller):
 
@@ -235,7 +237,7 @@ configuration, returning to origin).
 | `set_tail_script` | `(script: list[str])`                           | `None`      | Set the tail script to append to every job. Thread-safe.  |
 | `get_head_script` | `()`                                            | `list[str]` | Return a copy of the current head script. Thread-safe.    |
 | `get_tail_script` | `()`                                            | `list[str]` | Return a copy of the current tail script. Thread-safe.    |
-| `run_job`         | `(job: list[str], auto_checksum: bool = False)` | `None`      | Queue head + job + tail for background execution.         |
+| `run_job`         | `(job: list[str] | None = None, auto_checksum: bool = False)` | `None`      | Queue head + job + tail for background execution.         |
 
 **Composition model:**
 
@@ -249,9 +251,10 @@ The composition happens atomically at queue time under the driver's
 lock. Subsequent changes to head or tail do not affect already-queued
 jobs.
 
-A GlueScript-staged job (`stage_rpascript()` output) is passed as the
-`job` argument to `run_job()`, so the head/tail scripts wrap the entire
-staged job.
+When `job` is omitted, `run_job()` runs the rpascript most recently
+staged by `stage_gluescript()` — the head/tail scripts wrap the entire
+staged job. `run_job()` raises `RuntimeError` if no gluescript has
+been staged.
 
 **Typical usage:**
 
@@ -286,24 +289,26 @@ driver.stop()
 Accessors return copies to prevent callers from mutating internal
 state. `run_job()` captures head/tail snapshots under the lock so
 the composed script is consistent even if head/tail are modified
-concurrently.
+concurrently. When `job` is omitted, `run_job()` runs the rpascript
+most recently staged by `stage_gluescript()` — that staged snapshot
+is also captured under the lock.
 
 ### 2.10 File Structure Composition
 
 The [rpascript Guide](rpascript-guide.md) defines an `.rd` file as a sequence of
 logical sections (§10 File Structure). The GlueScript API generates these
-sections for you when you build a job and call `stage_rpascript()`. The mapping
+sections for you when you build a job and call `stage_gluescript()`. The mapping
 below shows which section each GlueScript call produces:
 
 | rpascript Guide Section | Generated by GlueScript | via |
 |-------------------------|-------------------------|-----|
 | Header (§10.3) | Yes | `declare_job()` |
 | Job Settings (§10.4) | Yes | `declare_job()` (except ARRAY_DIRECTION) |
-| Layer Settings (§10.5) | Yes | `declare_layer()` (+ `LAST_LAYER` from `stage_rpascript`) |
+| Layer Settings (§10.5) | Yes | `declare_layer()` (+ `LAST_LAYER` from `stage_gluescript`) |
 | Offset Settings (§10.6) | No | `set_head_script` raw rpascript if needed |
 | Array Settings (§10.7) | No | `set_head_script` raw rpascript if needed |
 | Layer Actions (§10.8) | Yes | `move_xy_to()`/`cut_xy_to()`/`power()`/`air_assist_on()`/`air_assist_off()` |
-| Tail (§10.9) | Yes | `stage_rpascript()` emits `END_JOB`/`EOF` (extra tail via `set_tail_script`) |
+| Tail (§10.9) | Yes | `stage_gluescript()` emits `END_JOB`/`EOF` (extra tail via `set_tail_script`) |
 
 The staged output is structured as: job header (Section 1) → inline prelude →
 layer attributes sorted (Section 2) → `LAST_LAYER` → per-layer `SELECT_LAYER` +
@@ -341,7 +346,8 @@ driver.end_job()
 
 # Phase 5: Stage — emits header, layer attributes, actions,
 # LAST_LAYER, END_JOB and EOF (Tail §10.9)
-rpa = driver.stage_rpascript()
+driver.stage_gluescript()
+rpa = driver.rpascript
 ```
 
 Head/tail (`set_head_script`/`set_tail_script`, see §2.9) remain available for
@@ -351,7 +357,7 @@ optional pre/postamble — e.g., home positioning or a return to origin.
 
 ```python
 # Return to origin after the job. END_JOB and EOF are already
-# emitted by stage_rpascript() — do not add them to the tail.
+# emitted by stage_gluescript() — do not add them to the tail.
 driver.set_tail_script([
     "MOVE_FAR_XY X=0mm Y=0mm",
 ])
@@ -365,8 +371,8 @@ the driver recalculates and patches `END_JOB` automatically.
 **Composing and executing:**
 
 ```python
-rpa = driver.stage_rpascript()   # staged GlueScript output
-driver.run_job(rpa, auto_checksum=True)
+driver.stage_gluescript()   # staged GlueScript output
+driver.run_job(auto_checksum=True)
 ```
 
 **Generating an .rd binary file programmatically:**
@@ -419,7 +425,7 @@ capture-from-software may use `0x89`.
 
 **Verification round-trip:**
 
-1. Stage a job with GlueScript (`declare_job` → `declare_layer` → operations → `end_job` → `stage_rpascript`)
+1. Stage a job with GlueScript (`declare_job` → `declare_layer` → operations → `end_job` → `stage_gluescript`)
 2. Generate `.rd` via the encoding pipeline
 3. Run `python rpa.py output.rd` to decode and verify all sections
 4. Compare command sequence against `rpascript-guide.md §10.10`
@@ -452,7 +458,7 @@ The `TuiAdapter` class in `rpascript/tui_adapter.py` wraps `RdDriver` with an em
 | `set_tail_script` | `(script: list[str]) -> None` | Logs, stores locally, pushes to driver if active |
 | `get_head_script` | `() -> list[str]` | Returns a copy of local head script |
 | `get_tail_script` | `() -> list[str]` | Returns a copy of local tail script |
-| `run_job` | `(job: list[str], auto_checksum=False) -> None` | Delegates to `driver.run_job()` which composes head + job + tail |
+| `run_job` | `(job: list[str] | None = None, auto_checksum=False) -> None` | Delegates to `driver.run_job()` which composes head + job + tail; `job=None` runs the staged rpascript |
 
 > **Note:** The head/tail accessors (`set_head_script`, `set_tail_script`,
 > `get_head_script`, `get_tail_script`, and `run_job`) store
@@ -520,7 +526,7 @@ except ValueError as e:
 ```
 
 To validate a gluescript transcript instead, re-stage it —
-`stage_rpascript(lines)` raises `RuntimeError` on unknown commands or a missing
+`stage_gluescript(lines)` raises `RuntimeError` on unknown commands or a missing
 `end_job()`.
 
 ### Pattern 2 — Checksum Verification
@@ -569,7 +575,8 @@ driver.cut_xy_to(10.0, 10.0)
 driver.end_job()
 
 # Stage — validates structure without a connection
-rpa = driver.stage_rpascript()
+driver.stage_gluescript()
+rpa = driver.rpascript
 # Compose via TUI: /gluescript new → /gluescript show → /gluescript stage → /gluescript list
 ```
 
@@ -705,7 +712,7 @@ Before writing any integration code, read in this order:
 | File | What It Contains |
 |------|-----------------|
 | `ruidadriver/ruida_driver.py` | RdDriver class (full lifecycle, listeners, flow control) — class starts at line 54, 791 lines total |
-| `ruidadriver/rd_gluescript.py` | GlueScript mixin — high-level job scripting (declare_job, declare_layer, move/cut, stage_rpascript); RdDriver inherits from it (class RdDriver(GlueScript)) |
+| `ruidadriver/rd_gluescript.py` | GlueScript mixin — high-level job scripting (declare_job, declare_layer, move/cut, stage_gluescript); RdDriver inherits from it (class RdDriver(GlueScript)) |
 | `rpascript/tui_adapter.py` | TuiAdapter emulation layer — `/`-command handlers (`_cmd_*`), incl. `/gluescript` |
 | `rpascript/interpreter.py` | ScriptParser for offline validation |
 
@@ -735,7 +742,7 @@ These patterns from §4 require no hardware or minimal hardware:
 - **Checksum discrepancy** — `auto_checksum=True` may not match LightBurn captures. If comparing against LightBurn output, verify checksums independently.
 - **No mock layer** — `TuiAdapter` delegates to real hardware. It cannot simulate controller responses or inject fake status values. Unit tests requiring simulated hardware must implement their own mock layer.
 - **`start()` returns `False` on failure** — this is not an exception. The driver retries in background. Check `is_connected` property to confirm connection status.
-- **`end_job()` is required before `stage_rpascript()`** — otherwise `RuntimeError`. Re-staging a transcript missing `end_job()` also raises (unless `require_complete=False`).
+- **`end_job()` is required before `stage_gluescript()`** — otherwise `RuntimeError`. Re-staging a transcript missing `end_job()` also raises (unless `require_complete=False`).
 - **Jog and home commands are live-only** — `jog_*` (incl. `jog_set_*`), `home`, `home_z`, `home_u` act on the live session, are never persisted to `.cglu`, and are skipped with a warning when re-staging.
 - **`power()` is only valid for IMAGE/DEPTHMAP layers** — calling it on a VECTOR layer logs a warning and is ignored.
 
@@ -966,7 +973,7 @@ All five head/tail methods are exposed as RPC methods:
 | `exposed_set_tail_script` | `(script: list[str]) -> None`                           | Set tail script on the server's driver              |
 | `exposed_get_head_script` | `() -> list[str]`                                       | Retrieve current head script from server            |
 | `exposed_get_tail_script` | `() -> list[str]`                                       | Retrieve current tail script from server            |
-| `exposed_run_job`         | `(job: list[str], auto_checksum: bool = False) -> None` | Queue head + job + tail for execution on the server |
+| `exposed_run_job`         | `(job: list[str] | None = None, auto_checksum: bool = False) -> None` | Queue head + job + tail for execution on the server; `job=None` runs the staged rpascript |
 
 **Example:**
 
@@ -1012,7 +1019,7 @@ driver itself — there is no separate `GlueScript` object; the
 copies of the driver's gluescript/rpascript state. Developers call these methods
 directly on the `RdDriver` instance, which inherits them from `GlueScript`, and
 the RPC service exposes them through the same **unprefixed** names on that
-instance: `svc.declare_job(...)`, `svc.jog_xy_to(...)`, `svc.stage_rpascript()`.
+instance: `svc.declare_job(...)`, `svc.jog_xy_to(...)`, `svc.stage_gluescript()`.
 Each `RpycTuiService.exposed_*` method delegates to the matching
 `TuiAdapter.gluescript_*` method, which invokes the corresponding method on the
 `RdDriver` instance — inherited from `GlueScript` for all but the
@@ -1047,7 +1054,7 @@ its signature, return type, and whether a connected session is required.
 | `air_assist_off` | `()` | `None` | No |
 | `add_layer_action` | `(layer, lines: list[str])` | `None` | No |
 | `update_position` | `(x=None, y=None, z=None, u=None)` | `None` | No |
-| `stage_rpascript` | `(gluescript=None, require_complete=True)` | `list[str]` | No |
+| `stage_gluescript` | `(gluescript=None, require_complete=True)` | `bool` | No |
 | **Config setters (session-less)** | | | |
 | `jog_set_xy_speed` | `(speed)` | `None` | No |
 | `jog_set_z_speed` | `(speed)` | `None` | No |
@@ -1080,11 +1087,13 @@ lines sent to the controller when connected; `None` when disconnected, or when
 the command produces no lines.
 
 **Session-less authoring:** The 18 authoring methods work with no connected
-session — they build a job in the driver's GlueScript state. `stage_rpascript()`
-finalizes it and returns the staged RuidaScript lines, which **already include**
-`END_JOB`/`EOF` framing. `run_job` (see §8.8) later composes head + staged +
-tail scripts around the job. A job authored over RPC is retained in the driver
-and can be executed after `svc.start()`.
+session — they build a job in the driver's GlueScript state. `stage_gluescript()`
+finalizes it and returns `True` on success; the staged rpascript is available
+via `get_rpascript()` (or `driver.rpascript`) and the staged gluescript via
+`get_gluescript()`. `run_job` (see §8.8) later composes head + staged +
+tail scripts around the job — when `job` is omitted it runs the rpascript
+most recently staged by `stage_gluescript()`. A job authored over RPC is
+retained in the driver and can be executed after `svc.start()`.
 
 ```python
 import socket
@@ -1116,15 +1125,18 @@ svc.cut_xy_to(0, 100)
 svc.cut_xy_to(0, 0)
 svc.end_job()
 
-# Finalize — returns the staged RuidaScript lines, already framed with
-# END_JOB/EOF. The job persists in the driver for later execution.
-staged = svc.stage_rpascript()
-print(f"Staged {len(staged)} lines")
+# Finalize — returns True on success; copy the staged gluescript
+# transcript with get_gluescript(). The job persists in the driver
+# for later execution.
+if svc.stage_gluescript():
+    staged = svc.get_gluescript()   # gluescript transcript (DSL), not rpascript
+    print(f"Staged {len(svc.get_rpascript())} rpascript lines")
 
 # Later, once a controller is reachable, run it. run_job composes head +
-# staged + tail scripts around the job.
+# staged + tail scripts around the job; with no job argument it runs the
+# rpascript most recently staged by stage_gluescript().
 svc.start(udp_host="192.168.1.100")
-svc.run_job(staged)
+svc.run_job()
 ```
 
 **Live jogs and homing require a connected session.** Movement jogs
@@ -1148,7 +1160,7 @@ svc.jog_set_xy_rel(5.0)
 ```
 
 **Netref list arguments:** `comment`, `inline`, `declare_job(abs_xy)`, and
-`stage_rpascript(gluescript)` take list arguments. Over RPyC these arrive as
+`stage_gluescript(gluescript)` take list arguments. Over RPyC these arrive as
 netrefs and are converted to plain Python lists on the server side, so clients
 can pass ordinary Python lists, e.g. `svc.inline(["LASER_ON Power=80%"])`.
 
@@ -1165,7 +1177,7 @@ on the wire. `rpalib/rpyc_client.RpcGlueScript` is a thin client-side wrapper
 around the same service root that buffers the high-volume layer actions —
 `move_xy_to`/`move_x_to`/`move_y_to`, `cut_xy_to`/`cut_x_to`/`cut_y_to`,
 `power`, `air_assist_on`/`air_assist_off` — locally and flushes them to the
-server in one `stage_rpascript()` call at each `declare_layer`/`end_job`
+server in one `stage_gluescript()` call at each `declare_layer`/`end_job`
 boundary. A job with thousands of moves and cuts reaches the server in a
 handful of round trips instead of one per action.
 
@@ -1190,10 +1202,10 @@ most recent flush. Between flushes, buffered actions exist only in the
 client's local transcript and are invisible to the getters until the next
 boundary flush.
 
-**Public `stage_rpascript()` passthrough:** `RpcGlueScript.stage_rpascript()`
-forwards the call unchanged (including `gluescript=None`) and performs no
-local flush and no drift check — mirroring the direct-client flow when you
-want to stage explicitly.
+**Public `stage_gluescript()` passthrough:** `RpcGlueScript.stage_gluescript()`
+forwards the call unchanged (including `gluescript=None`), returns `bool`, and
+performs no local flush and no drift check — mirroring the direct-client flow
+when you want to stage explicitly.
 
 **Server-side token requirement:** the client connect handshake sends a
 1-byte empty-token length prefix (`b"\x00"`) before
@@ -1238,13 +1250,15 @@ rgs.cut_xy_to(90, 90)
 rgs.cut_xy_to(10, 90)
 rgs.cut_xy_to(10, 10)
 
-# Each declare_layer flushed the buffer; end_job() does the final flush and
-# returns the staged RuidaScript lines (already framed with END_JOB/EOF).
-staged = rgs.end_job()
-print(f"Staged {len(staged)} lines")
+# Each declare_layer flushed the buffer; end_job() does the final flush.
+rgs.end_job()
+staged = rgs.get_gluescript()   # gluescript transcript (DSL), not rpascript
+print(f"Staged {len(rgs.get_rpascript())} rpascript lines")
 
 # Later, once a controller is reachable, run it — same flow as the direct
-# client above. run_job composes head + staged + tail scripts around the job.
+# client above. run_job composes head + staged + tail scripts around the
+# job; with no job argument it runs the rpascript most recently staged by
+# stage_gluescript().
 svc.start(udp_host="192.168.1.100")
-svc.run_job(staged)
+svc.run_job()
 ```

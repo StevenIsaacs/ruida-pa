@@ -66,6 +66,12 @@ def stop(self) -> None
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
 | `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue rpascript-formatted lines for background execution. Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
+| `run_job` | `(job: list[str] \| None = None, auto_checksum: bool = False)` | `None` | Compose head + job + tail under the driver lock and queue via `run()`. `job=None` runs the rpascript most recently staged by `stage_gluescript()`. Raises `RuntimeError` if `job` is `None` and nothing has been staged. |
+| `stage_gluescript` | `(gluescript: list[str] \| None = None, require_complete: bool = True)` | `bool` | Finalize the rpascript from GlueScript state, or re-stage a transcript. Returns `True` when staged; failures raise `RuntimeError`. |
+| `set_head_script` | `(script: list[str])` | `None` | Set the head script prepended to every job execution. Thread-safe. |
+| `set_tail_script` | `(script: list[str])` | `None` | Set the tail script appended to every job execution. Thread-safe. |
+| `get_head_script` | `()` | `list[str]` | Return a copy of the current head script. Thread-safe. |
+| `get_tail_script` | `()` | `list[str]` | Return a copy of the current tail script. Thread-safe. |
 | `cancel_script` | `()` | `None` | Clear all queued scripts and prevent current script from requeuing on disconnect. Thread-safe. |
 
 ### 3.1 Script Format
@@ -107,6 +113,84 @@ In addition to standard controller commands, scripts support flow-control:
 If the transport disconnects mid-script, the entire script is re-queued and
 a `DISCONNECTED` event is fired. When the connection is restored, the script
 executes from the beginning. Call `cancel_script()` to abort.
+
+### 3.5 `run_job()` — Composed Job Execution
+
+```python
+def run_job(self, job: list[str] | None = None, auto_checksum: bool = False) -> None
+```
+
+Composes the final script as `head + job + tail` atomically under the driver
+lock, then queues it via `run()` for background execution.
+
+- `job` — list of rpascript-formatted command lines (the job body only).
+  When omitted (`None`), the rpascript most recently staged by
+  `stage_gluescript()` (see 3.6 below) is run instead.
+- `job=[]` (empty list) runs head + tail only.
+- `auto_checksum` — forwarded to `run()`; see Checksum Handling above.
+
+When `job` is `None`, the staged rpascript is snapshotted under the lock
+before composition, so a later re-stage cannot mutate a job mid-composition.
+
+**Raises:** `RuntimeError("No gluescript staged. Call stage_gluescript() first.")`
+when `job` is `None` and no gluescript has been staged. `run()` itself raises
+`RuntimeError` if the script runner is not started.
+
+### 3.6 `stage_gluescript()` — Staging
+
+```python
+def stage_gluescript(self, gluescript: list[str] | None = None, require_complete: bool = True) -> bool
+```
+
+Finalize the rpascript from the structured GlueScript state, or re-stage a
+gluescript transcript. The assembled rpascript order is: job header,
+inline prelude, layer attributes, `LAST_LAYER`, per-layer actions with
+`SELECT_LAYER`, inline epilogue, `END_JOB`, `EOF`.
+
+- `gluescript` — when provided, resets all state and replays the transcript
+  through the command registry (re-staging path). When `None` (default),
+  finalizes the job built via the GlueScript methods (`declare_job`,
+  `declare_layer`, move/cut, `end_job`).
+- `require_complete` — on the re-staging path, raises when the replayed
+  transcript never called `end_job()`. Pass `False` to tolerate an
+  in-progress job (used when restoring a preserved transcript across
+  session teardown, where the user may still be editing).
+
+**Returns:** `True` when the gluescript was successfully staged.
+
+**Raises:** `RuntimeError` on failure — failures never return `False`. For
+example, `end_job()` must be called before staging on the finalization path
+(`"end_job() must be called before stage_gluescript()"`), and a re-staged
+transcript missing `end_job()` with `require_complete=True` raises
+`"Re-staged gluescript is missing end_job() — job was not completed"`.
+
+The staged rpascript is available on the driver as `driver.rpascript` until
+the next stage. `run_job()` (see 3.5 above) runs the most recently staged
+rpascript when called with `job=None`.
+
+### 3.7 Head/Tail Script Accessors
+
+```python
+def set_head_script(self, script: list[str]) -> None
+def set_tail_script(self, script: list[str]) -> None
+def get_head_script(self) -> list[str]
+def get_tail_script(self) -> list[str]
+```
+
+The head and tail scripts wrap every job executed via `run_job()`: the final
+composed script is `head + job + tail`. Setters store a copy under the driver
+lock and getters return a copy — both are thread-safe.
+
+The default head script is:
+
+```
+REF_POINT_ABSOLUTE
+SET_ABSOLUTE
+REF_POINT_SET
+ENABLE_BLOCK_CUTTING State:OFF
+```
+
+The default tail script is empty.
 
 ---
 
@@ -271,6 +355,9 @@ class StatusDict(TypedDict, total=False):
 | `start()` with different params than prior call | Calls `stop()` first, then creates fresh session |
 | `run()` before `start()` | Raises `RuntimeError("Script runner not started. Call start() first.")` |
 | `run([])` (empty script) | Silent no-op |
+| `run_job()` with `job=None` and nothing staged | Raises `RuntimeError("No gluescript staged. Call stage_gluescript() first.")` |
+| `stage_gluescript()` before `end_job()` | Raises `RuntimeError("end_job() must be called before stage_gluescript()")` |
+| Re-staging a transcript missing `end_job()` (`require_complete=True`) | Raises `RuntimeError("Re-staged gluescript is missing end_job() — job was not completed")` |
 | Script encoding error | Fires `SCRIPT_ERROR` + error listener; continues to next script |
 | Transport disconnect mid-script | Re-queues full script; fires `DISCONNECTED` |
 | `cancel_script()` during execution | Clears queue; current script iteration won't requeue |
