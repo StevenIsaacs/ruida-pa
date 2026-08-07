@@ -12,7 +12,10 @@ import re
 import shlex
 from typing import Any, Callable
 
-from rpalib.gluescript_signature import gluescript_signature
+from rpalib.gluescript_signature import (
+    GlueScriptDeltaMismatchError,
+    gluescript_signature,
+)
 from rpalib.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -1045,89 +1048,54 @@ class GlueScript:
         """
         self._layer_actions.setdefault(layer, []).extend(lines)
 
-    def stage_gluescript(
-        self, gluescript: list[str] | None = None, require_complete: bool = True
-    ) -> str:
-        """Finalize the rpascript or re-stage a gluescript.
+    def _replay_lines(self, lines: list[str]) -> None:
+        """Replay transcript lines through the command registry.
 
-        Assembles rpascript from structured storage: job header first,
-        then all layer attributes, then all layer actions with SELECT_LAYER
-        prefix, then END_JOB.
-
-        Args:
-            gluescript: When provided, resets all state and replays the
-                transcript through the command registry (re-staging path).
-            require_complete: On the re-staging path, raises when the
-                replayed transcript never called end_job(). Pass False to
-                tolerate an in-progress job (used when restoring a
-                preserved transcript across session teardown, where the
-                user may still be editing).
-
-        Returns:
-            str: The SHA-256 signature (hex) of the staged gluescript
-                transcript. Failures raise RuntimeError instead of
-                returning.
+        Shared by the full re-stage path (``stage_gluescript``) and the
+        incremental delta path (``stage_gluescript_delta``): blank lines
+        and ``#``-comment lines are skipped, live-only commands are
+        skipped with a warning, unknown commands and registry call
+        errors raise ``RuntimeError``. Behavior is identical for both
+        callers.
         """
-        # Re-staging path — skip _job_complete check; gluescript will set it
-        if gluescript is not None:
-            # Reset everything and replay gluescript through registry
-            self._job_header = []
-            self._layer_attributes = {}
-            self._layer_actions = {}
-            self._job_complete = False
-            self._layer = 0
-            self._inline_used = False
-            self._inline_prelude = []
-            self._inline_epilogue = []
-            self._layer_trx = float('inf')
-            self._layer_try = float('inf')
-            self._layer_blx = -float('inf')
-            self._layer_bly = -float('inf')
-            self._last_layer_has_content = False
-            self._assembling = True
-
+        for line in lines:
+            if not line.strip():
+                continue
+            if line.lstrip().startswith("#"):
+                continue
             try:
-                for line in gluescript:
-                    if not line.strip():
-                        continue
-                    if line.lstrip().startswith("#"):
-                        continue
-                    try:
-                        name, args = self._parse_gluescript_line(line)
-                    except (ValueError, SyntaxError) as exc:
-                        raise RuntimeError(
-                            f"Failed to parse gluescript line: {line!r}: {exc}"
-                        ) from exc
-                    if name not in self._command_registry:
-                        raise RuntimeError(
-                            f"Unknown gluescript command: {name!r} in line {line!r}"
-                        )
-                    if name in self.LIVE_ONLY_COMMANDS:
-                        logger.warning(
-                            "Skipping live-only command %r during re-stage "
-                            "(jog and home commands act on the live session and are not part of a saved job)",
-                            name,
-                        )
-                        continue
-                    try:
-                        self._command_registry[name](*args)
-                    except Exception as exc:
-                        raise RuntimeError(
-                            f"Error re-staging command {name!r} with args {args!r}: {exc}"
-                        ) from exc
+                name, args = self._parse_gluescript_line(line)
+            except (ValueError, SyntaxError) as exc:
+                raise RuntimeError(
+                    f"Failed to parse gluescript line: {line!r}: {exc}"
+                ) from exc
+            if name not in self._command_registry:
+                raise RuntimeError(
+                    f"Unknown gluescript command: {name!r} in line {line!r}"
+                )
+            if name in self.LIVE_ONLY_COMMANDS:
+                logger.warning(
+                    "Skipping live-only command %r during re-stage "
+                    "(jog and home commands act on the live session and are not part of a saved job)",
+                    name,
+                )
+                continue
+            try:
+                self._command_registry[name](*args)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Error re-staging command {name!r} with args {args!r}: {exc}"
+                ) from exc
 
-                if require_complete and not self._job_complete:
-                    raise RuntimeError(
-                        "Re-staged gluescript is missing end_job() — job was not completed"
-                    )
-            finally:
-                self._assembling = False
+    def _assemble_rpascript(self) -> None:
+        """Assemble rpascript from structured storage.
 
-        # Finalization — require end_job() for non-re-staging path
-        if gluescript is None and not self._job_complete:
-            raise RuntimeError("end_job() must be called before stage_gluescript()")
-
-        # ── Assemble rpascript from structured storage ──
+        Shared by ``stage_gluescript()`` and ``stage_gluescript_delta()``:
+        job header, inline prelude, all layer attributes, LAST_LAYER, all
+        layer actions with SELECT_LAYER prefix, inline epilogue, END_JOB,
+        EOF, then deferred-variable expansion. Sets ``_stage_complete``
+        and fires the inline() staging warning when inline was used.
+        """
         self.rpascript = []
 
         # Section 1: Job header (reference point, start_job, settings)
@@ -1174,4 +1142,116 @@ class GlueScript:
                 "commands are for experimentation and workarounds; a "
                 "GlueScript method may be needed instead"
             )
+
+    def stage_gluescript(
+        self, gluescript: list[str] | None = None, require_complete: bool = True
+    ) -> str:
+        """Finalize the rpascript or re-stage a gluescript.
+
+        Assembles rpascript from structured storage (see
+        ``_assemble_rpascript``): job header first, then all layer
+        attributes, then all layer actions with SELECT_LAYER prefix, then
+        END_JOB.
+
+        Args:
+            gluescript: When provided, resets all state and replays the
+                transcript through the command registry (re-staging path).
+            require_complete: On the re-staging path, raises when the
+                replayed transcript never called end_job(). Pass False to
+                tolerate an in-progress job (used when restoring a
+                preserved transcript across session teardown, where the
+                user may still be editing).
+
+        Returns:
+            str: The SHA-256 signature (hex) of the staged gluescript
+                transcript. Failures raise RuntimeError instead of
+                returning.
+        """
+        # Re-staging path — skip _job_complete check; gluescript will set it
+        if gluescript is not None:
+            # Reset everything and replay gluescript through registry
+            self._job_header = []
+            self._layer_attributes = {}
+            self._layer_actions = {}
+            self._job_complete = False
+            self._layer = 0
+            self._inline_used = False
+            self._inline_prelude = []
+            self._inline_epilogue = []
+            self._layer_trx = float('inf')
+            self._layer_try = float('inf')
+            self._layer_blx = -float('inf')
+            self._layer_bly = -float('inf')
+            self._last_layer_has_content = False
+            self._assembling = True
+
+            try:
+                self._replay_lines(gluescript)
+                if require_complete and not self._job_complete:
+                    raise RuntimeError(
+                        "Re-staged gluescript is missing end_job() — job was not completed"
+                    )
+            finally:
+                self._assembling = False
+
+        # Finalization — require end_job() for non-re-staging path
+        if gluescript is None and not self._job_complete:
+            raise RuntimeError("end_job() must be called before stage_gluescript()")
+
+        self._assemble_rpascript()
+        return gluescript_signature(self.gluescript)
+
+    def stage_gluescript_delta(
+        self,
+        flushed_count: int,
+        delta_lines: list[str],
+        require_complete: bool = True,
+    ) -> str:
+        """Replay only the newly appended transcript lines onto staged state.
+
+        Incremental sibling of ``stage_gluescript()``: the server
+        transcript already holds the first ``flushed_count`` lines
+        (replayed by earlier deltas or a full stage), so only the appended
+        suffix is replayed — O(Δ) per flush instead of O(L·N) over the
+        whole job. No reset is performed; contiguity with the client's
+        transcript is enforced by the ``flushed_count`` guard, which
+        raises ``GlueScriptDeltaMismatchError`` when the server length
+        differs (the client then falls back to a full
+        ``stage_gluescript()`` re-stage).
+
+        Args:
+            flushed_count: The number of transcript lines the server
+                already holds; must equal ``len(self.gluescript)``.
+            delta_lines: The appended transcript lines to replay.
+            require_complete: Raises when the replayed suffix never
+                reached ``end_job()`` (mirrors the full re-stage path).
+
+        Returns:
+            str: The SHA-256 signature (hex) of the staged gluescript
+                transcript. Failures raise RuntimeError instead of
+                returning.
+        """
+        # Guard first (Law of Early Exit) — the delta is only contiguous
+        # when the server already holds exactly the flushed prefix.
+        if len(self.gluescript) != flushed_count:
+            raise GlueScriptDeltaMismatchError(
+                f"Server gluescript has {len(self.gluescript)} lines but "
+                f"flushed_count is {flushed_count} — transcript out of "
+                f"sync; full re-stage required"
+            )
+        # Re-arm the inline warning before the suffix replay: inline() in
+        # the delta re-arms it, so the first delta containing inline
+        # warns and later deltas do not.
+        self._inline_used = False
+        self._assembling = True
+        try:
+            self._replay_lines(delta_lines)
+            if require_complete and not self._job_complete:
+                raise RuntimeError(
+                    "Re-staged gluescript is missing end_job() — job was not completed"
+                )
+        finally:
+            self._assembling = False
+
+        self._assemble_rpascript()
         return gluescript_signature(self.gluescript)

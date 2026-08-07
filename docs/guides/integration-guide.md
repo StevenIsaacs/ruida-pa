@@ -1056,6 +1056,7 @@ its signature, return type, and whether a connected session is required.
 | `add_layer_action` | `(layer, lines: list[str])` | `None` | No |
 | `update_position` | `(x=None, y=None, z=None, u=None)` | `None` | No |
 | `stage_gluescript` | `(gluescript=None, require_complete=True)` | `str` | No |
+| `stage_gluescript_delta` | `(flushed_count: int, delta_lines: list[str], require_complete=True)` | `str` | No |
 | **Config setters (session-less)** | | | |
 | `jog_set_xy_speed` | `(speed)` | `None` | No |
 | `jog_set_z_speed` | `(speed)` | `None` | No |
@@ -1180,26 +1181,84 @@ on the wire. `rpalib/rpyc_client.RpcGlueScript` is a thin client-side wrapper
 around the same service root that buffers the high-volume layer actions —
 `move_xy_to`/`move_x_to`/`move_y_to`, `cut_xy_to`/`cut_x_to`/`cut_y_to`,
 `power`, `air_assist_on`/`air_assist_off` — locally and flushes them to the
-server in one `stage_gluescript()` call at each `declare_layer`/`end_job`
-boundary. A job with thousands of moves and cuts reaches the server in a
-handful of round trips instead of one per action.
+server at each `declare_layer`/`end_job` boundary. A job with thousands of
+moves and cuts reaches the server in a handful of round trips instead of one
+per action.
 
-Structural, non-replayable calls are forwarded immediately rather than
-buffered: `new_gluescript`, `declare_job`, `declare_layer`, `comment`,
-`inline`, `add_layer_action`, `update_position`, the getters
+**Incremental delta staging:** structural calls are buffered too, not
+forwarded: `declare_job`, `declare_layer`, `comment`, and `inline` (until
+`end_job()`) are mirrored into the local transcript and reach the server with
+the boundary flush. Each flush calls the new
+`stage_gluescript_delta(flushed_count, delta_lines, require_complete)` RPC,
+which replays ONLY the newly appended transcript lines onto the server's
+existing staged state WITHOUT reset — O(Δ) per flush for the replay instead
+of the old O(L·N) full-transcript re-stage at every boundary (signature
+hashing and rpascript assembly remain O(L) per flush). `flushed_count`
+must equal the server transcript length; when it does not (contiguity
+broken — e.g. an external `stage_gluescript()` call or mid-job driver
+recreation on the server, or a post-`end_job()` epilogue followed by
+another flush — defensive: the client's own guards raise before any
+flush can occur after `end_job()`, so this last trigger is reachable
+only via external actors), the server raises
+`GlueScriptDeltaMismatchError` and the client falls back to a full
+`stage_gluescript()` re-stage that re-baselines the count. A server without
+the delta method (older version) triggers the same full-stage fallback via
+`AttributeError`.
+
+**RPyC protocol configuration:** any client that connects to this service and
+uses the delta-staging path MUST create the RPyC connection with protocol
+config `{"import_custom_exceptions": True, "instantiate_custom_exceptions":
+True}`. With the rpyc 6.0.2 defaults (both `False`), a server-raised
+`GlueScriptDeltaMismatchError` arrives client-side as
+`rpyc.core.vinegar.GenericException`, so the client's graceful full re-stage
+fallback (`except GlueScriptDeltaMismatchError` in `RpcGlueScript._flush`)
+cannot trigger and the flush instead fails with a generic remote exception.
+The old-server `AttributeError` fallback (no `stage_gluescript_delta` method)
+is NOT affected by this config — it is a client-side netref lookup and works
+with the defaults. Omitting the config degrades the fallback to a loud
+`GenericException`, never silent corruption: the delta guard raises before any
+replay, so the transcript is never partially staged. The REAL RPYC ROUND TRIP
+section of `tmp/smoke_stage_delta.py` proves the with-config behaviors
+(exception reconstruction, fallback re-baseline, and wrapped-error
+propagation) across a genuine connection created with this config.
+
+**Forwarded immediately (not buffered):** `new_gluescript` (its server reset
+returns the transcript length to 0, matching the client's flushed count) and
+post-`end_job()` `comment`/`inline` (the epilogue — the only way lines reach
+the server after the last flush boundary; forwarded epilogue lines break
+`len(server) == flushed_count`, restored by `sync()` or a new
+`declare_job()`). `add_layer_action`, `update_position`, the getters
 (`get_gluescript`, `get_rpascript`, `job_complete`), and the live jog/home
 commands (`jog_*`, `home`, `home_z`, `home_u`) plus the `jog_set_*` config
-setters. `power` is buffered only when the current layer mode is
-`IMAGE`/`DEPTHMAP` and `percent` is not `None`; otherwise it is forwarded so
-the server emits the same warning the driver's guard produces.
+setters are forwarded immediately as today. `power` is buffered only when the
+current layer mode is `IMAGE`/`DEPTHMAP` and `percent` is not `None`;
+otherwise the call is dropped locally with the driver's guard warning — it
+never reaches the server.
+
+**Flush-time validation:** because structural calls are buffered, their
+validation now surfaces at the boundary flush rather than at call time.
+Driver `ValueError`s (invalid `declare_layer` mode/overscan, invalid
+`ref_point`, or `min_power_1 < 8` — the raising power check inside
+`declare_layer`; `power()` itself only warns (on a wrong layer mode or a
+`None` percentage)) and parse failures surface wrapped in
+`RuntimeError` — e.g. `"Error re-staging command 'declare_layer' with args
+[...]: Invalid layer mode: 'BOGUS'"` — raised by the server's replay loop.
 
 **Drift guard:** after each flush the wrapper compares the SHA-256 signature
-returned by `svc.stage_gluescript()` with a locally computed signature of its
+returned by the staging call with a locally computed signature of its
 transcript; `svc.get_gluescript()` is read back ONLY when the signatures
 differ. Any mismatch raises
 `RuntimeError` naming the first differing line — fail fast, fail loud — which
 catches client/server format drift (for example, a server upgraded to a
 different line format).
+
+**Fallback lossiness:** a full re-stage resets the server and replays the
+transcript through the command registry, which wipes state that is not part
+of the transcript — notably `add_layer_action` lines (raw rpascript injected
+into a layer action list). Delta flushes preserve that state; a fallback
+re-stage loses it. Clients that inject `add_layer_action` lines should
+re-inject them after any fallback (detected by the client when the delta
+guard rejects the suffix).
 
 **Getters report the last-flushed server state:** `get_gluescript()`,
 `get_rpascript()`, and `job_complete()` reflect the server's state after the
@@ -1234,7 +1293,11 @@ from rpalib.rpyc_client import RpcGlueScript
 # or, from the TUI,  server start token="s3cret!t0k3n"
 sock = socket.create_connection(("127.0.0.1", 18812))
 sock.sendall(b"\x00")  # empty-token length prefix, read by the authenticator
-svc = connect_stream(SocketStream(sock)).root
+# Delta-staging clients MUST enable custom-exception import/instantiation
+# (see the "RPyC protocol configuration" paragraph above) or a server-raised
+# GlueScriptDeltaMismatchError degrades to a GenericException client-side.
+rpyc_config = {"import_custom_exceptions": True, "instantiate_custom_exceptions": True}
+svc = connect_stream(SocketStream(sock), config=rpyc_config).root
 rgs = RpcGlueScript(svc)
 
 # Author a job before any session exists — no controller required yet.

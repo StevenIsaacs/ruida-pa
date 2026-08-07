@@ -68,6 +68,7 @@ def stop(self) -> None
 | `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue rpascript-formatted lines for background execution. Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
 | `run_job` | `(job: list[str] \| None = None, auto_checksum: bool = False)` | `None` | Compose head + job + tail under the driver lock and queue via `run()`. `job=None` runs the rpascript most recently staged by `stage_gluescript()`. Raises `RuntimeError` if `job` is `None` and nothing has been staged. |
 | `stage_gluescript` | `(gluescript: list[str] \| None = None, require_complete: bool = True)` | `str` | Finalize the rpascript from GlueScript state, or re-stage a transcript. Returns the SHA-256 signature of the staged transcript; failures raise `RuntimeError`. |
+| `stage_gluescript_delta` | `(flushed_count: int, delta_lines: list[str], require_complete: bool = True)` | `str` | Incrementally replay only the newly appended transcript lines onto the existing staged state (no reset). Raises `GlueScriptDeltaMismatchError` when `flushed_count` does not equal the current transcript length. Returns the SHA-256 signature of the staged transcript. |
 | `set_head_script` | `(script: list[str])` | `None` | Set the head script prepended to every job execution. Thread-safe. |
 | `set_tail_script` | `(script: list[str])` | `None` | Set the tail script appended to every job execution. Thread-safe. |
 | `get_head_script` | `()` | `list[str]` | Return a copy of the current head script. Thread-safe. |
@@ -168,6 +169,31 @@ transcript missing `end_job()` with `require_complete=True` raises
 The staged rpascript is available on the driver as `driver.rpascript` until
 the next stage. `run_job()` (see 3.5 above) runs the most recently staged
 rpascript when called with `job=None`.
+
+### 3.6.1 `stage_gluescript_delta()` — Incremental Staging
+
+```python
+def stage_gluescript_delta(self, flushed_count: int, delta_lines: list[str], require_complete: bool = True) -> str
+```
+
+Incremental sibling of `stage_gluescript()` used by the `RpcGlueScript`
+client: the driver transcript already holds the first `flushed_count` lines
+(replayed by earlier deltas or a full stage), so only the appended suffix is
+replayed through the command registry — O(Δ) per flush instead of O(L·N)
+over the whole job. No reset is performed; the assembled rpascript (shared
+`_assemble_rpascript` path) is identical to a full re-stage.
+
+- `flushed_count` — must equal `len(driver.gluescript)`. When it does not
+  (contiguity broken), the method raises `GlueScriptDeltaMismatchError`
+  ("Server gluescript has {n} lines but flushed_count is {m} — transcript
+  out of sync; full re-stage required"); the client falls back to a full
+  `stage_gluescript()` re-stage.
+- `delta_lines` — the appended transcript lines to replay.
+- `require_complete` — raises when the replayed suffix never called
+  `end_job()` (same message as the full re-stage path).
+
+**Returns:** `str` — the SHA-256 signature (hex) of the staged gluescript
+transcript. Failures raise `RuntimeError` instead of returning.
 
 ### 3.7 Head/Tail Script Accessors
 

@@ -9,35 +9,47 @@ connected ``svc`` root into the constructor.
 
 Batching semantics
 ------------------
-- Structural, non-replayable calls are forwarded to the server immediately:
-  ``new_gluescript``, ``comment``, ``inline``, ``declare_job``,
-  ``declare_layer``, ``add_layer_action``, ``update_position``, all jogs and
-  homing, and the getters. Calls that append a gluescript line on the driver
-  side (``comment``, ``inline``, ``declare_job``, ``declare_layer``) are
-  also mirrored into a local ``_transcript``.
-- Layer actions — ``move_*_to``, ``cut_*_to``, ``power``, ``air_assist_*``
-  — are buffered locally and flushed in ONE ``stage_gluescript()`` call at
-  the next boundary (``declare_layer`` or ``end_job``).
+- Structural calls are buffered locally and mirrored into ``_transcript``:
+  ``declare_job``, ``declare_layer``, ``comment``, ``inline`` (until
+  ``end_job()``), and the layer actions (``move_*_to``, ``cut_*_to``,
+  ``power``, ``air_assist_*``). Each flush — at ``declare_layer`` or
+  ``end_job`` — sends ONLY the newly appended lines (the delta) to
+  ``stage_gluescript_delta()``, which replays the suffix onto the
+  server's existing state WITHOUT reset (O(Δ) per flush instead of
+  O(L·N)).
+- ``new_gluescript`` and post-``end_job()`` ``comment``/``inline`` are
+  forwarded immediately: ``new_gluescript`` resets the server so its
+  transcript length returns to 0 (matching ``_flushed_count``), and the
+  post-``end_job`` epilogue is the only way lines reach the server after
+  the last flush boundary (forwarded epilogue lines break
+  ``len(server) == _flushed_count``; ``sync()`` or a new
+  ``declare_job()`` restores the invariant).
+- ``add_layer_action``, ``update_position``, jogs, and homing stay
+  forwarded-only as today.
+- Validation errors (bad ``declare_layer`` mode, etc.) surface at flush
+  time, wrapped in ``RuntimeError`` ("Error re-staging command ...")
+  rather than at call time.
 
 Drift guard
 -----------
-Every flush sends the local transcript to ``stage_gluescript()``, which
-returns a SHA-256 signature (hex) of the staged transcript. The client
-hashes the same lines locally and compares digests; the full transcript
-is read back via ``get_gluescript()`` ONLY when the signatures differ,
-to identify the point of drift. A match proves the server's state equals
-the client's belief without transferring the transcript back over the
-wire. Any mismatch raises ``RuntimeError`` naming the first differing
-index — fail fast, fail loud.
+Every flush compares the SHA-256 signature returned by the server with a
+locally computed digest of the full transcript; ``get_gluescript()`` is
+read back via the getters ONLY when the signatures differ, to identify
+the point of drift. A match proves the server's state equals the
+client's belief without transferring the transcript back over the wire.
+Any mismatch raises ``RuntimeError`` naming the first differing index —
+fail fast, fail loud.
 
-Replay tradeoff
----------------
-Each flush re-stages the FULL transcript, which the server replays through
-its command registry line by line (O(L) per line, O(L*N) overall for L
-lines and N flushes). Replaying is deliberately idempotent — the
-transcript, not the server, is the source of truth — at the cost of
-re-appending every line per flush. Incremental append of only the new lines
-is deferred as a future optimization.
+Delta contiguity
+----------------
+``stage_gluescript_delta()`` requires the server transcript length to
+equal the client's ``_flushed_count``. When contiguity is broken (e.g.
+an external ``stage_gluescript()`` call or mid-job driver recreation on
+the server, or a post-``end_job()`` epilogue followed by another flush),
+the server raises ``GlueScriptDeltaMismatchError`` and the client falls
+back to a full ``stage_gluescript()`` re-stage, which re-baselines
+``_flushed_count`` on success. A server without the delta method (older
+version) triggers the same full-stage fallback via ``AttributeError``.
 
 Public ``stage_gluescript()`` passthrough
 -----------------------------------------
@@ -51,14 +63,22 @@ Getter semantics
 ``get_gluescript()``, ``get_rpascript()`` and ``job_complete()`` report the
 server's LAST-FLUSHED state. Between flushes, buffered actions exist only in
 the client's ``_transcript`` and are invisible to the getters until the next
-boundary flush.
+boundary flush. ``sync()`` re-baselines the transcript, ``_flushed_count``,
+``_current_mode`` and ``_job_complete`` from that last-flushed state.
 """
 
 from __future__ import annotations
 
+import ast
+import logging
 from typing import Any
 
-from rpalib.gluescript_signature import gluescript_signature
+from rpalib.gluescript_signature import (
+    GlueScriptDeltaMismatchError,
+    gluescript_signature,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class RpcGlueScript:
@@ -66,6 +86,7 @@ class RpcGlueScript:
 
     _svc: Any
     _transcript: list[str]
+    _flushed_count: int
     _current_mode: str
     _job_complete: bool
     _job_declared: bool
@@ -79,6 +100,7 @@ class RpcGlueScript:
         """
         self._svc = svc
         self._transcript: list[str] = []
+        self._flushed_count: int = 0
         self._current_mode: str = "VECTOR"
         self._job_complete: bool = False
         self._job_declared: bool = False
@@ -87,6 +109,31 @@ class RpcGlueScript:
     #  Internal helpers
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _derive_mode_from_transcript(transcript: list[str]) -> str:
+        """Return the mode of the LAST declare_layer line in a transcript.
+
+        Labels and colors are repr-quoted and may contain commas, so the
+        argument list is parsed with ``ast.literal_eval`` (the driver's
+        own gluescript parse boundary) rather than a naive split.
+        Defaults to "VECTOR" when no layer has been declared.
+        """
+        mode = "VECTOR"
+        for line in transcript:
+            stripped = line.strip()
+            if not stripped.startswith("declare_layer("):
+                continue
+            # Mirrors the driver's parse boundary (_parse_gluescript_line)
+            # and is safe for client-generated mirror lines.
+            args_str = stripped[len("declare_layer("):].rstrip(")")
+            try:
+                args = ast.literal_eval(f"({args_str})")
+            except (ValueError, SyntaxError):
+                continue
+            if len(args) >= 3:
+                mode = args[2]
+        return mode
+
     def _append(self, line: str) -> None:
         """Buffer one mirrored gluescript line on the client transcript."""
         self._transcript.append(line)
@@ -94,14 +141,20 @@ class RpcGlueScript:
     def _flush(self, require_complete: bool) -> None:
         """Stage the buffered transcript and verify server parity by signature.
 
-        Sends the full local transcript to ``stage_gluescript()`` and
-        compares the server's SHA-256 signature with a locally computed
-        one. Only when the signatures differ is the server transcript
-        read back via ``get_gluescript()`` to locate the drift; any
-        difference raises a descriptive ``RuntimeError``.
+        Sends only the delta — the transcript lines appended since the
+        last flush — to ``stage_gluescript_delta()``, which replays the
+        suffix onto the server's existing state without reset. Falls back
+        to a full ``stage_gluescript()`` re-stage when the server lacks
+        the delta method (``AttributeError``, older server) or the delta
+        guard rejects the suffix (``GlueScriptDeltaMismatchError``,
+        contiguity broken); the fallback re-baselines ``_flushed_count``
+        on success. Compares the server's SHA-256 signature with a
+        locally computed one; only when the signatures differ is the
+        server transcript read back via ``get_gluescript()`` to locate
+        the drift; any difference raises a descriptive ``RuntimeError``.
 
         Args:
-            require_complete: Passed through to ``stage_gluescript()``.
+            require_complete: Passed through to the staging call.
 
         Returns:
             None: The staged rpascript is available via the server's
@@ -109,13 +162,28 @@ class RpcGlueScript:
             ``get_gluescript()``.
 
         Raises:
-            RuntimeError: If the server transcript drifts from the local one.
+            RuntimeError: If the server transcript drifts from the local
+                one, or the replayed delta fails validation.
         """
+        delta = self._transcript[self._flushed_count:]
+        try:
+            server_sig = self._svc.stage_gluescript_delta(
+                self._flushed_count, delta, require_complete=require_complete
+            )
+        except AttributeError:
+            # Old server without the delta method — full-stage fallback.
+            server_sig = self._svc.stage_gluescript(
+                list(self._transcript), require_complete=require_complete
+            )
+        except GlueScriptDeltaMismatchError:
+            # Contiguity broken (e.g. mid-job driver recreation, external
+            # stage_gluescript call, sync) — full re-stage re-baselines.
+            server_sig = self._svc.stage_gluescript(
+                list(self._transcript), require_complete=require_complete
+            )
         local_sig = gluescript_signature(self._transcript)
-        server_sig = self._svc.stage_gluescript(
-            list(self._transcript), require_complete=require_complete
-        )
         if server_sig == local_sig:
+            self._flushed_count = len(self._transcript)
             return
         server_gs = list(self._svc.get_gluescript())
         if server_gs != self._transcript:
@@ -132,17 +200,28 @@ class RpcGlueScript:
                 f"{len(self._transcript)} lines but server has "
                 f"{len(server_gs)} lines"
             )
+        # Signatures disagreed but the read-back transcript equals the
+        # local one (non-conforming server, e.g. an old bool-returning
+        # one) — the server state is provably in sync, so re-baseline
+        # here instead of falling through with a stale count.
+        self._flushed_count = len(self._transcript)
 
     def sync(self) -> None:
         """Re-baseline local state from the server's last-flushed state.
 
-        Re-baselines the transcript and ``_job_complete`` from server state.
-        ``_current_mode`` and ``_job_declared`` are NOT refreshed because
-        they cannot be reliably derived from the server transcript (and the
-        buffered ``_current_mode`` is client-authoritative for unflushed
-        state).
+        Re-baselines the transcript, ``_flushed_count``, ``_current_mode``
+        and ``_job_complete`` from server state. ``_current_mode`` is
+        derived from the last ``declare_layer(...)`` line in the
+        transcript (defaulting to "VECTOR" when no layer was declared).
+        ``_job_declared`` is NOT refreshed because it cannot be reliably
+        derived from the server transcript (and the buffered value is
+        client-authoritative for unflushed state).
         """
         self._transcript = list(self._svc.get_gluescript())
+        self._flushed_count = len(self._transcript)
+        self._current_mode = self._derive_mode_from_transcript(
+            self._transcript
+        )
         self._job_complete = bool(self._svc.job_complete())
 
     # ------------------------------------------------------------------ #
@@ -155,33 +234,50 @@ class RpcGlueScript:
         Deliberately stricter than the driver's ``new_gluescript()``: the
         driver resets ``_job_complete`` but NOT ``_job_declared``, whereas
         this client clears both so that ``end_job()`` after a bare
-        ``new_gluescript()`` fails fast locally.
+        ``new_gluescript()`` fails fast locally. Also re-zeros
+        ``_flushed_count``: the forwarded server reset empties the server
+        transcript, restoring ``len(server) == _flushed_count == 0``.
         """
         self._svc.new_gluescript()
         self._transcript = []
         self._current_mode = "VECTOR"
         self._job_complete = False
         self._job_declared = False
+        self._flushed_count = 0
 
     def comment(self, comments: list[str]) -> None:
-        """Append comment lines (forwarded; mirrored per line).
+        """Append comment lines (mirrored; forwarded only after end_job).
+
+        Before ``end_job()`` the line is mirrored into the local
+        transcript and reaches the server with the next boundary flush.
+        After ``end_job()`` no flush boundary exists, so the epilogue is
+        forwarded immediately — the only way post-``end_job`` lines reach
+        the server.
 
         An empty list is a no-op, mirroring the driver.
         """
         if not comments:
             return
-        self._svc.comment(comments)
+        if self._job_complete:
+            self._svc.comment(comments)
         for line in comments:
             self._append(f"comment({[line]!r})")
 
     def inline(self, commands: list[str]) -> None:
-        """Append raw rpascript commands (forwarded; mirrored per command).
+        """Append raw rpascript commands (mirrored; forwarded after end_job).
+
+        Before ``end_job()`` each command is mirrored into the local
+        transcript and replayed on the server with the next boundary
+        flush. After ``end_job()`` no flush boundary exists, so the
+        epilogue is forwarded immediately — the only way post-``end_job``
+        lines reach the server.
 
         An empty list is a no-op, mirroring the driver.
         """
         if not commands:
             return
-        self._svc.inline(commands)
+        if self._job_complete:
+            self._svc.inline(commands)
         for command in commands:
             self._append(f"inline({[command]!r})")
 
@@ -195,22 +291,28 @@ class RpcGlueScript:
         xstep: float = 0.0,
         ystep: float = 0.0,
     ) -> None:
-        """Declare a new job (forwarded; local transcript reset + mirrored).
+        """Declare a new job (server reset; mirrored for the boundary flush).
+
+        Forwards ``new_gluescript()`` so the server resets to an empty
+        transcript (length 0 == the local ``_flushed_count``), then
+        mirrors the ``declare_job`` line locally; the line itself reaches
+        the server with the next boundary flush. Validation (e.g. an
+        invalid ``ref_point``) now surfaces at that flush, wrapped in
+        ``RuntimeError``, rather than at call time.
 
         Mirrors the driver's 7-arg line, resolving ``abs_xy=None`` to
         ``[0.0, 0.0]`` exactly as the driver does before formatting.
 
-        Local state is reset BEFORE the forwarded RPC so a server-side
-        failure (e.g. an invalid ``ref_point``) cannot leave the previous
-        job's lines in ``_transcript``.
+        Local state is reset BEFORE the forwarded server reset so a
+        server-side failure cannot leave the previous job's lines in
+        ``_transcript``.
         """
         self._transcript = []
         self._job_declared = True
         self._job_complete = False
         self._current_mode = "VECTOR"
-        self._svc.declare_job(
-            label, ref_point, abs_xy, columns, rows, xstep, ystep
-        )
+        self._flushed_count = 0
+        self._svc.new_gluescript()
         resolved_abs_xy = [0.0, 0.0] if abs_xy is None else abs_xy
         self._append(
             f"declare_job({label!r}, {ref_point!r}, {resolved_abs_xy!r}, "
@@ -228,21 +330,20 @@ class RpcGlueScript:
         min_power_1: float = 8.0,
         max_power_1: float = 70.0,
     ) -> None:
-        """Declare a new layer (forwarded; mirrored) and flush buffered moves.
+        """Declare a new layer (mirrored; applied at the boundary flush).
 
-        Sets ``_current_mode`` from the declared layer mode, then stages the
-        accumulated transcript with ``require_complete=False`` (the job may
-        still be in progress).
+        Sets ``_current_mode`` from the declared layer mode, mirrors the
+        line locally, then stages the accumulated delta with
+        ``require_complete=False`` (the job may still be in progress). The
+        server applies the layer — including validation of mode, overscan
+        and power range — at that flush; validation errors surface
+        wrapped in ``RuntimeError`` ("Error re-staging command ...").
 
         Raises:
             RuntimeError: If declare_layer() is called after end_job().
         """
         if self._job_complete:
             raise RuntimeError("declare_layer() called after end_job()")
-        self._svc.declare_layer(
-            label, color, mode, overscan, speed, frequency, min_power_1,
-            max_power_1,
-        )
         self._current_mode = mode
         self._append(
             f"declare_layer({label!r}, {color!r}, {mode!r}, "
@@ -318,13 +419,24 @@ class RpcGlueScript:
     def power(self, percent: float | None = None) -> None:
         """Set laser power for IMAGE/DEPTHMAP layers.
 
-        Buffered when valid for the current layer mode; otherwise forwarded
-        so the server emits the same warning the driver guard produces.
+        Buffered when valid for the current layer mode; otherwise the
+        call is dropped entirely and the driver's guard warning is
+        emitted locally — nothing reaches the server and no line is
+        mirrored, mirroring the driver's behavior for invalid power
+        calls. This includes ``power(None)`` in an IMAGE/DEPTHMAP layer,
+        which warns and drops.
         """
-        if self._current_mode in ("IMAGE", "DEPTHMAP") and percent is not None:
-            self._append(f"power({percent!r})")
+        if self._current_mode not in ("IMAGE", "DEPTHMAP"):
+            logger.warning(
+                "power() called in %s mode layer — only valid for "
+                "IMAGE/DEPTHMAP layers",
+                self._current_mode,
+            )
             return
-        self._svc.power(percent)
+        if percent is None:
+            logger.warning("power() called without a percentage value")
+            return
+        self._append(f"power({percent!r})")
 
     def air_assist_on(self) -> None:
         """Buffer air assist enable (flushed at the next boundary)."""

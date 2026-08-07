@@ -488,6 +488,22 @@ class RpycTuiService(rpyc.Service):
             "stage_gluescript", gluescript, require_complete
         )
 
+    def exposed_stage_gluescript_delta(
+        self,
+        flushed_count: int,
+        delta_lines: list[str],
+        require_complete: bool = True,
+    ) -> str:
+        self._rpc_info(
+            f"[RPC] gluescript stage_gluescript_delta("
+            f"{flushed_count} flushed, {len(delta_lines)} lines, "
+            f"require_complete={require_complete})"
+        )
+        return self._exposed_gluescript(
+            "stage_gluescript_delta", flushed_count, delta_lines,
+            require_complete,
+        )
+
     # --- GlueScript — live-only commands (jogs and homing) ---
 
     def exposed_jog_set_xy_speed(self, speed: float) -> None:

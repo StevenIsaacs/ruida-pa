@@ -451,6 +451,21 @@ transcript (the finalized rpascript is available via `driver.rpascript`).
 
 **Raises:** `RuntimeError` if `end_job()` has not been called.
 
+**Incremental staging over RPC:** the `RpcGlueScript` client does not call
+`stage_gluescript()` at every boundary. Instead it buffers structural and
+layer-action calls locally and, at each `declare_layer`/`end_job` boundary,
+calls `stage_gluescript_delta(flushed_count, delta_lines, require_complete)`,
+which replays ONLY the newly appended transcript lines onto the driver's
+existing staged state without reset. The same `_assemble_rpascript` assembly
+runs, so the staged rpascript is identical to a full re-stage; only the replay
+cost differs (O(Δ) per flush instead of O(L·N)). When the `flushed_count`
+guard fails (transcript out of sync), the client falls back to a full
+`stage_gluescript()` re-stage. Clients using this path must connect with RPyC
+protocol config `{"import_custom_exceptions": True, "instantiate_custom_exceptions":
+True}` so server-raised `GlueScriptDeltaMismatchError` is reconstructed
+client-side and the fallback can trigger (see "RPyC protocol configuration"
+in the [integration guide §8.9 batching section](integration-guide.md#89-gluescript-job-authoring--live-commands-via-rpc)).
+
 ```python
 driver.stage_gluescript()
 rpa_lines = driver.rpascript

@@ -10,6 +10,12 @@ digests differ.
 import hashlib
 
 
+class GlueScriptDeltaMismatchError(RuntimeError):
+    """Raised when a delta stage cannot be applied because the server
+    transcript length does not match the client's flushed count
+    (contiguity broken)."""
+
+
 def gluescript_signature(lines: list[str]) -> str:
     """Return the SHA-256 hex digest of a gluescript transcript.
 

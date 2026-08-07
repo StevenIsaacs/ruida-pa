@@ -2704,6 +2704,27 @@ class TuiAdapter(App):
             )
         )
 
+    def gluescript_stage_gluescript_delta(
+        self,
+        flushed_count: int,
+        delta_lines: list[str],
+        require_complete: bool = True,
+    ) -> str:
+        """Incrementally re-stage only the newly appended transcript lines.
+
+        Replays ``delta_lines`` onto the driver's existing staged state
+        without reset, guarded by ``flushed_count`` matching the driver's
+        current transcript length.
+
+        Returns the SHA-256 signature (hex) of the staged gluescript
+        transcript.
+        """
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().stage_gluescript_delta(
+                flushed_count, delta_lines, require_complete
+            )
+        )
+
     def gluescript_jog_set_xy_speed(self, speed: float) -> None:
         """Set XY jog speed (mm/s) on the live session."""
         return self._gluescript_bridge(
