@@ -12,6 +12,7 @@ import re
 import shlex
 from typing import Any, Callable
 
+from rpalib.gluescript_signature import gluescript_signature
 from rpalib.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -1046,7 +1047,7 @@ class GlueScript:
 
     def stage_gluescript(
         self, gluescript: list[str] | None = None, require_complete: bool = True
-    ) -> bool:
+    ) -> str:
         """Finalize the rpascript or re-stage a gluescript.
 
         Assembles rpascript from structured storage: job header first,
@@ -1063,8 +1064,9 @@ class GlueScript:
                 user may still be editing).
 
         Returns:
-            bool: True when the gluescript was successfully staged.
-                Failures raise RuntimeError instead of returning.
+            str: The SHA-256 signature (hex) of the staged gluescript
+                transcript. Failures raise RuntimeError instead of
+                returning.
         """
         # Re-staging path — skip _job_complete check; gluescript will set it
         if gluescript is not None:
@@ -1172,4 +1174,4 @@ class GlueScript:
                 "commands are for experimentation and workarounds; a "
                 "GlueScript method may be needed instead"
             )
-        return True
+        return gluescript_signature(self.gluescript)

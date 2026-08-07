@@ -21,12 +21,14 @@ Batching semantics
 
 Drift guard
 -----------
-Every flush re-reads the server transcript via ``get_gluescript()`` and
-compares it byte-for-byte with the local ``_transcript``. The server
-re-stages the transcript through the same command registry as the driver,
-so a match proves the server's state equals the client's belief. Any
-mismatch raises ``RuntimeError`` naming the first differing index — fail
-fast, fail loud.
+Every flush sends the local transcript to ``stage_gluescript()``, which
+returns a SHA-256 signature (hex) of the staged transcript. The client
+hashes the same lines locally and compares digests; the full transcript
+is read back via ``get_gluescript()`` ONLY when the signatures differ,
+to identify the point of drift. A match proves the server's state equals
+the client's belief without transferring the transcript back over the
+wire. Any mismatch raises ``RuntimeError`` naming the first differing
+index — fail fast, fail loud.
 
 Replay tradeoff
 ---------------
@@ -40,8 +42,9 @@ is deferred as a future optimization.
 Public ``stage_gluescript()`` passthrough
 -----------------------------------------
 ``stage_gluescript()`` forwards the call unchanged (including
-``gluescript=None`` for finalizing the current job), returns ``bool``, and
-does not touch the local transcript or run the drift check.
+``gluescript=None`` for finalizing the current job), returns the SHA-256
+signature string from the server, and does not touch the local transcript
+or run the drift check.
 
 Getter semantics
 ----------------
@@ -54,6 +57,8 @@ boundary flush.
 from __future__ import annotations
 
 from typing import Any
+
+from rpalib.gluescript_signature import gluescript_signature
 
 
 class RpcGlueScript:
@@ -87,11 +92,13 @@ class RpcGlueScript:
         self._transcript.append(line)
 
     def _flush(self, require_complete: bool) -> None:
-        """Stage the buffered transcript and verify server parity.
+        """Stage the buffered transcript and verify server parity by signature.
 
-        Sends the full local transcript to ``stage_gluescript()``, then
-        re-reads the server transcript. Any byte difference raises a
-        descriptive ``RuntimeError``.
+        Sends the full local transcript to ``stage_gluescript()`` and
+        compares the server's SHA-256 signature with a locally computed
+        one. Only when the signatures differ is the server transcript
+        read back via ``get_gluescript()`` to locate the drift; any
+        difference raises a descriptive ``RuntimeError``.
 
         Args:
             require_complete: Passed through to ``stage_gluescript()``.
@@ -104,9 +111,12 @@ class RpcGlueScript:
         Raises:
             RuntimeError: If the server transcript drifts from the local one.
         """
-        self._svc.stage_gluescript(
+        local_sig = gluescript_signature(self._transcript)
+        server_sig = self._svc.stage_gluescript(
             list(self._transcript), require_complete=require_complete
         )
+        if server_sig == local_sig:
+            return
         server_gs = list(self._svc.get_gluescript())
         if server_gs != self._transcript:
             for index, (client_line, server_line) in enumerate(
@@ -332,16 +342,17 @@ class RpcGlueScript:
         self,
         gluescript: list[str] | None = None,
         require_complete: bool = True,
-    ) -> bool:
+    ) -> str:
         """Public passthrough to the server's stage_gluescript().
 
         Forwarded unchanged (including ``gluescript=None``); no local flush
         and no drift check.
 
         Returns:
-            bool: True when the server successfully staged the gluescript.
+            str: The SHA-256 signature (hex) of the staged gluescript
+                transcript, as returned by the server.
         """
-        return bool(self._svc.stage_gluescript(gluescript, require_complete))
+        return self._svc.stage_gluescript(gluescript, require_complete)
 
     def get_gluescript(self) -> list[str]:
         """Return the server's gluescript transcript (last-flushed state)."""

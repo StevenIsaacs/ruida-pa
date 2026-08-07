@@ -67,7 +67,7 @@ def stop(self) -> None
 |--------|-----------|---------|-------------|
 | `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue rpascript-formatted lines for background execution. Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
 | `run_job` | `(job: list[str] \| None = None, auto_checksum: bool = False)` | `None` | Compose head + job + tail under the driver lock and queue via `run()`. `job=None` runs the rpascript most recently staged by `stage_gluescript()`. Raises `RuntimeError` if `job` is `None` and nothing has been staged. |
-| `stage_gluescript` | `(gluescript: list[str] \| None = None, require_complete: bool = True)` | `bool` | Finalize the rpascript from GlueScript state, or re-stage a transcript. Returns `True` when staged; failures raise `RuntimeError`. |
+| `stage_gluescript` | `(gluescript: list[str] \| None = None, require_complete: bool = True)` | `str` | Finalize the rpascript from GlueScript state, or re-stage a transcript. Returns the SHA-256 signature of the staged transcript; failures raise `RuntimeError`. |
 | `set_head_script` | `(script: list[str])` | `None` | Set the head script prepended to every job execution. Thread-safe. |
 | `set_tail_script` | `(script: list[str])` | `None` | Set the tail script appended to every job execution. Thread-safe. |
 | `get_head_script` | `()` | `list[str]` | Return a copy of the current head script. Thread-safe. |
@@ -139,7 +139,7 @@ when `job` is `None` and no gluescript has been staged. `run()` itself raises
 ### 3.6 `stage_gluescript()` — Staging
 
 ```python
-def stage_gluescript(self, gluescript: list[str] | None = None, require_complete: bool = True) -> bool
+def stage_gluescript(self, gluescript: list[str] | None = None, require_complete: bool = True) -> str
 ```
 
 Finalize the rpascript from the structured GlueScript state, or re-stage a
@@ -156,9 +156,10 @@ inline prelude, layer attributes, `LAST_LAYER`, per-layer actions with
   in-progress job (used when restoring a preserved transcript across
   session teardown, where the user may still be editing).
 
-**Returns:** `True` when the gluescript was successfully staged.
+**Returns:** `str` — the SHA-256 signature (hex) of the staged gluescript
+transcript. Failures raise `RuntimeError` instead of returning.
 
-**Raises:** `RuntimeError` on failure — failures never return `False`. For
+**Raises:** `RuntimeError` on failure — failures never return, they raise. For
 example, `end_job()` must be called before staging on the finalization path
 (`"end_job() must be called before stage_gluescript()"`), and a re-staged
 transcript missing `end_job()` with `require_complete=True` raises

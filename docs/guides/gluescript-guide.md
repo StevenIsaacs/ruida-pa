@@ -139,9 +139,9 @@ run_job()   # no job argument — runs the rpascript most recently staged by sta
    rpascript and marks the job ready for staging.
 
 6. **`stage_gluescript()`** — Finalize the rpascript by expanding deferred
-   variable references (like `{self.doc_tr_x}`). Returns `True` when the
-   gluescript was successfully staged; the assembled rpascript is available
-   via `driver.rpascript`.
+   variable references (like `{self.doc_tr_x}`). Returns the SHA-256
+   signature of the staged gluescript transcript; the assembled rpascript
+   is available via `driver.rpascript`.
 
 7. **`run_job()`** — (Inherited from `RdDriver`) Composes head + job + tail
    scripts and queues them for background execution on the controller. Called
@@ -438,7 +438,7 @@ A warning is logged during staging if `inline()` was used.
 
 ### 4.7 Staging and Execution
 
-#### `stage_gluescript(gluescript: list[str] | None = None) -> bool`
+#### `stage_gluescript(gluescript: list[str] | None = None) -> str`
 
 Finalize the rpascript, expanding deferred variable references.
 
@@ -446,8 +446,8 @@ Finalize the rpascript, expanding deferred variable references.
 - When `gluescript` is provided: re-generates rpascript by processing each
   gluescript command line through the command registry, then finalizes.
 
-**Returns:** `bool` — `True` when the gluescript was successfully staged
-(the finalized rpascript is available via `driver.rpascript`).
+**Returns:** `str` — the SHA-256 signature (hex) of the staged gluescript
+transcript (the finalized rpascript is available via `driver.rpascript`).
 
 **Raises:** `RuntimeError` if `end_job()` has not been called.
 

@@ -478,7 +478,7 @@ class RpycTuiService(rpyc.Service):
         self,
         gluescript: list[str] | None = None,
         require_complete: bool = True,
-    ) -> bool:
+    ) -> str:
         self._rpc_info(
             f"[RPC] gluescript stage_gluescript("
             f"{len(gluescript) if gluescript is not None else 0} lines, "

@@ -2692,10 +2692,11 @@ class TuiAdapter(App):
         self,
         gluescript: list[str] | None = None,
         require_complete: bool = True,
-    ) -> bool:
+    ) -> str:
         """Finalize the rpascript or re-stage a gluescript.
 
-        Returns True when the gluescript was successfully staged.
+        Returns the SHA-256 signature (hex) of the staged gluescript
+        transcript.
         """
         return self._gluescript_bridge(
             lambda: self._ensure_gluescript_driver().stage_gluescript(

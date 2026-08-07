@@ -352,7 +352,7 @@ Use this method to finalize a generated `rpascript` or to re-stage a previously 
 
 Method:
 ```
-stage_gluescript(gluescript: list[str]=None) -> bool
+stage_gluescript(gluescript: list[str]=None) -> str
 ```
 Finalizes a freshly generated script or re-stages an existing script.
 
@@ -597,7 +597,7 @@ command registry to regenerate the structured storage before assembly.
 
 Prototype:
 ```
-stage_gluescript(gluescript: list[str] | None = None) -> bool
+stage_gluescript(gluescript: list[str] | None = None) -> str
 ```
 
 Parameters:
@@ -605,8 +605,8 @@ Parameters:
   uses the current structured state.
 
 Returns:
-- `True` when the gluescript was successfully staged; failures
-  raise `RuntimeError`.
+- The SHA-256 signature (hex) of the staged gluescript transcript;
+  failures raise `RuntimeError`.
 
 ### Layer Actions
 Once a layer has been declared a series of actions for the layer are expected to

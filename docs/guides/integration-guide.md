@@ -149,7 +149,8 @@ def _handle_status(self, event):
 | `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue low-level rpascript lines for background execution (as staged by GlueScript's `stage_gluescript()`, or hand-written for simple commands). Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
 | `cancel_script` | `()` | `None` | Clear all queued scripts and prevent current script from requeuing on disconnect. Thread-safe. |
 
-After `stage_gluescript()` returns `True`, the staged rpascript is available
+After `stage_gluescript()` returns the SHA-256 signature of the staged
+transcript, the staged rpascript is available
 via `driver.rpascript` (or `get_rpascript()` over RPC).
 
 **Flow-control commands** are processed inline by the driver (not sent to the controller):
@@ -1054,7 +1055,7 @@ its signature, return type, and whether a connected session is required.
 | `air_assist_off` | `()` | `None` | No |
 | `add_layer_action` | `(layer, lines: list[str])` | `None` | No |
 | `update_position` | `(x=None, y=None, z=None, u=None)` | `None` | No |
-| `stage_gluescript` | `(gluescript=None, require_complete=True)` | `bool` | No |
+| `stage_gluescript` | `(gluescript=None, require_complete=True)` | `str` | No |
 | **Config setters (session-less)** | | | |
 | `jog_set_xy_speed` | `(speed)` | `None` | No |
 | `jog_set_z_speed` | `(speed)` | `None` | No |
@@ -1088,12 +1089,13 @@ the command produces no lines.
 
 **Session-less authoring:** The 18 authoring methods work with no connected
 session — they build a job in the driver's GlueScript state. `stage_gluescript()`
-finalizes it and returns `True` on success; the staged rpascript is available
-via `get_rpascript()` (or `driver.rpascript`) and the staged gluescript via
-`get_gluescript()`. `run_job` (see §8.8) later composes head + staged +
-tail scripts around the job — when `job` is omitted it runs the rpascript
-most recently staged by `stage_gluescript()`. A job authored over RPC is
-retained in the driver and can be executed after `svc.start()`.
+finalizes it and returns the SHA-256 signature of the staged transcript;
+the staged rpascript is available via `get_rpascript()` (or `driver.rpascript`)
+and the staged gluescript via `get_gluescript()`. `run_job` (see §8.8) later
+composes head + staged + tail scripts around the job — when `job` is omitted
+it runs the rpascript most recently staged by `stage_gluescript()`. A job
+authored over RPC is retained in the driver and can be executed after
+`svc.start()`.
 
 ```python
 import socket
@@ -1125,9 +1127,10 @@ svc.cut_xy_to(0, 100)
 svc.cut_xy_to(0, 0)
 svc.end_job()
 
-# Finalize — returns True on success; copy the staged gluescript
-# transcript with get_gluescript(). The job persists in the driver
-# for later execution.
+# Finalize — returns the SHA-256 signature of the staged gluescript
+# transcript (a non-empty hex string, so the truthy guard works); copy
+# the staged gluescript transcript with get_gluescript(). The job
+# persists in the driver for later execution.
 if svc.stage_gluescript():
     staged = svc.get_gluescript()   # gluescript transcript (DSL), not rpascript
     print(f"Staged {len(svc.get_rpascript())} rpascript lines")
@@ -1190,8 +1193,10 @@ setters. `power` is buffered only when the current layer mode is
 `IMAGE`/`DEPTHMAP` and `percent` is not `None`; otherwise it is forwarded so
 the server emits the same warning the driver's guard produces.
 
-**Drift guard:** after each flush the wrapper re-reads `svc.get_gluescript()`
-and compares it byte-for-byte with its local transcript. Any mismatch raises
+**Drift guard:** after each flush the wrapper compares the SHA-256 signature
+returned by `svc.stage_gluescript()` with a locally computed signature of its
+transcript; `svc.get_gluescript()` is read back ONLY when the signatures
+differ. Any mismatch raises
 `RuntimeError` naming the first differing line — fail fast, fail loud — which
 catches client/server format drift (for example, a server upgraded to a
 different line format).
@@ -1203,9 +1208,9 @@ client's local transcript and are invisible to the getters until the next
 boundary flush.
 
 **Public `stage_gluescript()` passthrough:** `RpcGlueScript.stage_gluescript()`
-forwards the call unchanged (including `gluescript=None`), returns `bool`, and
-performs no local flush and no drift check — mirroring the direct-client flow
-when you want to stage explicitly.
+forwards the call unchanged (including `gluescript=None`), returns the
+signature, and performs no local flush and no drift check — mirroring the
+direct-client flow when you want to stage explicitly.
 
 **Server-side token requirement:** the client connect handshake sends a
 1-byte empty-token length prefix (`b"\x00"`) before
