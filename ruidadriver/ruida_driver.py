@@ -36,18 +36,23 @@ class StatusDict(TypedDict, total=False):
     """Status update dict sent from RdDriver to status listeners.
 
     All fields are optional — only keys that changed are present.
-    Non-bool values are (raw_value, formatted_string) tuples.
-    Machine status bits remain simple bools.
+    Non-bool values are (decoded_value, formatted_string) tuples.
+
+    MACHINE_STATUS carries the raw status bitfield (tuple[int, str]);
+    its decoded bool flags MACHINE_STATUS_MOVING / _LAYER_END /
+    _JOB_RUNNING appear as separate keys when their bits change.
+    Dimension values (POSITION_*, BED_SIZE_*) are tuple[float, str]
+    with the float in mm.
     """
 
-    MEM_CURRENT_POSITION_X: tuple[float, str]
-    MEM_CURRENT_POSITION_Y: tuple[float, str]
-    MEM_CURRENT_POSITION_Z: tuple[float, str]
-    MEM_CURRENT_POSITION_U: tuple[float, str]
-    MEM_CARD_ID: tuple[int, str]
-    MEM_BED_SIZE_X: tuple[float, str]
-    MEM_BED_SIZE_Y: tuple[float, str]
-    MEM_MACHINE_STATUS: tuple[int, str]
+    POSITION_X: tuple[float, str]
+    POSITION_Y: tuple[float, str]
+    POSITION_Z: tuple[float, str]
+    POSITION_U: tuple[float, str]
+    CARD_ID: tuple[int, str]
+    BED_SIZE_X: tuple[float, str]
+    BED_SIZE_Y: tuple[float, str]
+    MACHINE_STATUS: tuple[int, str]
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_LAYER_END: bool
     MACHINE_STATUS_JOB_RUNNING: bool
@@ -68,6 +73,21 @@ class RdDriver(GlueScript):
         # ... script executes in background ...
         driver.stop()
     """
+
+    # Generic status-dict key emitted for each handled reply address.
+    # Decouples application adapters from Ruida protocol mnemonics.
+    _STATUS_KEY_BY_ADDRESS = {
+        0x0421: "POSITION_X",
+        0x0431: "POSITION_Y",
+        0x0441: "POSITION_Z",
+        0x0451: "POSITION_U",
+        0x057E: "CARD_ID",
+        0x0026: "BED_SIZE_X",
+        0x0036: "BED_SIZE_Y",
+        0x0400: "MACHINE_STATUS",
+    }
+    # Generic keys whose values are positions in mm
+    _POSITION_KEYS = {"POSITION_X", "POSITION_Y", "POSITION_Z", "POSITION_U"}
 
     # Ping command — MEM_CARD_ID reply detects controller changes
     _PING_SCRIPT = ["GET_SETTING MEM_CARD_ID"]
@@ -125,15 +145,17 @@ class RdDriver(GlueScript):
 
         Populates:
             _handled_addresses: set[int] — fast membership check for reply filtering
-            _address_to_mnemonic: dict[int, str] — for building status-dict keys
+            _address_to_status_key: dict[int, str] — status-dict key per handled address
             _address_to_bit_keys: dict[int, list[tuple[str, int]]] — maps 0x0400 to status bit descriptors
+            _address_to_spec: dict[int, tuple] — (format_string, decoder_fn, raw_type) per handled address
         """
+        from protocols.ruida.ruida_protocol import MT
         from rpascript.interpreter import ScriptParser
 
         parser = ScriptParser(warning_callback=lambda msg, syn: logging.warning(f"{msg}  |  Syntax: {syn}"))
 
         self._handled_addresses: set[int] = set()
-        self._address_to_mnemonic: dict[int, str] = {}
+        self._address_to_status_key: dict[int, str] = {}
         # Map 0x0400 to (bit_key_name, bit_mask) for individual status bits
         self._address_to_bit_keys: dict[int, list[tuple[str, int]]] = {}
         self._address_to_bit_keys[0x0400] = [
@@ -161,8 +183,36 @@ class RdDriver(GlueScript):
                             msb, lsb = mt_entry
                             address = (msb << 8) | lsb
                             self._handled_addresses.add(address)
-                            self._address_to_mnemonic[address] = mnemonic
-                            self._address_to_spec[address] = mt_entry[1]
+                            # The parser's mt_map holds only (msb, lsb); the
+                            # format spec (format_string, decoder_fn, raw_type)
+                            # lives in the protocol MT table — the same lookup
+                            # _build_decoder uses.
+                            self._address_to_spec[address] = MT[msb][lsb][1]
+                            status_key = self._STATUS_KEY_BY_ADDRESS.get(address)
+                            if status_key is None:
+                                raise ValueError(
+                                    f"No generic status key for handled address "
+                                    f"0x{address:04X} (GET_SETTING {mnemonic}) — "
+                                    f"add it to _STATUS_KEY_BY_ADDRESS"
+                                )
+                            self._address_to_status_key[address] = status_key
+
+        # Guard: every handled address must have a generic status key
+        # (checked above) and every configured key must be requested by a
+        # query script — otherwise status tracking silently degrades.
+        # Keep _STATUS_KEY_BY_ADDRESS in sync with the query scripts:
+        # every configured key must be requested (else the reverse guard
+        # fires), and every handled address must have a generic key (else
+        # the ValueError above fires). A subclass that intentionally drops
+        # a query (e.g. no U axis) must also drop the matching key here —
+        # the key then simply never appears in events, which is expected.
+        unrequested = set(self._STATUS_KEY_BY_ADDRESS) - self._handled_addresses
+        if unrequested:
+            raise AssertionError(
+                "No query script requests status addresses "
+                + ", ".join(f"0x{a:04X}" for a in sorted(unrequested))
+                + " — add them to a script or remove from _STATUS_KEY_BY_ADDRESS"
+            )
 
     # ---- Driver Lifecycle ----
 
@@ -437,6 +487,8 @@ class RdDriver(GlueScript):
 
         For handled addresses (from _PING_SCRIPT, _QUERY_SCRIPT, _BED_SIZE_SCRIPT):
         - Decode value, compare with previous, build changes dict if changed.
+        - Dimension addresses (dim spec) emit mm float values; all others emit
+          raw unsigned ints.
         - Machine status bits are split into individual bool keys.
         - Do NOT forward to reply listeners.
 
@@ -449,15 +501,23 @@ class RdDriver(GlueScript):
 
         for raw_reply in replies:
             address = decoder.decode_address(raw_reply)
-            mnemonic = self._address_to_mnemonic.get(address, f"0x{address:04X}")
 
             if address in self._handled_addresses:
+                status_key = self._address_to_status_key[address]
                 new_value = decoder.decode_value(raw_reply)
                 prev = self._decoded_values.get(address, _UNSET)
 
+                # Decode once per reply: dim addresses yield mm floats,
+                # everything else keeps the raw unsigned value. The same
+                # value feeds both the event tuple and the position sync.
+                if self._address_to_spec[address][1] == "dim":
+                    event_value = RdDriver.decode_status_value(address, raw_reply)
+                else:
+                    event_value = new_value
+
                 if prev is _UNSET or prev != new_value:
                     formatted = self._format_status_value(address, raw_reply)
-                    changes[mnemonic] = (new_value, formatted)
+                    changes[status_key] = (event_value, formatted)
 
                     changes.update(
                         self._diff_machine_status_bits(
@@ -467,14 +527,11 @@ class RdDriver(GlueScript):
 
                 self._decoded_values[address] = new_value
 
-                if mnemonic.startswith("MEM_CURRENT_POSITION_"):
-                    axis = mnemonic.rsplit("_", 1)[-1].lower()
-                    if axis in ("x", "y", "z", "u"):
-                        self.update_position(
-                            **{axis: RdDriver.decode_status_value(address, raw_reply)}
-                        )
+                if status_key in self._POSITION_KEYS:
+                    axis = status_key.rsplit("_", 1)[-1].lower()
+                    self.update_position(**{axis: event_value})
 
-                if address == 0x057E:
+                if status_key == "CARD_ID":
                     self.run(self._BED_SIZE_SCRIPT)
             else:
                 forward_replies_raw.append(raw_reply)

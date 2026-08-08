@@ -120,11 +120,11 @@ __init__() → start() → [run() ... run()] → stop()
 
 All three methods are thread-safe and additive (no remove API).
 
-| Method | Callback Signature | When Called |
-|--------|-------------------|-------------|
+| Method                     | Callback Signature                              | When Called                                                                                 |
+| -------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `register_status_listener` | `Callable[[RdStatusEvent \| StatusDict], None]` | Session events (CONNECTED, DISCONNECTED) and machine status changes (position, status bits) |
-| `register_error_listener` | `Callable[[str], None]` | Script encoding/parsing/execution errors; VmRSS warnings |
-| `register_reply_listener` | `Callable[[list[str]], None]` | Formatted reply strings for non-handled GET_SETTING commands |
+| `register_error_listener`  | `Callable[[str], None]`                         | Script encoding/parsing/execution errors; VmRSS warnings                                    |
+| `register_reply_listener`  | `Callable[[list[str]], None]`                   | Formatted reply strings for non-handled GET_SETTING commands                                |
 
 **Important threading rules:**
 - Listener callbacks fire from **background threads** (runner thread or handshake thread). UI applications must use thread-safe dispatch (e.g., `call_from_thread()` in Textual, `invokeLater()` in Qt).

@@ -345,18 +345,18 @@ Mnemonics resolve to 2-byte memory addresses (MSB, LSB).
 | Mnemonic                    | Address   | Value Type      | Description                    |
 | --------------------------- | --------- | --------------- | ------------------------------ |
 | `MEM_MACHINE_STATUS`        | `0x0400` | `int` (bitmask) | bit 0=Moving, bit 1=Part End, bit 2=Job Running |
-| `MEM_CURRENT_POSITION_X`    | `0x0420` | `float`/`int`   | Current X position             |
-| `MEM_CURRENT_POSITION_Y`    | `0x0421` | `float`/`int`   | Current Y position             |
-| `MEM_CURRENT_POSITION_Z`    | `0x0422` | `float`/`int`   | Current Z position             |
-| `MEM_CURRENT_POSITION_U`    | `0x0423` | `float`/`int`   | Current U position (rotary)    |
+| `MEM_CURRENT_POSITION_X`    | `0x0421` | `float`/`int`   | Current X position             |
+| `MEM_CURRENT_POSITION_Y`    | `0x0431` | `float`/`int`   | Current Y position             |
+| `MEM_CURRENT_POSITION_Z`    | `0x0441` | `float`/`int`   | Current Z position             |
+| `MEM_CURRENT_POSITION_U`    | `0x0451` | `float`/`int`   | Current U position (rotary)    |
 
 ### Card & Bed
 
 | Mnemonic                    | Address   | Value Type      | Description                    |
 | --------------------------- | --------- | --------------- | ------------------------------ |
 | `MEM_CARD_ID`               | `0x057E` | `int`           | Card identifier                |
-| `MEM_BED_SIZE_X`            | `0x057F` | `float`/`int`   | Bed width (X)                  |
-| `MEM_BED_SIZE_Y`            | `0x0580` | `float`/`int`   | Bed height (Y)                 |
+| `MEM_BED_SIZE_X`            | `0x0026` | `float`/`int`   | Bed width (X)                  |
+| `MEM_BED_SIZE_Y`            | `0x0036` | `float`/`int`   | Bed height (Y)                 |
 
 ### Axis Configuration (Laser 1)
 

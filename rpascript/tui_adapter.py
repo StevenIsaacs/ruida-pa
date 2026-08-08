@@ -3672,34 +3672,34 @@ class TuiAdapter(App):
         # --- Data updates (direct, thread-safe via GIL) ---
         if isinstance(event, dict):
             for key, value in event.items():
-                if key == "MEM_CURRENT_POSITION_X":
+                if key == "POSITION_X":
                     raw, formatted = value
                     self._position["X"] = (raw, formatted)
                     self._last_coord_change["X"] = time.time()
-                elif key == "MEM_CURRENT_POSITION_Y":
+                elif key == "POSITION_Y":
                     raw, formatted = value
                     self._position["Y"] = (raw, formatted)
                     self._last_coord_change["Y"] = time.time()
-                elif key == "MEM_CURRENT_POSITION_Z":
+                elif key == "POSITION_Z":
                     raw, formatted = value
                     self._position["Z"] = (raw, formatted)
                     self._last_coord_change["Z"] = time.time()
-                elif key == "MEM_CURRENT_POSITION_U":
+                elif key == "POSITION_U":
                     raw, formatted = value
                     self._position["U"] = (raw, formatted)
                     self._last_coord_change["U"] = time.time()
-                elif key == "MEM_CARD_ID":
+                elif key == "CARD_ID":
                     raw, formatted = value
                     self._position["Card"] = (raw, formatted)
-                elif key == "MEM_BED_SIZE_X":
+                elif key == "BED_SIZE_X":
                     raw, formatted = value
                     self._position["BedX"] = (raw, formatted)
-                elif key == "MEM_BED_SIZE_Y":
+                elif key == "BED_SIZE_Y":
                     raw, formatted = value
                     self._position["BedY"] = (raw, formatted)
-                elif key == "MEM_MACHINE_STATUS":
+                elif key == "MACHINE_STATUS":
                     raw, formatted = value
-                    self._machine_status = int(raw)
+                    self._machine_status = raw
                     self._machine_status_formatted = formatted
                 elif key in (
                     "MACHINE_STATUS_MOVING",

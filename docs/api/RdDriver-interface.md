@@ -248,20 +248,20 @@ thread). UI applications must use thread-safe dispatch mechanisms
 | Property | Type | Description |
 |----------|------|-------------|
 | `is_connected` | `bool` | `True` if session exists AND controller is responding to pings. |
-| `machine_status` | `dict[int, Any]` | Read-only snapshot of decoded memory values, keyed by memory address. Contains position coordinates, status bits, card ID, bed dimensions. |
+| `machine_status` | `dict[int, Any]` | Read-only snapshot of decoded memory values, keyed by memory address. Values are the raw integers (dimensions are not converted to mm here — see §5.1). Contains position coordinates, status bits, card ID, bed dimensions. |
 
 ### 5.1 machine_status Contents
 
 | Address | Mnemonic | Value Type | Description |
 |---------|----------|------------|-------------|
 | `0x0400` | `MEM_MACHINE_STATUS` | `int` | Bitmask: bit 0=Moving, bit 1=Part end, bit 2=Job running |
-| `0x0420` | `MEM_CURRENT_POSITION_X` | `float \| int` | Current X (μm or mm depending on model) |
-| `0x0421` | `MEM_CURRENT_POSITION_Y` | `float \| int` | Current Y |
-| `0x0422` | `MEM_CURRENT_POSITION_Z` | `float \| int` | Current Z |
-| `0x0423` | `MEM_CURRENT_POSITION_U` | `float \| int` | Current U |
+| `0x0421` | `MEM_CURRENT_POSITION_X` | `int` | Current X (raw) |
+| `0x0431` | `MEM_CURRENT_POSITION_Y` | `int` | Current Y (raw) |
+| `0x0441` | `MEM_CURRENT_POSITION_Z` | `int` | Current Z (raw) |
+| `0x0451` | `MEM_CURRENT_POSITION_U` | `int` | Current U (raw) |
 | `0x057E` | `MEM_CARD_ID` | `int` | Card identifier |
-| `0x057F` | `MEM_BED_SIZE_X` | `float \| int` | Bed width |
-| `0x0580` | `MEM_BED_SIZE_Y` | `float \| int` | Bed height |
+| `0x0026` | `MEM_BED_SIZE_X` | `int` | Bed width (raw) |
+| `0x0036` | `MEM_BED_SIZE_Y` | `int` | Bed height (raw) |
 
 ---
 
@@ -317,20 +317,40 @@ Session-level events fired to status listeners:
 ### `StatusDict` (TypedDict)
 
 A dictionary of changed machine status values. Only keys whose values have
-changed since the last update are present. Each value is a
-`(raw_value, formatted_string)` tuple. Machine status bits are simple
-`bool` values.
+changed since the last update are present. Non-bool values are
+`(raw_value, formatted_string)` tuples.
+
+`MACHINE_STATUS` carries the raw status bitfield (`tuple[int, str]`); its
+decoded bool flags `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_LAYER_END`, and
+`MACHINE_STATUS_JOB_RUNNING` appear as separate keys when their bits change.
+Dimension values (`POSITION_*`, `BED_SIZE_*`) are `tuple[float, str]` with
+the float in millimeters.
+
+Formatted strings keep their Ruida prefixes (e.g. `"X=12.345mm"`,
+`"CardID:..."`, `"MStat:..."`) — they are display-only and unchanged.
 
 ```python
 class StatusDict(TypedDict, total=False):
-    MEM_CURRENT_POSITION_X: tuple[float, str]
-    MEM_CURRENT_POSITION_Y: tuple[float, str]
-    MEM_CURRENT_POSITION_Z: tuple[float, str]
-    MEM_CURRENT_POSITION_U: tuple[float, str]
-    MEM_CARD_ID: tuple[int, str]
-    MEM_BED_SIZE_X: tuple[float, str]
-    MEM_BED_SIZE_Y: tuple[float, str]
-    MEM_MACHINE_STATUS: tuple[int, str]
+    """Status update dict sent from RdDriver to status listeners.
+
+    All fields are optional — only keys that changed are present.
+    Non-bool values are (raw_value, formatted_string) tuples.
+
+    MACHINE_STATUS carries the raw status bitfield (tuple[int, str]);
+    its decoded bool flags MACHINE_STATUS_MOVING / _LAYER_END /
+    _JOB_RUNNING appear as separate keys when their bits change.
+    Dimension values (POSITION_*, BED_SIZE_*) are tuple[float, str]
+    with the float in mm.
+    """
+
+    POSITION_X: tuple[float, str]
+    POSITION_Y: tuple[float, str]
+    POSITION_Z: tuple[float, str]
+    POSITION_U: tuple[float, str]
+    CARD_ID: tuple[int, str]
+    BED_SIZE_X: tuple[float, str]
+    BED_SIZE_Y: tuple[float, str]
+    MACHINE_STATUS: tuple[int, str]
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_LAYER_END: bool
     MACHINE_STATUS_JOB_RUNNING: bool

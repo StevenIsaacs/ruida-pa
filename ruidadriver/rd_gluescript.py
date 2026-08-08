@@ -833,7 +833,7 @@ class GlueScript:
     ) -> None:
         """Sync tracked position from controller-reported coordinates.
 
-        Called when a live session receives MEM_CURRENT_POSITION replies.
+        Called when a live session receives position replies.
         While a job is being assembled or re-staged (_assembling), the
         position model is the trajectory cursor and must not be overwritten
         by replies — the update is then ignored.
