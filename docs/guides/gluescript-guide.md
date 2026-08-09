@@ -490,6 +490,17 @@ lines are dropped with an "Unknown command mnemonic" warning.
 These directives are transport-uniform: the identical calls work over RPC via
 `RpcGlueScript` (`rgs.delay(...)`, `rgs.wait(...)`).
 
+#### VSCode extension support
+
+The repo ships a workspace extension at
+`.vscode/extensions/local.gluescript-rpascript/` providing syntax
+highlighting, language configuration, and snippets for `.cglu`
+(GlueScript) and `.rds` (rpascript) files. Opening the repo as the VSCode
+workspace root prompts a one-time install, after which the extension
+auto-loads for this workspace. The 16 persisted GlueScript methods get
+snippets; rpascript gets structural command highlighting plus
+lowercase-directive keywords.
+
 ### 4.7 Staging and Execution
 
 #### `stage_gluescript(gluescript: list[str] | None = None) -> str`
