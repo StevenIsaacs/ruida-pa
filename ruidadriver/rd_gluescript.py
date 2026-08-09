@@ -369,6 +369,7 @@ class GlueScript:
         self._layer_attributes = {}
         self._layer_actions = {}
         self._job_complete = False
+        self._job_declared = False
         self._assembling = False
         self._inline_used = False
         self._inline_prelude = []
@@ -675,6 +676,15 @@ class GlueScript:
     #  Phase 4: Jogging & Homing Methods
     # ------------------------------------------------------------------ #
 
+    def _emit_live_lines(self, lines: list[str]) -> list[str] | None:
+        """Send generated live (jog/home) lines.
+
+        Default (pure) implementation: returns the lines unchanged so a
+        standalone GlueScript instance stays a pure generator. RdDriver
+        overrides this to actually send the lines (see ruida_driver.py).
+        """
+        return lines
+
     def jog_set_xy_speed(self, speed: float) -> None:
         """Set XY jog speed in mm/s."""
         self.jog_xy_speed = speed
@@ -700,11 +710,17 @@ class GlueScript:
         """Set relative U jog distance in mm."""
         self.u_rel = delta
 
-    def jog_xy_to(self, x: float, y: float) -> list[str]:
+    def jog_xy_to(self, x: float, y: float) -> list[str] | None:
         """Generate jog rpascript to move XY to absolute coordinate.
-        
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+
         Returns:
-            list[str]: rpascript lines for the jog command.
+            list[str] | None: rpascript lines for the jog command, or
+            None if nothing was sent.
         """
         lines = [
             f"SPEED_LASER_1 {self.jog_xy_speed}",
@@ -712,30 +728,46 @@ class GlueScript:
         ]
         self._current_x = x
         self._current_y = y
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_x_to(self, x: float) -> list[str]:
-        """Generate jog rpascript to move X to absolute coordinate."""
+    def jog_x_to(self, x: float) -> list[str] | None:
+        """Generate jog rpascript to move X to absolute coordinate.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+        """
         lines = [
             f"SPEED_LASER_1 {self.jog_xy_speed}",
             f"JOG_X Rel:MACHINE X={x}mm",
         ]
         self._current_x = x
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_y_to(self, y: float) -> list[str]:
-        """Generate jog rpascript to move Y to absolute coordinate."""
+    def jog_y_to(self, y: float) -> list[str] | None:
+        """Generate jog rpascript to move Y to absolute coordinate.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+        """
         lines = [
             f"SPEED_LASER_1 {self.jog_xy_speed}",
             f"JOG_Y Rel:MACHINE Y={y}mm",
         ]
         self._current_y = y
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_z_to(self, z: float) -> list[str]:
+    def jog_z_to(self, z: float) -> list[str] | None:
         """Generate jog rpascript to move Z to absolute coordinate.
-        
-        Warns if current Z is above 2000mm (suggesting Z home needed).
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent. Warns if current Z is above 2000mm (suggesting Z home
+        needed).
         """
         if z > 2000.0:
             logger.warning(
@@ -743,27 +775,37 @@ class GlueScript:
                 "A Z home may be required to establish the correct home position.",
                 z,
             )
-            return []
+            return self._emit_live_lines([])
         lines = [
             f"SPEED_LASER_1 {self.jog_z_speed}",
             f"JOG_Z Rel:MACHINE Z={z}mm",
         ]
         self._current_z = z
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_u_to(self, u: float) -> list[str]:
-        """Generate jog rpascript to move U to absolute coordinate."""
+    def jog_u_to(self, u: float) -> list[str] | None:
+        """Generate jog rpascript to move U to absolute coordinate.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+        """
         lines = [
             f"SPEED_LASER_1 {self.jog_u_speed}",
             f"JOG_U Rel:MACHINE U={u}mm",
         ]
         self._current_u = u
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_xy_rel(self, x: float | None = None, y: float | None = None) -> list[str]:
+    def jog_xy_rel(self, x: float | None = None, y: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move XY relative to current position.
-        
-        When x or y is None, the configured jog distance (x_rel / y_rel) is used.
+
+        When x or y is None, the configured jog distance (x_rel / y_rel)
+        is used. On RdDriver, sends the lines immediately via
+        _emit_live_lines; on a standalone GlueScript (default hook),
+        returns the generated lines unchanged. Returns the sent lines, or
+        None if nothing was sent.
         """
         if x is None:
             x = self.x_rel
@@ -775,10 +817,16 @@ class GlueScript:
         ]
         self._current_x += x
         self._current_y += y
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_x_rel(self, x: float | None = None) -> list[str]:
-        """Generate jog rpascript to move X relative to current position."""
+    def jog_x_rel(self, x: float | None = None) -> list[str] | None:
+        """Generate jog rpascript to move X relative to current position.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+        """
         if x is None:
             x = self.x_rel
         lines = [
@@ -786,10 +834,16 @@ class GlueScript:
             f"JOG_X Rel:CURRENT X={x}mm",
         ]
         self._current_x += x
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_y_rel(self, y: float | None = None) -> list[str]:
-        """Generate jog rpascript to move Y relative to current position."""
+    def jog_y_rel(self, y: float | None = None) -> list[str] | None:
+        """Generate jog rpascript to move Y relative to current position.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+        """
         if y is None:
             y = self.y_rel
         lines = [
@@ -797,12 +851,15 @@ class GlueScript:
             f"JOG_Y Rel:CURRENT Y={y}mm",
         ]
         self._current_y += y
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_z_rel(self, z: float | None = None) -> list[str]:
+    def jog_z_rel(self, z: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move Z relative to current position.
-        
-        A positive distance moves the table down.
+
+        A positive distance moves the table down. On RdDriver, sends the
+        lines immediately via _emit_live_lines; on a standalone
+        GlueScript (default hook), returns the generated lines unchanged.
+        Returns the sent lines, or None if nothing was sent.
         """
         if z is None:
             z = self.z_rel
@@ -811,10 +868,16 @@ class GlueScript:
             f"JOG_Z Rel:CURRENT Z={z}mm",
         ]
         self._current_z += z
-        return lines
+        return self._emit_live_lines(lines)
 
-    def jog_u_rel(self, u: float | None = None) -> list[str]:
-        """Generate jog rpascript to move U relative to current position."""
+    def jog_u_rel(self, u: float | None = None) -> list[str] | None:
+        """Generate jog rpascript to move U relative to current position.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+        """
         if u is None:
             u = self.u_rel
         lines = [
@@ -822,7 +885,7 @@ class GlueScript:
             f"JOG_U Rel:CURRENT U={u}mm",
         ]
         self._current_u += u
-        return lines
+        return self._emit_live_lines(lines)
 
     def update_position(
         self,
@@ -852,29 +915,48 @@ class GlueScript:
         if u is not None:
             self._current_u = float(u)
 
-    def home(self) -> list[str]:
+    def home(self) -> list[str] | None:
         """Generate rpascript to home the X and Y axes.
 
-        Returns:
-            list[str]: rpascript lines for the home command.
-        """
-        return ["HOME_XY"]
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
 
-    def home_z(self) -> list[str]:
+        Returns:
+            list[str] | None: rpascript lines for the home command.
+        """
+        lines = ["HOME_XY"]
+        return self._emit_live_lines(lines)
+
+    def home_z(self) -> list[str] | None:
         """Generate rpascript to home the Z axis.
 
-        Returns:
-            ["HOME_Z"] as rpascript to home the Z axis.
-        """
-        return ["HOME_Z"]
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
 
-    def home_u(self) -> list[str]:
+        Returns:
+            list[str] | None: ["HOME_Z"] as rpascript to home the Z axis.
+        """
+        lines = ["HOME_Z"]
+        return self._emit_live_lines(lines)
+
+    def home_u(self) -> list[str] | None:
         """Generate rpascript to home the U axis (rotary).
 
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+
         Returns:
-            ["HOME_U"] as rpascript to home the U axis (rotary).
+            list[str] | None: ["HOME_U"] as rpascript to home the U axis
+            (rotary).
         """
-        return ["HOME_U"]
+        lines = ["HOME_U"]
+        return self._emit_live_lines(lines)
 
     # ------------------------------------------------------------------ #
     #  Phase 5: Layer Actions — Moves, Cuts & Power
@@ -1174,6 +1256,7 @@ class GlueScript:
             self._layer_attributes = {}
             self._layer_actions = {}
             self._job_complete = False
+            self._job_declared = False
             self._layer = 0
             self._inline_used = False
             self._inline_prelude = []

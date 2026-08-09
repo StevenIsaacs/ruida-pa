@@ -106,8 +106,11 @@ Home the X and Y axes (machine origin).
 
 Prototype:
 ```
-home() -> list[str]
+home() -> list[str] | None
 ```
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to and returns:
 ```
 ["HOME_XY"]
@@ -117,8 +120,11 @@ Home the Z axis.
 
 Prototype:
 ```
-home_z() -> list[str]
+home_z() -> list[str] | None
 ```
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to and returns:
 ```
 ["HOME_Z"]
@@ -128,8 +134,11 @@ Home the U axis (rotary).
 
 Prototype:
 ```
-home_u() -> list[str]
+home_u() -> list[str] | None
 ```
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to and returns:
 ```
 ["HOME_U"]
@@ -167,18 +176,21 @@ jog_set_u_speed(speed: float)
 Parameters:
 - `speed`: The speed in mm/S.
 ### Jogging `rpascript` Generators
-Unlike the script management methods (below) these immediately return the corresponding `rpascript` commands which can then be run using the `RdDriver.run` method.
+On `RdDriver`, these methods generate the rpascript lines AND send them immediately (single call); on a standalone `GlueScript` instance they remain pure generators that return the lines. Do not pass the returned lines to `RdDriver.run()` — they are already sent.
 #### jog_xy_to(...)
 Move the laser head to an absolute X,Y coordinate relative to the machine home.
 
 Prototype:
 ```
-jog_xy_to(x: float, y: float) -> list[str]
+jog_xy_to(x: float, y: float) -> list[str] | None
 ```
 
 Parameters:
 - `x`: The X coordinate relative to the machine home.
 - `y`: The Y coordinate relative to the machine home.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to and returns:
 ```
 SPEED_LASER_1 {self.jog_xy_speed}
@@ -189,10 +201,13 @@ Move the laser head to an absolute X coordinate relative to the machine home.
 
 Prototype:
 ```
-jog_x_to(x: float) -> list[str]
+jog_x_to(x: float) -> list[str] | None
 ```
 Parameters:
 - `x`: The X coordinate relative to the machine home.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to:
 ```
 SPEED_LASER_1 {self.jog_xy_speed}
@@ -203,11 +218,14 @@ Move the laser head to an absolute Y coordinate relative to the machine home.
 
 Prototype:
 ```
-jog_y_to(y: float) -> list[str]
+jog_y_to(y: float) -> list[str] | None
 ```
 
 Parameters:
 - `y`: The Y coordinate relative to the machine home.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to:
 ```
 SPEED_LASER_1 {self.jog_xy_speed}
@@ -220,11 +238,14 @@ Move the laser head to an absolute Z coordinate relative to the machine home.
 
 Prototype:
 ```
-jog_z_to(z: float) -> list[str]
+jog_z_to(z: float) -> list[str] | None
 ```
 
 Parameters:
 - `z`: The Z coordinate relative to the machine home.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to:
 ```
 SPEED_LASER_1 {self.jog_z_speed}
@@ -235,11 +256,13 @@ Move the laser head to an absolute U coordinate relative to the machine home.
 
 Prototype:
 ```
-jog_u_to(u: float) -> list[str]
+jog_u_to(u: float) -> list[str] | None
 ```
 
 Parameters:
 - `u`: The U coordinate relative to the machine home.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
 #### jog_set_xy_rel(...)
 Set the relative jog distance for both the X and Y axis. These default to 10.000mm.
 
@@ -275,12 +298,15 @@ Move the laser head to an absolute X,Y coordinate relative to the current positi
 
 Prototype:
 ```
-jog_xy_rel(x: float=None, y: float=None) -> list[str]
+jog_xy_rel(x: float=None, y: float=None) -> list[str] | None
 ```
 
 Parameters:
 - `x`: The X coordinate relative to the current position. If this is `None` then the configured jog distance (`x_rel`) is used.
 - `y`: The Y coordinate relative to the current position. If this is `None` then the configured jog distance (`y_rel`) is used.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to:
 ```
 SPEED_LASER_1 {self.jog_xy_speed}
@@ -291,10 +317,13 @@ Move the laser head to an absolute X coordinate relative to the current position
 
 Prototype:
 ```
-jog_x_rel(x: float=None) -> list[str]
+jog_x_rel(x: float=None) -> list[str] | None
 ```
 Parameters:
 - `x`: The X coordinate relative to the current position. If this is `None` then the configured jog distance (`x_rel`) is used.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to:
 ```
 SPEED_LASER_1 {self.jog_xy_speed}
@@ -305,11 +334,14 @@ Move the laser head to an absolute Y coordinate relative to the current position
 
 Prototype:
 ```
-jog_y_rel(y: float=None) -> list[str]
+jog_y_rel(y: float=None) -> list[str] | None
 ```
 
 Parameters:
 - `y`: The Y coordinate relative to the job current position. If this is `None` then the configured jog distance (`y_rel`) is used.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to:
 ```
 SPEED_LASER_1 {self.jog_xy_speed}
@@ -320,11 +352,14 @@ Move the laser head to an absolute Z coordinate relative to the current position
 
 Prototype:
 ```
-jog_z_rel(z: float=None) -> list[str]
+jog_z_rel(z: float=None) -> list[str] | None
 ```
 
 Parameters:
 - `z`: The Z coordinate relative to the current position. If this is `None` then the configured jog distance (`z_rel`) is used.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to:
 ```
 SPEED_LASER_1 {self.jog_z_speed}
@@ -335,11 +370,14 @@ Move the laser head to an absolute U coordinate relative to the current position
 
 Prototype:
 ```
-jog_u_rel(u: float = None) -> list[str]
+jog_u_rel(u: float = None) -> list[str] | None
 ```
 
 Parameters:
 - `u`: The U coordinate relative to the current position. If this is `None` then the configured jog distance (`u_rel`) is used.
+
+Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active session).
+
 Expands to:
 ```
 SPEED_LASER_1 {self.jog_xy_speed}

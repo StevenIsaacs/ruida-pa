@@ -962,6 +962,31 @@ class RdDriver(GlueScript):
         """True if the session exists AND is connected to the controller."""
         return self._session is not None and self._session.is_connected
 
+    def _emit_live_lines(self, lines: list[str]) -> list[str] | None:
+        """Send generated live (jog/home) lines to the controller.
+
+        Single-call live-command path: generates and sends in one call.
+        Returns the sent lines, or None when nothing was sent.
+
+        Args:
+            lines: rpascript lines produced by a jog/home method.
+
+        Returns:
+            The sent lines, or None if lines were empty, no session is
+            connected, or the script runner is not started.
+        """
+        if not lines:
+            return None
+        if not self.is_connected:
+            logging.warning("live command ignored - no active session")
+            return None
+        try:
+            self.run(lines)
+        except RuntimeError as exc:
+            logging.warning("live command not sent - %s", exc)
+            return None
+        return lines
+
     @property
     def machine_status(self) -> dict[int, Any]:
         """Current machine status dict (address → decoded value). Read-only snapshot."""

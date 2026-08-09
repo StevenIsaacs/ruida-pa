@@ -2521,33 +2521,21 @@ class TuiAdapter(App):
     def _gluescript_live_command(
         self, name: str, *args: Any
     ) -> list[str] | None:
-        """Run a live-only GlueScript command (jog or home) on the driver.
+        """Run a live gluescript command (jogs/homing) against the driver.
 
-        Mirrors ``_handle_live_command`` for the RPC delegate layer: the
-        driver is created lazily, movement and homing commands require a
-        connected session (``jog_set_*`` setters do not), and generated
-        rpascript lines are sent to the controller. Returns the sent lines,
-        or None when nothing was sent.
+        The driver's jog/home methods now generate AND send the lines in
+        a single call (see _emit_live_lines); this delegate no longer
+        needs a separate driver.run() step.
         """
         driver = self._ensure_gluescript_driver()
         if not name.startswith("jog_set_") and not driver.is_connected:
             self._log_warning(f"gluescript {name} ignored — no active session")
             return None
         result = getattr(driver, name)(*args)
-        if not isinstance(result, list):
-            return None  # jog_set_* setters return None
-        if not result:
-            self._log_warning(
-                f"gluescript {name} ignored — "
-                "command produced no rpascript lines"
-            )
-            return None
-        try:
-            driver.run(result)
-        except RuntimeError as exc:
-            self._log_warning(f"gluescript {name} not sent — {exc}")
-            return None
-        self._log_info(f"gluescript {name} sent to controller")
+        if result is None and not name.startswith("jog_set_"):
+            self._log_warning(f"gluescript {name} not sent")
+        if isinstance(result, list) and result:
+            self._log_info(f"gluescript {name} sent to controller")
         return result
 
     def gluescript_new_gluescript(self) -> None:
@@ -3166,7 +3154,8 @@ class TuiAdapter(App):
             # Movement jogs mutate position tracking, and home commands are
             # machine actions, so check connectivity before invoking them;
             # is_connected does not guarantee the background script runner
-            # thread is alive — run() raises RuntimeError when it isn't.
+            # thread is alive — run() can still raise RuntimeError, but
+            # that is now handled inside _emit_live_lines.
             if not name.startswith("jog_set_") and not driver.is_connected:
                 self._log_warning(f"{name} ignored — no active session")
                 return
@@ -3177,18 +3166,14 @@ class TuiAdapter(App):
                 self._log_error(f"Usage: {self._cmd_descriptions.get(name, name)}")
                 return
 
-            if isinstance(result, list):
-                if not result:
-                    self._log_warning(f"{name} ignored — command produced no rpascript lines")
-                    return
-                try:
-                    driver.run(result)
-                except RuntimeError as e:
-                    self._log_warning(f"{name} not sent — {e}")
-                    return
+            if isinstance(result, list) and result:
                 self._log_info(f"{name} sent to controller")
-            else:
+            elif name.startswith("jog_set_"):
                 self._log_info(f"{name} applied")
+            else:
+                self._log_warning(
+                    f"{name} not sent — see driver log for details"
+                )
         except Exception as e:
             self._log_error(f"{type(e).__name__}: {e}")
 

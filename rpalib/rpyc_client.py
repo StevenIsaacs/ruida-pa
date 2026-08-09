@@ -60,11 +60,19 @@ or run the drift check.
 
 Getter semantics
 ----------------
-``get_gluescript()``, ``get_rpascript()`` and ``job_complete()`` report the
-server's LAST-FLUSHED state. Between flushes, buffered actions exist only in
-the client's ``_transcript`` and are invisible to the getters until the next
-boundary flush. ``sync()`` re-baselines the transcript, ``_flushed_count``,
-``_current_mode`` and ``_job_complete`` from that last-flushed state.
+The ``gluescript``, ``rpascript`` and ``job_complete`` attributes report the
+server's LAST-FLUSHED state; the retained method aliases ``get_gluescript()``
+and ``get_rpascript()`` return the same values. Between flushes, buffered
+actions exist only in the client's ``_transcript`` and are invisible to the
+getters until the next boundary flush. ``sync()`` re-baselines the
+transcript, ``_flushed_count``, ``_current_mode`` and ``_job_complete`` from
+that last-flushed state.
+
+The attribute forms (``gluescript``, ``rpascript``, ``job_complete``,
+``is_connected``) and the lifecycle/execution passthroughs (``start``,
+``stop``, ``run``, ``run_job``, and the head/tail script setters and
+getters) mirror the direct RdDriver surface, so an app adapter needs no
+separate direct-vs-RPC path.
 """
 
 from __future__ import annotations
@@ -231,10 +239,10 @@ class RpcGlueScript:
     def new_gluescript(self) -> None:
         """Reset all script data for a new job (forwarded immediately).
 
-        Deliberately stricter than the driver's ``new_gluescript()``: the
-        driver resets ``_job_complete`` but NOT ``_job_declared``, whereas
-        this client clears both so that ``end_job()`` after a bare
-        ``new_gluescript()`` fails fast locally. Also re-zeros
+        Identical strictness to the driver's ``new_gluescript()``: both
+        this client and the driver reset ``_job_declared`` and
+        ``_job_complete``, so ``end_job()`` after a bare
+        ``new_gluescript()`` fails fast on either side. Also re-zeros
         ``_flushed_count``: the forwarded server reset empties the server
         transcript, restoring ``len(server) == _flushed_count == 0``.
         """
@@ -467,16 +475,99 @@ class RpcGlueScript:
         return self._svc.stage_gluescript(gluescript, require_complete)
 
     def get_gluescript(self) -> list[str]:
-        """Return the server's gluescript transcript (last-flushed state)."""
+        """Return the server's gluescript transcript (last-flushed state).
+
+        Method alias for the ``gluescript`` property; both mirror the
+        direct driver's ``gluescript`` attribute.
+        """
         return list(self._svc.get_gluescript())
 
     def get_rpascript(self) -> list[str]:
-        """Return the server's assembled rpascript (last-flushed state)."""
+        """Return the server's assembled rpascript (last-flushed state).
+
+        Method alias for the ``rpascript`` property; both mirror the
+        direct driver's ``rpascript`` attribute.
+        """
         return list(self._svc.get_rpascript())
 
+    @property
+    def gluescript(self) -> list[str]:
+        """Server-side gluescript transcript (last-flushed state).
+
+        Mirrors the direct driver's ``gluescript`` attribute.
+        """
+        return list(self.get_gluescript())
+
+    @property
+    def rpascript(self) -> list[str]:
+        """Server-side assembled rpascript (last-flushed state).
+
+        Mirrors the direct driver's ``rpascript`` attribute.
+        """
+        return list(self.get_rpascript())
+
+    @property
     def job_complete(self) -> bool:
-        """Return whether the server job was finalized (last-flushed state)."""
+        """True once the server-side job has been finalized (last-flushed).
+
+        Mirrors the direct driver's ``job_complete`` attribute.
+        """
         return bool(self._svc.job_complete())
+
+    @property
+    def is_connected(self) -> bool:
+        """True when the server-side session is connected.
+
+        Mirrors the direct driver's ``is_connected`` attribute.
+        """
+        return bool(self._svc.is_connected())
+
+    # ------------------------------------------------------------------ #
+    #  Lifecycle and execution — forwarded passthroughs
+    # ------------------------------------------------------------------ #
+
+    def start(
+        self,
+        udp_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+    ) -> bool:
+        """Start the server-side driver/session. Mirrors RdDriver.start()."""
+        return bool(
+            self._svc.start(
+                udp_host=udp_host, usb_device=usb_device, magic=magic
+            )
+        )
+
+    def stop(self) -> None:
+        """Stop the server-side session. Mirrors RdDriver.stop()."""
+        self._svc.stop()
+
+    def run(self, script: list[str], auto_checksum: bool = False) -> None:
+        """Queue an rpascript script on the server-side driver."""
+        self._svc.run(script, auto_checksum=auto_checksum)
+
+    def run_job(
+        self, job: list[str] | None = None, auto_checksum: bool = False
+    ) -> None:
+        """Run a job on the server, composing head + job + tail."""
+        self._svc.run_job(job, auto_checksum=auto_checksum)
+
+    def set_head_script(self, script: list[str]) -> None:
+        """Set the server-side head script. Mirrors RdDriver."""
+        self._svc.set_head_script(script)
+
+    def get_head_script(self) -> list[str]:
+        """Return the server-side head script. Mirrors RdDriver."""
+        return list(self._svc.get_head_script())
+
+    def set_tail_script(self, script: list[str]) -> None:
+        """Set the server-side tail script. Mirrors RdDriver."""
+        self._svc.set_tail_script(script)
+
+    def get_tail_script(self) -> list[str]:
+        """Return the server-side tail script. Mirrors RdDriver."""
+        return list(self._svc.get_tail_script())
 
     # ------------------------------------------------------------------ #
     #  Live-only commands — jogs, homing, config setters (forwarded)

@@ -435,6 +435,21 @@ The decoded output should preserve the original section order, parameter
 values, and command count. Discrepancies usually indicate incorrect
 parameter encoding or omitted sections.
 
+### 2.11 Live Jog & Home Commands (single-call)
+
+The jog and home commands are **live-only**: `jog_*`, `home`, `home_z`, and
+`home_u` generate AND send in a single call when the driver is started and a
+session is connected. They return the rpascript lines sent, or `None` when
+nothing was sent — no active session, script runner not started, or the
+command produced no lines (e.g. `jog_z_to` above 2000mm).
+
+> **CRITICAL:** do NOT pass the returned lines to `run()` — the lines are
+> already sent; doing so double-sends the jog.
+
+The `jog_set_*` config setters return `None` and configure the live jog
+session without a session. These commands are live-only and never persisted
+to `.cglu`.
+
 ---
 
 ## 3. TUI Emulation for Testing
@@ -1017,7 +1032,12 @@ All GlueScript methods are directly callable as exposed `RdDriver` methods:
 the 40 RPC-exposed GlueScript job-authoring and live-command methods are inherited by the
 driver itself — there is no separate `GlueScript` object; the
 `get_gluescript`/`get_rpascript` methods are adapter-level getters returning
-copies of the driver's gluescript/rpascript state. Developers call these methods
+copies of the driver's gluescript/rpascript state. These getters are also
+available as attributes: `driver.gluescript`, `driver.rpascript`, and
+`driver.job_complete` on the direct driver, and `rgs.gluescript`,
+`rgs.rpascript`, and `rgs.job_complete` on the RPC wrapper (the RPC forms
+report the server's last-flushed state; `get_gluescript()`/`get_rpascript()`
+remain as method aliases on the wrapper). Developers call these methods
 directly on the `RdDriver` instance, which inherits them from `GlueScript`, and
 the RPC service exposes them through the same **unprefixed** names on that
 instance: `svc.declare_job(...)`, `svc.jog_xy_to(...)`, `svc.stage_gluescript()`.
@@ -1082,11 +1102,14 @@ its signature, return type, and whether a connected session is required.
 | **Getters** | | | |
 | `get_gluescript` | `()` | `list[str]` | No |
 | `get_rpascript` | `()` | `list[str]` | No |
-| `job_complete` | `()` | `bool` | No |
+| `job_complete` | `(attribute)` | `bool` | No |
 
-**Returns for live commands:** Movement jogs and homing return the rpascript
-lines sent to the controller when connected; `None` when disconnected, or when
-the command produces no lines.
+**Returns for live commands:** Movement jogs and homing generate AND send in
+a single call on both transports — direct `RdDriver` and over RPC — returning
+the rpascript lines sent to the controller, or `None` when disconnected, or
+when the command produces no lines. The returned lines are for inspection
+only: do NOT pass them to `run()` — they are already sent; doing so
+double-sends the jog.
 
 **Session-less authoring:** The 18 authoring methods work with no connected
 session — they build a job in the driver's GlueScript state. `stage_gluescript()`
@@ -1260,9 +1283,10 @@ re-stage loses it. Clients that inject `add_layer_action` lines should
 re-inject them after any fallback (detected by the client when the delta
 guard rejects the suffix).
 
-**Getters report the last-flushed server state:** `get_gluescript()`,
-`get_rpascript()`, and `job_complete()` reflect the server's state after the
-most recent flush. Between flushes, buffered actions exist only in the
+**Getters report the last-flushed server state:** the `gluescript`,
+`rpascript`, and `job_complete` attributes reflect the server's state after
+the most recent flush (`get_gluescript()`/`get_rpascript()` remain as method
+aliases on the wrapper). Between flushes, buffered actions exist only in the
 client's local transcript and are invisible to the getters until the next
 boundary flush.
 

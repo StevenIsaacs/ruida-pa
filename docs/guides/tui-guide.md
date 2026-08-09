@@ -40,7 +40,7 @@ as an argument, it is processed in batch mode instead (see `rpa-script --help`).
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.15.0               [Header]   │
+│  Ruida Script TUI v0.15.1               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │

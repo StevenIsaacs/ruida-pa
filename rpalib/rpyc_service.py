@@ -272,9 +272,19 @@ class RpycTuiService(rpyc.Service):
 
     # --- Lifecycle ---
 
-    def exposed_start(self, udp_host: str | None = None, usb_device: str | None = None) -> bool:
-        self._rpc_info(f"[RPC] RPC start(udp_host={udp_host!r}, usb_device={usb_device!r})")
-        return self._adapter.start(udp_host=udp_host, usb_device=usb_device)
+    def exposed_start(
+        self,
+        udp_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+    ) -> bool:
+        self._rpc_info(
+            f"[RPC] RPC start(udp_host={udp_host!r}, "
+            f"usb_device={usb_device!r}, magic={'***' if magic is not None else None})"
+        )
+        return self._adapter.start(
+            udp_host=udp_host, usb_device=usb_device, magic=magic
+        )
 
     def exposed_stop(self) -> None:
         self._rpc_info("[RPC] RPC stop()")
