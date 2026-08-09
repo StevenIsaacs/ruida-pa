@@ -2556,6 +2556,18 @@ class TuiAdapter(App):
             lambda: self._ensure_gluescript_driver().inline(commands)
         )
 
+    def gluescript_delay(self, time: str | int | float) -> None:
+        """Append a runner-directive DELAY at the call point (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().delay(time)
+        )
+
+    def gluescript_wait(self, status: str, to: str | int | float | None = None) -> None:
+        """Wait for a machine status bit at the call point (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().wait(status, to)
+        )
+
     def gluescript_declare_job(
         self,
         label: str,

@@ -50,6 +50,8 @@ GlueScript handles all of this automatically:
 - **Deferred variable expansion** — values like bounding box coordinates can be
   referenced as `{self.doc_tr_x}` and are filled in at finalization time.
 
+Since rpascript represents the current understanding  of the Ruida controller protocol and is the result of the the combined efforts of several people who have contributed their discoveries over a period of several years. Little by little this understanding has grown but is by no means complete at this time. Because of this rpascript is subject to change as more discoveries are made. This can lead to revision hashing for applications needing to communicate with Ruida controllers of different types.  The goal of GlueScript is to insulate applications from as much of this thrashing and protocol idiosyncrasies as possible..
+
 ---
 
 ## 2. Architecture
@@ -435,6 +437,58 @@ CUT_FAR_XY X=150.000mm Y=50.000mm
 ```
 
 A warning is logged during staging if `inline()` was used.
+
+### 4.6.1 Flow Control Directives
+
+#### `delay(time: str | int | float)`
+
+Append a pause between rpascript commands at the call point. Emits a
+runner-directive line the runner executes inline during script playback — the
+command is never encoded or sent to the controller.
+
+`delay()` accepts seconds as a number (`0.5`, `30`) or a unit-suffixed string
+(`"500ms"`, `"30s"`); numeric seconds are normalized to a unit-suffixed token
+(`30` → `delay 30s`, `0.5` → `delay 0.5s`). Strings must carry a unit suffix
+and are compacted to a whitespace-free token. Invalid values log a warning and
+no-op.
+
+```python
+driver.delay(0.5)          # Produces: delay 0.5s
+driver.delay("500ms")      # Produces: delay 500ms
+```
+
+#### `wait(status: str, to: str | int | float | None = None)`
+
+Block the runner until a machine status bit matches at the call point. Emits a
+runner-directive line the runner polls against live machine status during
+script playback — never encoded or sent to the controller.
+
+`status` is a `MACHINE_STATUS_*` name passed verbatim; a leading `!` waits for
+the full active→inactive lifecycle (active, then cleared). The name is
+validated at run time by the runner, not at authoring time. The optional
+`to=` timeout accepts the same time forms as `delay()` (`to=30s`,
+`to=500ms`).
+
+```python
+driver.wait("MACHINE_STATUS_MOVING")
+driver.wait("!MACHINE_STATUS_JOB_RUNNING", to=30)   # Produces: wait !MACHINE_STATUS_JOB_RUNNING to=30s
+```
+
+**Runner-directive semantics:** Both directives are executed inline by the
+runner thread and are part of a saved job — persistable to, and replayed
+from, `.cglu` files — unlike jog/home live-only commands (see Section 5).
+Position-aware placement matches `inline()`: before any layer is declared the
+directive lands right after the job header; inside a declared layer it lands
+in that layer's action block at the call position; after `end_job()` it lands
+just before the closing `END_JOB` line. Calls before `declare_job()` are
+discarded by the job reset.
+
+The emitted rpascript uses **lowercase** mnemonics (`delay`, `wait`) — the
+rpascript interpreter matches them case-sensitively; uppercase `DELAY`/`WAIT`
+lines are dropped with an "Unknown command mnemonic" warning.
+
+These directives are transport-uniform: the identical calls work over RPC via
+`RpcGlueScript` (`rgs.delay(...)`, `rgs.wait(...)`).
 
 ### 4.7 Staging and Execution
 
@@ -983,6 +1037,7 @@ commands.
 new_gluescript
 comment
 inline
+delay, wait
 declare_job
 end_job
 declare_layer

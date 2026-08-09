@@ -463,6 +463,50 @@ inline([
 	])
 ```
 
+### Flow Control
+
+Runner-directive methods. The emitted `delay`/`wait` lines are executed inline
+by the runner thread — they are never encoded or sent to the controller.
+Unlike jog/home live commands, they are part of a saved job and are replayed
+from a persisted gluescript. Position-aware placement matches `inline()`:
+before any layer is declared the line lands right after the job header; inside
+a declared layer it lands in that layer's action block at the call position;
+after `end_job()` it lands just before the closing `END_JOB` line. Calls
+before `declare_job()` are discarded by the job reset. The rpascript
+interpreter matches the mnemonics case-sensitively in lowercase; uppercase
+`DELAY`/`WAIT` lines are dropped with an "Unknown command mnemonic" warning.
+
+#### delay(...)
+Append a pause between rpascript commands at the call point.
+
+Prototype:
+```
+delay(time: str | int | float) -> None
+```
+
+Parameters:
+- `time` = Seconds as a number (e.g. `30`, `0.5`) or a unit-suffixed string (e.g. `'500ms'`, `'30s'`). Numeric seconds are normalized to a unit-suffixed token (`30` → `30s`, `0.5` → `0.5s`); strings must carry a unit suffix and are compacted to a whitespace-free token (`'1.5 ms'` → `1.5ms`). Invalid values log a warning and no-op.
+
+Returns: `None`.
+
+Emits a runner-directive line, e.g. `delay 30s`.
+
+#### wait(...)
+Wait for a machine status bit at the call point.
+
+Prototype:
+```
+wait(status: str, to: str | int | float | None = None) -> None
+```
+
+Parameters:
+- `status` = A `MACHINE_STATUS_*` name passed through verbatim; a leading `!` waits for the full active→inactive lifecycle (the status must first become active, then clear). The name is validated at run time by the runner, not at authoring time.
+- `to` = Optional timeout in seconds (number) or as a unit-suffixed string (e.g. `'30s'`); normalized like `delay()`'s time.
+
+Returns: `None`.
+
+Emits a runner-directive line, e.g. `wait MACHINE_STATUS_MOVING` or `wait !MACHINE_STATUS_JOB_RUNNING to=30s`.
+
 ### declare_job(...)
 Initializes new `gluescript` and `rpascript` lists and adds the job declaration.
 

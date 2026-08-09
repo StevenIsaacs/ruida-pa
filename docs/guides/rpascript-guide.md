@@ -398,8 +398,8 @@ background runner thread and is interruptible by `cancel_script()` or
 `stop()`.
 
 ```rds
-DELAY 5s       # Wait 5 seconds
-DELAY 500ms    # Wait 500 milliseconds
+delay 5s       # Wait 5 seconds
+delay 500ms    # Wait 500 milliseconds
 ```
 
 ### WAIT
@@ -409,14 +409,14 @@ blocks during polling but remains responsive to shutdown signals.
 
 ```rds
 # Wait for the machine to start moving
-WAIT MACHINE_STATUS_MOVING
+wait MACHINE_STATUS_MOVING
 
 # Wait for the machine to stop moving
-WAIT !MACHINE_STATUS_MOVING
+wait !MACHINE_STATUS_MOVING
 
 # Wait for a job to complete (active → then inactive)
-WAIT !MACHINE_STATUS_JOB_RUNNING     # No timeout
-WAIT !MACHINE_STATUS_JOB_RUNNING to=30s  # With timeout
+wait !MACHINE_STATUS_JOB_RUNNING     # No timeout
+wait !MACHINE_STATUS_JOB_RUNNING to=30s  # With timeout
 ```
 
 The `!` prefix means "wait for active, then wait for inactive" — it
@@ -432,7 +432,7 @@ with an error event.
 ```rds
 # Home and wait for completion
 HOME_XY
-WAIT !MACHINE_STATUS_MOVING to=30s
+wait !MACHINE_STATUS_MOVING to=30s
 
 # Cut a line and wait for it to finish
 SET_ABSOLUTE
@@ -441,7 +441,7 @@ LASER_ON Power=80%
 SPEED_LASER_1 Speed=150mm/S
 CUT_FAR_XY X=110mm Y=10mm
 LASER_OFF
-WAIT !MACHINE_STATUS_MOVING to=30s
+wait !MACHINE_STATUS_MOVING to=30s
 ```
 
 ---
@@ -498,7 +498,7 @@ warning and auto-corrects).
 # Home all axes
 HOME_XY
 HOME_Z
-WAIT !MACHINE_STATUS_MOVING to=30s
+wait !MACHINE_STATUS_MOVING to=30s
 
 # Read the resulting position
 GET_SETTING MEM_CURRENT_POSITION_X
@@ -525,7 +525,7 @@ CUT_FAR_XY X=50mm Y=150mm
 CUT_FAR_XY X=50mm Y=50mm
 LASER_OFF
 
-WAIT !MACHINE_STATUS_MOVING to=60s
+wait !MACHINE_STATUS_MOVING to=60s
 ```
 
 ### Multipower Cut with Layers
@@ -548,7 +548,7 @@ CUT_FAR_XY X=200mm Y=100mm
 
 ```rds
 HOME_XY
-WAIT !MACHINE_STATUS_MOVING to=30s
+wait !MACHINE_STATUS_MOVING to=30s
 
 SET_ABSOLUTE
 START_JOB
@@ -601,7 +601,7 @@ driver.start(udp_host="192.168.1.100")
 
 script = [
     "HOME_XY",
-    "WAIT !MACHINE_STATUS_MOVING to=30s",
+    "wait !MACHINE_STATUS_MOVING to=30s",
     "GET_SETTING MEM_CURRENT_POSITION_X",
     "GET_SETTING MEM_CURRENT_POSITION_Y",
 ]

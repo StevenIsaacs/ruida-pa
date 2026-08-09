@@ -157,9 +157,9 @@ via `driver.rpascript` (or `get_rpascript()` over RPC).
 
 | Command | Syntax | Description |
 |---------|--------|-------------|
-| `DELAY` | `DELAY 5s` or `DELAY 500ms` | Blocking sleep in the runner thread. Interruptible by `stop()`. |
-| `WAIT` | `WAIT MACHINE_STATUS_MOVING` | Poll machine status bit until active (set). |
-| `WAIT !` | `WAIT !MACHINE_STATUS_JOB_RUNNING to=30s` | Wait for full lifecycle: active → then inactive. Optional `to=` timeout. |
+| `DELAY` | `delay 5s` or `delay 500ms` | Blocking sleep in the runner thread. Interruptible by `stop()`. |
+| `WAIT` | `wait MACHINE_STATUS_MOVING` | Poll machine status bit until active (set). |
+| `WAIT !` | `wait !MACHINE_STATUS_JOB_RUNNING to=30s` | Wait for full lifecycle: active → then inactive. Optional `to=` timeout. |
 
 ### 2.5 Properties
 
@@ -601,20 +601,46 @@ for optional pre/postamble around the staged job.
 
 ### Pattern 4 — Flow Control
 
-Test `DELAY` and `WAIT` behavior by examining the driver's flow-control handlers:
+Test `delay` and `wait` behavior by examining the driver's flow-control
+handlers. `DELAY`/`WAIT` are **runner-side directives**: the runner processes
+them inline in the runner thread — they are never encoded or sent to the
+controller. The rpascript interpreter matches the mnemonics case-sensitively
+in lowercase; uppercase `DELAY`/`WAIT` lines fall through to an "Unknown
+command mnemonic" warning and are dropped:
 
 ```python
 script = [
-    "DELAY 500ms",
-    "WAIT MACHINE_STATUS_MOVING",
-    "WAIT !MACHINE_STATUS_JOB_RUNNING to=30s",
+    "delay 500ms",
+    "wait MACHINE_STATUS_MOVING",
+    "wait !MACHINE_STATUS_JOB_RUNNING to=30s",
     "MOVE_FAR_XY X=100mm Y=200mm",
 ]
 # The driver processes these inline in the runner thread:
-# - DELAY: time.sleep(0.5)
-# - WAIT: polls machine status bit until set
-# - WAIT !: polls until bit is set then cleared (with timeout)
+# - delay: time.sleep(0.5)
+# - wait: polls machine status bit until set
+# - wait !: polls until bit is set then cleared (with timeout)
 ```
+
+The GlueScript equivalents are `delay()` and `wait()`, and are identical over
+RPC via `RpcGlueScript`:
+
+```python
+gs = GlueScript()
+gs.declare_job("Flow Control Demo")
+gs.declare_layer("Layer 1", "#ff0000")
+gs.delay(0.5)                            # pause 500ms (numeric seconds)
+gs.wait("MACHINE_STATUS_MOVING")         # wait for the moving status bit
+gs.wait("!MACHINE_STATUS_JOB_RUNNING", to=30)  # wait for job completion, 30s timeout
+gs.move_xy_to(100, 200)                  # emits MOVE_FAR_XY (auto-selected beyond 8.192mm)
+gs.end_job()
+gs.stage_gluescript()   # -> rpascript contains: delay 0.5s / wait MACHINE_STATUS_MOVING / wait !MACHINE_STATUS_JOB_RUNNING to=30s / MOVE_FAR_XY ...
+```
+
+`delay()`/`wait()` accept seconds as a number or a unit-suffixed string
+(`0.5`, `"500ms"`, `"30s"`); `wait()` status names are validated at run time
+by the runner. These directives are part of the saved job (persistable, unlike
+jog/home live commands), and the identical calls work over RPC via
+`RpcGlueScript` (`rgs.delay(...)`, `rgs.wait(...)`).
 
 ### Pattern 5 — Capture Pipeline Round-Trip
 
@@ -1028,8 +1054,8 @@ locally and pushes to the driver once the session is active.
 ### 8.9 GlueScript Job Authoring & Live Commands via RPC
 
 All GlueScript methods are directly callable as exposed `RdDriver` methods:
-`RdDriver` is a subclass of `GlueScript` (`class RdDriver(GlueScript)`), so 38 of
-the 40 RPC-exposed GlueScript job-authoring and live-command methods are inherited by the
+`RdDriver` is a subclass of `GlueScript` (`class RdDriver(GlueScript)`), so 40 of
+the 42 RPC-exposed GlueScript job-authoring and live-command methods are inherited by the
 driver itself — there is no separate `GlueScript` object; the
 `get_gluescript`/`get_rpascript` methods are adapter-level getters returning
 copies of the driver's gluescript/rpascript state. These getters are also
@@ -1061,6 +1087,8 @@ its signature, return type, and whether a connected session is required.
 | `new_gluescript` | `()` | `None` | No |
 | `comment` | `(comments: list[str])` | `None` | No |
 | `inline` | `(commands: list[str])` | `None` | No |
+| `delay` | `(time: str\|int\|float)` | `None` | No |
+| `wait` | `(status: str, to: str\|int\|float\|None=None)` | `None` | No |
 | `declare_job` | `(label, ref_point="MACHINE", abs_xy=None, columns=1, rows=1, xstep=0.0, ystep=0.0)` | `None` | No |
 | `end_job` | `()` | `None` | No |
 | `declare_layer` | `(label, color, mode="VECTOR", overscan="NONE", speed=100.0, frequency=20.0, min_power_1=8.0, max_power_1=70.0)` | `None` | No |

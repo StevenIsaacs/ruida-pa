@@ -10,20 +10,20 @@ connected ``svc`` root into the constructor.
 Batching semantics
 ------------------
 - Structural calls are buffered locally and mirrored into ``_transcript``:
-  ``declare_job``, ``declare_layer``, ``comment``, ``inline`` (until
-  ``end_job()``), and the layer actions (``move_*_to``, ``cut_*_to``,
-  ``power``, ``air_assist_*``). Each flush — at ``declare_layer`` or
-  ``end_job`` — sends ONLY the newly appended lines (the delta) to
-  ``stage_gluescript_delta()``, which replays the suffix onto the
-  server's existing state WITHOUT reset (O(Δ) per flush instead of
-  O(L·N)).
-- ``new_gluescript`` and post-``end_job()`` ``comment``/``inline`` are
-  forwarded immediately: ``new_gluescript`` resets the server so its
-  transcript length returns to 0 (matching ``_flushed_count``), and the
-  post-``end_job`` epilogue is the only way lines reach the server after
-  the last flush boundary (forwarded epilogue lines break
-  ``len(server) == _flushed_count``; ``sync()`` or a new
-  ``declare_job()`` restores the invariant).
+  ``declare_job``, ``declare_layer``, ``comment``, ``inline``, ``delay``,
+  ``wait`` (until ``end_job()``), and the layer actions (``move_*_to``,
+  ``cut_*_to``, ``power``, ``air_assist_*``). Each flush — at
+  ``declare_layer`` or ``end_job`` — sends ONLY the newly appended lines
+  (the delta) to ``stage_gluescript_delta()``, which replays the suffix
+  onto the server's existing state WITHOUT reset (O(Δ) per flush instead
+  of O(L·N)).
+- ``new_gluescript`` and post-``end_job()`` ``comment``/``inline``/
+  ``delay``/``wait`` are forwarded immediately: ``new_gluescript`` resets
+  the server so its transcript length returns to 0 (matching
+  ``_flushed_count``), and the post-``end_job`` epilogue is the only way
+  lines reach the server after the last flush boundary (forwarded
+  epilogue lines break ``len(server) == _flushed_count``; ``sync()`` or a
+  new ``declare_job()`` restores the invariant).
 - ``add_layer_action``, ``update_position``, jogs, and homing stay
   forwarded-only as today.
 - Validation errors (bad ``declare_layer`` mode, etc.) surface at flush
@@ -84,6 +84,7 @@ from typing import Any
 from rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
     gluescript_signature,
+    is_valid_time_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -288,6 +289,80 @@ class RpcGlueScript:
             self._svc.inline(commands)
         for command in commands:
             self._append(f"inline({[command]!r})")
+
+    def delay(self, time: str | int | float) -> None:
+        """Append a runner-directive DELAY (mirrored; forwarded after end_job).
+
+        Emits a runner-directive DELAY line: the runner sleeps for the
+        given time inline during script execution — the command is never
+        encoded or sent to the controller. Unlike jog/home live commands,
+        DELAY is part of a saved job and is replayed from a persisted
+        gluescript.
+
+        Before ``end_job()`` the line is mirrored into the local
+        transcript and reaches the server with the next boundary flush.
+        After ``end_job()`` no flush boundary exists, so the epilogue is
+        forwarded immediately — the only way post-``end_job`` lines reach
+        the server.
+
+        Invalid values are rejected locally via the shared
+        ``is_valid_time_value`` predicate (mirroring the driver's
+        warn-and-no-op) so the mirrored line stays byte-identical with
+        what the server appends; otherwise the SHA-256 drift check would
+        break.
+        """
+        if not is_valid_time_value(time):
+            logger.warning(
+                "delay() requires a time value (e.g. 5s, 500ms) — got %r", time
+            )
+            return
+        if self._job_complete:
+            self._svc.delay(time)
+        self._append(f"delay({time!r})")
+
+    def wait(self, status: str, to: str | int | float | None = None) -> None:
+        """Append a runner-directive WAIT (mirrored; forwarded after end_job).
+
+        Emits a runner-directive WAIT line: the runner polls the live
+        machine status during script execution and blocks until the
+        status matches — the command is never encoded or sent to the
+        controller. Unlike jog/home live commands, WAIT is part of a
+        saved job and is replayed from a persisted gluescript.
+
+        ``status`` is a MACHINE_STATUS_* name passed through verbatim; a
+        leading '!' waits for the full active→inactive lifecycle. The
+        name is validated at run time by the runner, not here. The
+        optional ``to=`` timeout accepts numeric seconds or a
+        unit-suffixed string.
+
+        Before ``end_job()`` the line is mirrored into the local
+        transcript and reaches the server with the next boundary flush.
+        After ``end_job()`` no flush boundary exists, so the epilogue is
+        forwarded immediately — the only way post-``end_job`` lines reach
+        the server.
+
+        Invalid values are rejected locally via the shared
+        ``is_valid_time_value`` predicate (mirroring the driver's
+        warn-and-no-op) so the mirrored line stays byte-identical with
+        what the server appends; otherwise the SHA-256 drift check would
+        break.
+        """
+        if not isinstance(status, str) or not status.strip():
+            logger.warning(
+                "wait() requires a MACHINE_STATUS_* name — got %r", status
+            )
+            return
+        if to is not None and not is_valid_time_value(to):
+            logger.warning(
+                "wait() to= requires a time value (e.g. 30s) — got %r", to
+            )
+            return
+        if self._job_complete:
+            self._svc.wait(status, to)
+        if to is None:
+            self._append(f"wait({status!r})")
+        else:
+            self._append(f"wait({status!r}, {to!r})")
 
     def declare_job(
         self,

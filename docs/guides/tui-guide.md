@@ -205,9 +205,9 @@ Sent to the controller as a single-line script. Requires an active session.
 These are special directives recognized within loaded scripts:
 
 ```
-DELAY 5s              # Pause execution for 5 seconds
-WAIT !MACHINE_STATUS_MOVING to=30s   # Wait for move to complete (30s timeout)
-WAIT !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
+delay 5s              # Pause execution for 5 seconds
+wait !MACHINE_STATUS_MOVING to=30s   # Wait for move to complete (30s timeout)
+wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 ```
 
 - `DELAY` — blocks the script runner for the specified duration (interruptible).

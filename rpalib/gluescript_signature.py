@@ -8,6 +8,7 @@ digests differ.
 """
 
 import hashlib
+import math
 
 
 class GlueScriptDeltaMismatchError(RuntimeError):
@@ -42,3 +43,48 @@ def gluescript_signature(lines: list[str]) -> str:
     for line in lines:
         h.update(f"{len(line)}\n{line}\n".encode("utf-8"))
     return h.hexdigest()
+
+
+def is_valid_time_value(value) -> bool:
+    """Return True iff value is acceptable as a DELAY/WAIT time token.
+
+    Single source of truth shared by the direct driver
+    (rd_gluescript._format_time_token) and the RPC client mirror
+    (rpyc_client). Acceptance: bool rejected; numeric (int/float)
+    accepted iff > 0 and finite (huge int whose float() conversion
+    raises OverflowError counts as non-finite); str accepted iff
+    stripped non-empty and the whitespace-compacted form ends with
+    's' or 'ms' and its numeric part parses to a positive finite float.
+    """
+    if isinstance(value, bool):
+        # bool is an int subclass — reject it explicitly.
+        return False
+    if isinstance(value, (int, float)):
+        if value <= 0:
+            return False
+        try:
+            return math.isfinite(value)
+        except OverflowError:
+            # int too large to convert to float — treat as non-finite
+            return False
+    if isinstance(value, str):
+        token = value.strip()
+        if not token:
+            return False
+        # Checks the same unit-suffixed format _parse_timeout accepts;
+        # only sign and finiteness are checked here, so no unit
+        # conversion is needed (500ms stays 500, whereas _parse_timeout
+        # divides ms by 1000).
+        compact = "".join(token.split())
+        if compact.endswith("ms"):
+            numeric = compact[:-2]
+        elif compact.endswith("s"):
+            numeric = compact[:-1]
+        else:
+            return False
+        try:
+            seconds = float(numeric)
+        except ValueError:
+            return False
+        return math.isfinite(seconds) and seconds > 0
+    return False
