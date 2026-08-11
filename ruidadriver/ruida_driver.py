@@ -419,9 +419,9 @@ class RdDriver(GlueScript):
         mnemonic, d = RdDriver._build_decoder(address)
         if d is None:
             # Fallback: TBD format (binary, hex, decimal)
-            from protocols.ruida.ruida_protocol import TBD
+            from protocols.ruida.ruida_protocol import TBDU35
             val = RdDecoder().decode_value(raw_reply)
-            return (None, TBD[0].format(val))
+            return (None, TBDU35[0].format(val))
         decoder_method = getattr(d, f"rd_{d.decoder}")
         try:
             decoded = decoder_method(raw_reply[4:9])
