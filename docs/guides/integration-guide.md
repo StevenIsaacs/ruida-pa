@@ -914,9 +914,12 @@ def connect_rpyc(host="127.0.0.1", port=18812, token=None):
         # Send auth token: 1 byte length + N bytes token
         token_bytes = token.encode("utf-8")
         sock.sendall(bytes([len(token_bytes)]) + token_bytes)
-    else:
-        # Send empty length byte for localhost
+    elif token is not None:
+        # token == "": empty-token prefix, read by an
+        # authenticator-enabled server over localhost
         sock.sendall(b"\x00")
+    # token is None: send nothing — the default token-less server
+    # never reads a token byte, so the RPyC stream stays intact.
 
     conn = connect_stream(SocketStream(sock))
     return conn.root
@@ -1162,7 +1165,8 @@ def connect_rpyc(host="127.0.0.1", port=18812, token=None):
     if token:
         token_bytes = token.encode("utf-8")
         sock.sendall(bytes([len(token_bytes)]) + token_bytes)
-    else:
+    elif token is not None:
+        # token == "": empty-token prefix (authenticator/localhost)
         sock.sendall(b"\x00")
     return connect_stream(SocketStream(sock)).root
 
@@ -1323,34 +1327,64 @@ forwards the call unchanged (including `gluescript=None`), returns the
 signature, and performs no local flush and no drift check — mirroring the
 direct-client flow when you want to stage explicitly.
 
-**Server-side token requirement:** the client connect handshake sends a
-1-byte empty-token length prefix (`b"\x00"`) before
-`connect_stream(SocketStream(sock)).root` (see
-`tests/rpyc_poc/test_auth.py`). This works ONLY when the server was started
-WITH a token authenticator — `start_rpyc_server(..., token="...")`
-programmatically, or `server start token="..."` in the TUI. With
-`token=None` no authenticator is installed: the server never reads the token
-byte, and the `b"\x00"` corrupts the RPyC stream (zlib error). With an
-authenticator installed, an empty token is allowed for localhost connections. Note this refines the §8.2 statement that the token is 'ignored if localhost': the *authenticator* must still be installed even for localhost — start the server with `token=...` (any value); the empty-token prefix then passes for localhost.
+**Connecting over RPC — token forms:** `RpcRdDriver` (`rpalib/rpyc_client.py`)
+mirrors the full `RdDriver` surface and self-connects when constructed with
+no arguments. The `token` argument selects the connect handshake; the module
+docstring in `rpalib/rpyc_client.py` is the authoritative wording, summarized
+here:
+
+- `RpcRdDriver()` (`token=None`, the default) — the PRIMARY self-connect
+  for the default token-less server (`start_rpyc_server(token=None)`, or
+  `server start` without `token=`): NO token byte is sent, so the RPyC
+  stream is never corrupted.
+- `RpcRdDriver(token="...")` — pairs with a token-configured server
+  (`start_rpyc_server(..., token="...")` programmatically, or
+  `server start token="..."` in the TUI); sends a 1-byte length prefix
+  plus the UTF-8 token bytes (tokens longer than 255 bytes raise
+  `ValueError`).
+- `RpcRdDriver(token="")` — sends the empty-token prefix `b"\x00"`, the
+  localhost path accepted by authenticator-enabled servers.
+- `RpcRdDriver(svc)` — the explicit-connect alternative: the caller passes
+  a connected service root (`connect_stream(SocketStream(sock)).root`, as
+  in `tests/rpyc_poc/test_auth.py`) as the first positional argument; the
+  driver leaves the connection lifecycle to the caller.
+
+The old `test_auth.py` convention — send `b"\x00"` for `token=None` —
+applies ONLY to authenticator-enabled servers (that file tests the
+authenticator itself). With `token=None` no authenticator is installed: the
+server never reads a token byte, and a stray `b"\x00"` corrupts the RPyC
+stream (zlib error). The new convention — `token=None` sends NOTHING — is
+for the default token-less server. For an authenticator-enabled server, an
+empty token is still allowed for localhost connections, but the
+*authenticator* must be installed even for localhost — start the server with
+`token=...` (any value); the empty-token prefix then passes for localhost
+(this refines the §8.2 statement that the token is 'ignored if localhost').
 
 ```python
-import socket
-import rpyc
-from rpyc.utils.factory import connect_stream
-from rpyc.utils.classic import SocketStream
 from rpalib.rpyc_client import RpcRdDriver
 
-# The server MUST have been started with a token authenticator, e.g.
+# PRIMARY: self-connect to the default token-less server
+# (start_rpyc_server(token=None), or `server start` without token=).
+rpc_driver = RpcRdDriver()
+
+# For a token-configured server, pass the same token used at startup, e.g.
 #   start_rpyc_server(..., token="s3cret!t0k3n")
-# or, from the TUI,  server start token="s3cret!t0k3n"
-sock = socket.create_connection(("127.0.0.1", 18812))
-sock.sendall(b"\x00")  # empty-token length prefix, read by the authenticator
-# Delta-staging clients MUST enable custom-exception import/instantiation
-# (see the "RPyC protocol configuration" paragraph above) or a server-raised
-# GlueScriptDeltaMismatchError degrades to a GenericException client-side.
-rpyc_config = {"import_custom_exceptions": True, "instantiate_custom_exceptions": True}
-svc = connect_stream(SocketStream(sock), config=rpyc_config).root
-rpc_driver = RpcRdDriver(svc)
+# or, from the TUI,  server start token="s3cret!t0k3n":
+#     rpc_driver = RpcRdDriver(token="s3cret!t0k3n")
+# For an authenticator-enabled server over localhost, the empty-token path:
+#     rpc_driver = RpcRdDriver(token="")
+
+# The explicit-connect alternative (svc first positional, backward
+# compatible) still works when you already hold a connected root; the
+# caller keeps ownership of the connection:
+#     sock = socket.create_connection(("127.0.0.1", 18812))
+#     sock.sendall(b"\x00")  # empty-token prefix, read by the authenticator
+#     svc = connect_stream(SocketStream(sock), config=rpyc_config).root
+#     rpc_driver = RpcRdDriver(svc)
+# The manual path must enable custom-exception import/instantiation (see
+# the "RPyC protocol configuration" paragraph above) or a server-raised
+# GlueScriptDeltaMismatchError degrades to a GenericException client-side;
+# the self-connect path applies that config automatically.
 
 # Author a job before any session exists — no controller required yet.
 # Moves and cuts are buffered locally, not round-tripped per action.
@@ -1379,6 +1413,6 @@ print(f"Staged {len(rpc_driver.get_rpascript())} rpascript lines")
 # client above. run_job composes head + staged + tail scripts around the
 # job; with no job argument it runs the rpascript most recently staged by
 # stage_gluescript().
-svc.start(udp_host="192.168.1.100")
-svc.run_job()
+rpc_driver.start(udp_host="192.168.1.100")
+rpc_driver.run_job()
 ```

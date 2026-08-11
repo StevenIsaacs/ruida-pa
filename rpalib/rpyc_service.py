@@ -5,12 +5,14 @@ Exposes the full TuiAdapter remote surface as callable methods with
 authentication and TLS support:
 - lifecycle: start, stop, run, run_job, cancel_script
 - head/tail script management: set/get_head_script, set/get_tail_script
-- listeners: register_status_listener, register_error_listener,
-  register_reply_listener
+- listeners: register/unregister_status_listener,
+  register/unregister_error_listener, register/unregister_reply_listener
+- driver control: set_protect, protect_enabled, decode_status_value
 - properties: is_connected, machine_status
 - static format utilities: format_reply_value, format_reply,
   format_reply_list
-- GlueScript job authoring, live commands, and getters (42 methods)
+- introspection: registered_listener_count
+- GlueScript job authoring, live-only commands, and getters
 
 Clients call these without the ``exposed_`` prefix
 (e.g. svc.declare_job, svc.jog_xy_to, svc.get_gluescript).
@@ -201,12 +203,14 @@ class RpycTuiService(rpyc.Service):
 
         # Capture listener lists on the handler thread BEFORE submitting to
         # executor — threading.local() attributes are thread-specific and would
-        # be invisible from the executor thread.
+        # be invisible from the executor thread. Unpack the (proxy, wrapper)
+        # pairs to wrappers only: cleanup unregisters the wrapper the adapter
+        # registered, never the dead proxy (no equality round-trips).
         captured: dict[str, list] = {}
         for key in ('status', 'error', 'reply'):
-            listeners = getattr(wrappers, key, [])
-            captured[key] = list(listeners)  # Shallow copy for executor thread
-            listeners.clear()  # Clear handler-thread originals immediately
+            pairs = getattr(wrappers, key, [])
+            captured[key] = [wrapper for _, wrapper in pairs]
+            pairs.clear()  # Clear handler-thread originals immediately
 
         counts = {k: len(v) for k, v in captured.items()}
 
@@ -633,10 +637,14 @@ class RpycTuiService(rpyc.Service):
                 self._fire_async(listener, converted, "status")
             except Exception as e:
                 self._adapter._log_warning(f"[RPC] status callback error: {e}")
-        # Store wrapper per-connection for disconnect cleanup
+        # Store (proxy, wrapper) pair per-connection for disconnect cleanup
+        # and client-initiated unregister. The proxy is the remote reference
+        # the client passed; netref equality performs a round-trip so the
+        # client-side comparison resolves the real objects. The wrapper is
+        # the local callable the adapter registered.
         if not hasattr(self._registered_wrappers, 'status'):
             self._registered_wrappers.status = []
-        self._registered_wrappers.status.append(wrapper)
+        self._registered_wrappers.status.append((listener, wrapper))
         self._adapter.register_status_listener(wrapper)
 
     def exposed_register_error_listener(self, listener: Callable) -> None:
@@ -647,10 +655,14 @@ class RpycTuiService(rpyc.Service):
                 self._fire_async(listener, msg, "error")
             except Exception as e:
                 self._adapter._log_warning(f"[RPC] error callback error: {e}")
-        # Store wrapper per-connection for disconnect cleanup
+        # Store (proxy, wrapper) pair per-connection for disconnect cleanup
+        # and client-initiated unregister. The proxy is the remote reference
+        # the client passed; netref equality performs a round-trip so the
+        # client-side comparison resolves the real objects. The wrapper is
+        # the local callable the adapter registered.
         if not hasattr(self._registered_wrappers, 'error'):
             self._registered_wrappers.error = []
-        self._registered_wrappers.error.append(wrapper)
+        self._registered_wrappers.error.append((listener, wrapper))
         self._adapter.register_error_listener(wrapper)
 
     def exposed_register_reply_listener(self, listener: Callable) -> None:
@@ -663,15 +675,83 @@ class RpycTuiService(rpyc.Service):
                 self._fire_async(listener, converted, "reply")
             except Exception as e:
                 self._adapter._log_warning(f"[RPC] reply callback error: {e}")
-        # Store wrapper per-connection for disconnect cleanup
+        # Store (proxy, wrapper) pair per-connection for disconnect cleanup
+        # and client-initiated unregister. The proxy is the remote reference
+        # the client passed; netref equality performs a round-trip so the
+        # client-side comparison resolves the real objects. The wrapper is
+        # the local callable the adapter registered.
         if not hasattr(self._registered_wrappers, 'reply'):
             self._registered_wrappers.reply = []
-        self._registered_wrappers.reply.append(wrapper)
+        self._registered_wrappers.reply.append((listener, wrapper))
         self._adapter.register_reply_listener(wrapper)
+
+    def _pop_wrapper_for_listener(
+        self, kind: str, listener: Callable
+    ) -> Callable | None:
+        """Remove the first (proxy, wrapper) pair matching ``listener``.
+
+        Returns the paired wrapper, or None when no pair matches. Netref
+        equality performs a round-trip so the client-side comparison
+        resolves the real objects; a dead connection raising
+        EOFError/RuntimeError mid-scan counts as no-match so the caller
+        can no-op (parity with the driver's swallowed ValueError).
+        """
+        registry = getattr(self._registered_wrappers, kind, [])
+        for index, (listener_proxy, wrapper) in enumerate(registry):
+            try:
+                if listener_proxy != listener:
+                    continue
+            except (EOFError, RuntimeError):
+                return None
+            del registry[index]
+            return wrapper
+        return None
+
+    def exposed_unregister_status_listener(self, listener: Callable) -> None:
+        self._rpc_info(f"[RPC] RPC unregister_status_listener({listener!r})")
+        wrapper = self._pop_wrapper_for_listener("status", listener)
+        if wrapper is None:
+            return  # No match (or dead connection) — silent no-op
+        self._adapter.unregister_status_listener(wrapper)
+
+    def exposed_unregister_error_listener(self, listener: Callable) -> None:
+        self._rpc_info(f"[RPC] RPC unregister_error_listener({listener!r})")
+        wrapper = self._pop_wrapper_for_listener("error", listener)
+        if wrapper is None:
+            return  # No match (or dead connection) — silent no-op
+        self._adapter.unregister_error_listener(wrapper)
+
+    def exposed_unregister_reply_listener(self, listener: Callable) -> None:
+        self._rpc_info(f"[RPC] RPC unregister_reply_listener({listener!r})")
+        wrapper = self._pop_wrapper_for_listener("reply", listener)
+        if wrapper is None:
+            return  # No match (or dead connection) — silent no-op
+        self._adapter.unregister_reply_listener(wrapper)
+
+    def exposed_registered_listener_count(self, kind: str) -> int:
+        """Return how many listeners of ``kind`` this connection registered.
+
+        Lightweight introspection for smoke tests. Reads the thread-local
+        registry on the handler thread, which is the thread that populates
+        it. ``kind`` must be "status", "error", or "reply".
+        """
+        if kind not in ("status", "error", "reply"):
+            raise ValueError(f"Unknown listener kind: {kind!r}")
+        self._rpc_info(f"[RPC] RPC registered_listener_count({kind})")
+        return len(getattr(self._registered_wrappers, kind, []))
 
     def exposed_cancel_script(self) -> None:
         self._rpc_info("[RPC] RPC cancel_script()")
         self._adapter.cancel_script()
+
+    def exposed_set_protect(self, enabled: bool) -> None:
+        self._rpc_info(f"[RPC] RPC set_protect({enabled})")
+        self._adapter.set_protect(enabled)
+
+    def exposed_protect_enabled(self) -> bool:
+        result = self._adapter.protect_enabled
+        self._rpc_info(f"[RPC] RPC protect_enabled -> {result}")
+        return result
 
     # --- Properties ---
 
@@ -701,6 +781,15 @@ class RpycTuiService(rpyc.Service):
     def exposed_format_reply_list(self, replies: list[bytearray]) -> list[str]:
         self._rpc_info(f"[RPC] RPC format_reply_list(count={len(replies)})")
         return TuiAdapter.format_reply_list(replies)
+
+    def exposed_decode_status_value(
+        self, address: int, raw_reply: bytearray
+    ) -> Any:
+        self._rpc_info(
+            f"[RPC] RPC decode_status_value(addr=0x{address:04X}, "
+            f"raw_len={len(raw_reply)})"
+        )
+        return TuiAdapter.decode_status_value(address, raw_reply)
 
 
 def start_rpyc_server(

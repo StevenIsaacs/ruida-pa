@@ -4378,6 +4378,28 @@ class TuiAdapter(App):
             self._ruida_driver.cancel_script()
             self._log_info("[RPC] cancel_script()")
 
+    def set_protect(self, enabled: bool) -> None:
+        """Enable or disable protect mode on the underlying driver.
+
+        Emulates RdDriver.set_protect(). Raises RuntimeError when no
+        driver is active (same guard as register_*_listener).
+        """
+        if self._ruida_driver is None:
+            raise RuntimeError("No active driver. Call start() first.")
+        self._ruida_driver.set_protect(enabled)
+        self._log_info(f"[RPC] set_protect({enabled})")
+
+    @property
+    def protect_enabled(self) -> bool:
+        """Return whether protect mode is active on the underlying driver.
+
+        Emulates RdDriver.protect_enabled. Returns False when no driver
+        is active (same benign default as is_connected/machine_status).
+        """
+        if self._ruida_driver is None:
+            return False
+        return self._ruida_driver.protect_enabled
+
     @property
     def is_connected(self) -> bool:
         """Return whether the driver is connected.
@@ -4437,6 +4459,18 @@ class TuiAdapter(App):
         """
         _log.info(f"[RPC] format_reply_list(count={len(replies)})")
         return RdDriver.format_reply_list(replies)
+
+    @staticmethod
+    def decode_status_value(address: int, raw_reply: bytearray) -> Any:
+        """Decode a reply into its typed value (RdDecoder.value).
+
+        Emulates RdDriver.decode_status_value().
+        """
+        _log.info(
+            f"[RPC] decode_status_value(addr=0x{address:04X}, "
+            f"raw_len={len(raw_reply)})"
+        )
+        return RdDriver.decode_status_value(address, raw_reply)
 
     # ------------------------------------------------------------------
     # Cleanup

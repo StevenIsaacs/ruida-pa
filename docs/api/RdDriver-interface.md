@@ -195,6 +195,54 @@ over the whole job. No reset is performed; the assembled rpascript (shared
 **Returns:** `str` — the SHA-256 signature (hex) of the staged gluescript
 transcript. Failures raise `RuntimeError` instead of returning.
 
+**RpcRdDriver — full-surface RPC mirror.** `RpcRdDriver`
+(`rpalib/rpyc_client.py`) mirrors the full `RdDriver` surface described in
+this document — lifecycle and execution passthroughs (`start`, `stop`,
+`run`, `run_job`, `cancel_script`, `set_protect`, head/tail setters and
+getters), the listener registration surface (`register_status_listener`,
+`register_error_listener`, `register_reply_listener` and their
+`unregister_*` counterparts), the format utilities (`format_reply_value`,
+`format_reply`, `format_reply_list`, `decode_status_value`), and the
+staging passthroughs (`stage_gluescript`, `stage_gluescript_delta`) — so
+an app adapter needs no separate direct-vs-RPC path. It can be constructed
+with no arguments, self-connecting over RPyC:
+
+```python
+RpcRdDriver(svc=None, *, host="127.0.0.1", port=18812,
+            token=None, config=None, timeout=5)
+```
+
+- With no `svc`, the driver opens and owns its own connection via the
+  module-level `connect_rpc(host=..., port=..., token=..., config=...,
+  timeout=...)` helper; `close()` closes it. A caller-provided `svc`
+  root (`connect_stream(...).root`, as in `tests/rpyc_poc/test_auth.py`)
+  remains the first positional argument, exactly as before — the caller
+  keeps ownership.
+- Token handshake: `token=None` sends NOTHING (pairs with the default
+  token-less server, `start_rpyc_server(token=None)`); a non-empty `str`
+  sends a 1-byte length prefix plus the UTF-8 bytes (tokens longer than
+  255 bytes raise `ValueError`); `token=""` sends the empty-token prefix
+  `b"\x00"` accepted on localhost by authenticator-enabled servers.
+- Timeouts: the socket timeout bounds the TCP connect and the
+  handshake send; every RPC afterwards is bounded by rpyc's
+  `sync_request_timeout`, merged connection-wide as `timeout` — rpyc's
+  poll path never consults a socket `settimeout`.
+- `close()` is idempotent and closes only connections the driver opened
+  itself; a caller-provided `svc` root is left to its owner. Afterwards
+  any member call raises `RuntimeError("driver closed")` — deliberately
+  `RuntimeError` and not `AttributeError`, which `_flush()` treats as "old
+  server without the delta method" — and `is_connected` reads False. The
+  synchronous HANDLE_CLOSE sent by `close()` is bounded by
+  `sync_request_timeout`, so budget the same `timeout` for close-handshake
+  latency.
+- Getters diverge from the direct driver: `gluescript`, `rpascript`, and
+  `job_complete` are snapshot properties fetched over RPC — in-place
+  mutation of the returned list is NOT reflected server-side, unlike the
+  direct driver's live lists.
+
+See the self-connect example in the integration guide §8.9
+(`docs/guides/integration-guide.md`).
+
 ### 3.7 Head/Tail Script Accessors
 
 ```python

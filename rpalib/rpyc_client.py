@@ -1,13 +1,49 @@
 """Client-side batching wrapper around the RPyC service root,
 mirroring the RdDriver surface.
 
-``RpcRdDriver`` wraps the already-connected RPyC service root (the object
-returned by ``connect_stream(...).root``, as in tests/rpyc_poc/test_auth.py)
-and exposes the same job-scripting and lifecycle-execution surface as the
-direct RdDriver, but with local batching so a whole job reaches the server
-in a few round trips instead of one per command. It does NOT open the
-socket itself — the caller passes the connected ``svc`` root into the
-constructor.
+``RpcRdDriver`` wraps an RPyC service root and exposes the same
+job-scripting and lifecycle-execution surface as the direct RdDriver,
+but with local batching so a whole job reaches the server in a few
+round trips instead of one per command. The constructor opens its own
+TCP connection (via the module-level ``connect_rpc()`` helper) when no
+``svc`` is supplied; a caller-provided connected root
+(``connect_stream(...).root``, as in tests/rpyc_poc/test_auth.py) is
+still accepted as the first positional argument, exactly as before.
+
+Token handshake
+---------------
+``connect_rpc()`` speaks the length-prefixed token protocol implemented
+by the server authenticator (rpalib/rpyc_service.py):
+- ``token=None``: send NOTHING. This pairs with the default token-less
+  server (``start_rpyc_server(token=None)``), which installs no
+  authenticator and never reads a handshake.
+- ``token`` a non-empty str: send a 1-byte length prefix followed by
+  the UTF-8 token bytes. A token longer than 255 UTF-8 bytes raises
+  ``ValueError`` — the length prefix is a single byte.
+- ``token=""``: send the documented empty-token prefix ``b"\\x00"``,
+  accepted as the localhost path by authenticator-enabled servers.
+  tests/rpyc_poc/test_auth.py's ``_client_connect`` sends ``b"\\x00"``
+  for ``token=None`` — a convention predating this one, deliberately
+  unchanged because that file tests the authenticator itself.
+
+Timeout semantics
+-----------------
+The socket timeout set by ``connect_rpc()`` bounds the TCP connect and
+the handshake send; every RPC afterward is bounded by rpyc's
+``sync_request_timeout`` config, which the helper merges in as
+``timeout``. A socket ``settimeout`` is never consulted by rpyc's poll
+path, so it would not bound RPCs.
+
+Close semantics
+---------------
+``close()`` is idempotent and closes only connections the driver opened
+itself (``_owns_connection``); caller-provided roots are left to their
+owner. After ``close()`` the ``_svc`` reference is swapped for a
+closed-sentinel whose attribute access and calls raise
+``RuntimeError("driver closed")``, and ``is_connected`` reads False.
+``RuntimeError`` (not ``AttributeError``) is deliberate: ``_flush()``
+treats ``AttributeError`` as "old server without the delta method", so
+a closed driver must never be mistaken for an old server.
 
 Batching semantics
 ------------------
@@ -70,18 +106,36 @@ getters until the next boundary flush. ``sync()`` re-baselines the
 transcript, ``_flushed_count``, ``_current_mode`` and ``_job_complete`` from
 that last-flushed state.
 
+The ``gluescript`` and ``rpascript`` getters are read-only snapshots
+fetched over RPC: in-place mutation of the returned list is not
+reflected server-side, unlike the direct driver's live lists.
+
 The attribute forms (``gluescript``, ``rpascript``, ``job_complete``,
-``is_connected``) and the lifecycle/execution passthroughs (``start``,
-``stop``, ``run``, ``run_job``, and the head/tail script setters and
-getters) mirror the direct RdDriver surface, so an app adapter needs no
-separate direct-vs-RPC path.
+``machine_status``, ``protect_enabled``, ``is_connected``), the
+lifecycle/execution passthroughs (``start``, ``stop``, ``run``,
+``run_job``, ``cancel_script``, ``set_protect``, and the head/tail
+script setters and getters), the listener registration surface
+(``register_status_listener``, ``register_error_listener``,
+``register_reply_listener`` and their ``unregister_*`` counterparts),
+the format utilities (``format_reply_value``, ``format_reply``,
+``format_reply_list``, ``decode_status_value``), and the staging
+passthroughs (``stage_gluescript``, ``stage_gluescript_delta``) mirror
+the direct RdDriver surface, so an app adapter needs no separate
+direct-vs-RPC path. The z/u move and cut stubs (``move_z_to``,
+``move_u_to``, ``cut_z_to``, ``cut_u_to``) raise ``NotImplementedError``
+exactly as the direct driver does.
 """
 
 from __future__ import annotations
 
 import ast
 import logging
-from typing import Any
+import socket
+import struct
+from typing import Any, Callable
+
+from rpyc.core.stream import SocketStream
+from rpyc.utils.factory import connect_stream
 
 from rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
@@ -92,31 +146,197 @@ from rpalib.gluescript_signature import (
 logger = logging.getLogger(__name__)
 
 
+def connect_rpc(
+    host: str = "127.0.0.1",
+    port: int = 18812,
+    token: str | None = None,
+    config: dict[str, Any] | None = None,
+    timeout: float = 5,
+) -> Any:
+    """Open a TCP connection to an RPyC server and return the connection.
+
+    The caller owns the returned connection and must close it;
+    ``RpcRdDriver`` does so when constructed without an explicit
+    ``svc``.
+
+    Args:
+        host: Server hostname.
+        port: Server TCP port.
+        token: Authentication token. ``None`` sends no handshake (the
+            token-less server default); a non-empty str sends a 1-byte
+            length prefix plus the UTF-8 bytes; ``""`` sends the
+            documented empty-token ``b"\\x00"`` prefix accepted on
+            localhost by authenticator-enabled servers. Tokens longer
+            than 255 UTF-8 bytes raise ``ValueError`` (single-byte
+            prefix).
+        config: Extra rpyc client config merged over the defaults
+            (``import_custom_exceptions`` and
+            ``instantiate_custom_exceptions`` so a server-raised
+            ``GlueScriptDeltaMismatchError`` round-trips instead of
+            degrading to ``GenericException``). The
+            ``sync_request_timeout`` key is always forced to
+            ``timeout``.
+        timeout: Bounds the TCP connect and the handshake send (the
+            socket timeout), and is merged into rpyc's
+            ``sync_request_timeout`` — the only real bound on every
+            RPC, since rpyc's poll path never consults a socket
+            ``settimeout``.
+
+    Returns:
+        The connected ``rpyc.core.protocol.Connection``; its ``.root``
+        is the service root netref.
+
+    Raises:
+        ValueError: If ``token`` is longer than 255 UTF-8 bytes.
+        The connect/handshake/GETROOT error otherwise, with the socket
+        closed before re-raising.
+    """
+    sock = socket.create_connection((host, port), timeout=timeout)
+    try:
+        if token is not None:
+            token_bytes = token.encode()
+            if len(token_bytes) > 255:
+                raise ValueError("token longer than 255 UTF-8 bytes")
+            sock.sendall(struct.pack("B", len(token_bytes)) + token_bytes)
+        # RPyC's poll path ignores socket timeouts, so the stream needs
+        # a fully blocking socket.
+        sock.setblocking(True)
+        cfg = {
+            "import_custom_exceptions": True,
+            "instantiate_custom_exceptions": True,
+        }
+        if config is not None:
+            cfg.update(config)
+        cfg["sync_request_timeout"] = timeout
+        conn = connect_stream(SocketStream(sock), config=cfg)
+        # Force GETROOT inside the guard so any failure closes the
+        # socket explicitly instead of relying on refcount cleanup.
+        conn.root
+        return conn
+    except BaseException:
+        sock.close()
+        raise
+
+
+class _ClosedService:
+    """Sentinel swapped into ``RpcRdDriver._svc`` by ``close()``.
+
+    Attribute access and calls raise ``RuntimeError("driver closed")``.
+    ``RuntimeError``, not ``AttributeError``, is deliberate: the
+    ``_flush()`` fallback treats ``AttributeError`` as "old server
+    without the delta method", so a closed driver must never look like
+    an old server.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        raise RuntimeError("driver closed")
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("driver closed")
+
+
 class RpcRdDriver:
     """Client-side batching wrapper for the RPyC service root,
     mirroring the RdDriver surface.
     """
 
     _svc: Any
+    _conn: Any
+    _owns_connection: bool
+    _closed: bool
     _transcript: list[str]
     _flushed_count: int
     _current_mode: str
     _job_complete: bool
     _job_declared: bool
 
-    def __init__(self, svc: Any) -> None:
-        """Wrap a connected RPyC service root.
+    def __init__(
+        self,
+        svc: Any = None,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 18812,
+        token: str | None = None,
+        config: dict[str, Any] | None = None,
+        timeout: float = 5,
+    ) -> None:
+        """Wrap a service root, connecting to the server when none is given.
 
         Args:
-            svc: The already-connected service root (``conn.root``) exposing
-                the GlueScript methods without the ``exposed_`` prefix.
+            svc: The already-connected service root (``conn.root``)
+                exposing the GlueScript methods without the ``exposed_``
+                prefix. When omitted, the driver opens and owns its own
+                connection via ``connect_rpc()``.
+            host: Server host for the self-connecting path.
+            port: Server port for the self-connecting path.
+            token: Auth token for the self-connecting path; see
+                ``connect_rpc()`` for the None vs str vs "" modes.
+            config: Extra rpyc client config for the self-connecting
+                path, merged over the ``connect_rpc()`` defaults.
+            timeout: Connect timeout and rpyc ``sync_request_timeout``
+                for the self-connecting path.
         """
-        self._svc = svc
+        # Initialize the full attribute surface BEFORE any connect work
+        # so a connect failure leaves close()/__del__ safe.
+        self._svc: Any = None
+        self._conn: Any = None
+        self._owns_connection: bool = False
+        self._closed: bool = False
         self._transcript: list[str] = []
         self._flushed_count: int = 0
         self._current_mode: str = "VECTOR"
         self._job_complete: bool = False
         self._job_declared: bool = False
+        if svc is not None:
+            self._svc = svc
+        else:
+            conn = connect_rpc(
+                host=host, port=port, token=token, config=config,
+                timeout=timeout,
+            )
+            self._conn = conn
+            self._svc = conn.root
+            self._owns_connection = True
+
+    def close(self) -> None:
+        """Close the owned connection and mark the driver closed.
+
+        Idempotent: a second call is a no-op. Only a connection the
+        driver opened itself (``_owns_connection``) is closed; a
+        caller-provided ``svc`` is left to its owner. Afterwards
+        ``_svc`` is the ``_ClosedService`` sentinel, so any member
+        access raises ``RuntimeError("driver closed")`` and
+        ``is_connected`` reads False. The buffered authoring methods
+        (``comment``, ``inline``, ``delay``, ``wait``, the ``move_*_to``
+        and ``cut_*_to`` actions, ``power``, ``air_assist_*``) carry
+        the same guard, so post-close buffered calls fail fast instead
+        of silently buffering lines that never reach a server.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        if self._owns_connection and self._conn is not None:
+            try:
+                # Connection.close() performs a synchronous HANDLE_CLOSE
+                # bounded by sync_request_timeout; swallow any teardown
+                # error — the socket is released regardless.
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+        self._svc = _ClosedService()
+
+    def __del__(self) -> None:
+        """Best-effort cleanup at interpreter shutdown.
+
+        close() is safe here because all failure modes are swallowed;
+        rpyc modules may already be partially torn down (mirrors
+        rpyc's own netref __del__ pattern).
+        """
+        try:
+            self.close()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
     #  Internal helpers
@@ -269,6 +489,8 @@ class RpcRdDriver:
 
         An empty list is a no-op, mirroring the driver.
         """
+        if self._closed:
+            raise RuntimeError("driver closed")
         if not comments:
             return
         if self._job_complete:
@@ -287,6 +509,8 @@ class RpcRdDriver:
 
         An empty list is a no-op, mirroring the driver.
         """
+        if self._closed:
+            raise RuntimeError("driver closed")
         if not commands:
             return
         if self._job_complete:
@@ -315,6 +539,8 @@ class RpcRdDriver:
         what the server appends; otherwise the SHA-256 drift check would
         break.
         """
+        if self._closed:
+            raise RuntimeError("driver closed")
         if not is_valid_time_value(time):
             logger.warning(
                 "delay() requires a time value (e.g. 5s, 500ms) — got %r", time
@@ -351,6 +577,8 @@ class RpcRdDriver:
         what the server appends; otherwise the SHA-256 drift check would
         break.
         """
+        if self._closed:
+            raise RuntimeError("driver closed")
         if not isinstance(status, str) or not status.strip():
             logger.warning(
                 "wait() requires a MACHINE_STATUS_* name — got %r", status
@@ -481,27 +709,55 @@ class RpcRdDriver:
 
     def move_xy_to(self, x: float, y: float) -> None:
         """Buffer a move to absolute XY (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
         self._append(f"move_xy_to({x!r}, {y!r})")
 
     def move_x_to(self, x: float) -> None:
         """Buffer a move to absolute X (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
         self._append(f"move_x_to({x!r})")
 
     def move_y_to(self, y: float) -> None:
         """Buffer a move to absolute Y (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
         self._append(f"move_y_to({y!r})")
+
+    def move_z_to(self, z: float) -> None:
+        """Z-axis moves are not implemented in the initial release."""
+        raise NotImplementedError("Z-axis moves not yet implemented")
+
+    def move_u_to(self, u: float) -> None:
+        """U-axis moves are not implemented in the initial release."""
+        raise NotImplementedError("U-axis moves not yet implemented")
 
     def cut_xy_to(self, x: float, y: float) -> None:
         """Buffer a cut to absolute XY (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
         self._append(f"cut_xy_to({x!r}, {y!r})")
 
     def cut_x_to(self, x: float) -> None:
         """Buffer a cut to absolute X (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
         self._append(f"cut_x_to({x!r})")
 
     def cut_y_to(self, y: float) -> None:
         """Buffer a cut to absolute Y (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
         self._append(f"cut_y_to({y!r})")
+
+    def cut_z_to(self, z: float) -> None:
+        """Z-axis cuts are not implemented in the initial release."""
+        raise NotImplementedError("Z-axis cuts not yet implemented")
+
+    def cut_u_to(self, u: float) -> None:
+        """U-axis cuts are not implemented in the initial release."""
+        raise NotImplementedError("U-axis cuts not yet implemented")
 
     def power(self, percent: float | None = None) -> None:
         """Set laser power for IMAGE/DEPTHMAP layers.
@@ -513,6 +769,8 @@ class RpcRdDriver:
         calls. This includes ``power(None)`` in an IMAGE/DEPTHMAP layer,
         which warns and drops.
         """
+        if self._closed:
+            raise RuntimeError("driver closed")
         if self._current_mode not in ("IMAGE", "DEPTHMAP"):
             logger.warning(
                 "power() called in %s mode layer — only valid for "
@@ -527,10 +785,14 @@ class RpcRdDriver:
 
     def air_assist_on(self) -> None:
         """Buffer air assist enable (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
         self._append("air_assist_on()")
 
     def air_assist_off(self) -> None:
         """Buffer air assist disable (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
         self._append("air_assist_off()")
 
     # ------------------------------------------------------------------ #
@@ -552,6 +814,25 @@ class RpcRdDriver:
                 transcript, as returned by the server.
         """
         return self._svc.stage_gluescript(gluescript, require_complete)
+
+    def stage_gluescript_delta(
+        self,
+        flushed_count: int,
+        delta_lines: list[str],
+        require_complete: bool = True,
+    ) -> str:
+        """Forward a delta-stage to the server's stage_gluescript_delta().
+
+        Mirrors the direct driver's ``stage_gluescript_delta()``; the
+        client's internal ``_flush()`` is the usual caller.
+
+        Returns:
+            str: The SHA-256 signature (hex) of the staged gluescript
+                transcript, as returned by the server.
+        """
+        return self._svc.stage_gluescript_delta(
+            flushed_count, delta_lines, require_complete=require_complete
+        )
 
     def get_gluescript(self) -> list[str]:
         """Return the server's gluescript transcript (last-flushed state).
@@ -594,11 +875,24 @@ class RpcRdDriver:
         return bool(self._svc.job_complete())
 
     @property
+    def machine_status(self) -> dict[int, Any]:
+        """Server-side decoded machine-status dict (read-only snapshot).
+
+        Returns a local dict copy so the netref never leaks to callers.
+        Mirrors the direct driver's ``machine_status`` attribute.
+        """
+        return dict(self._svc.machine_status())
+
+    @property
     def is_connected(self) -> bool:
         """True when the server-side session is connected.
 
-        Mirrors the direct driver's ``is_connected`` attribute.
+        Reads False once the driver is closed, without hitting the
+        closed sentinel. Mirrors the direct driver's ``is_connected``
+        attribute.
         """
+        if self._closed:
+            return False
         return bool(self._svc.is_connected())
 
     # ------------------------------------------------------------------ #
@@ -647,6 +941,75 @@ class RpcRdDriver:
     def get_tail_script(self) -> list[str]:
         """Return the server-side tail script. Mirrors RdDriver."""
         return list(self._svc.get_tail_script())
+
+    # ------------------------------------------------------------------ #
+    #  Listeners, cancel, protect — forwarded passthroughs
+    # ------------------------------------------------------------------ #
+
+    def register_status_listener(self, listener: Callable) -> None:
+        """Register a status listener on the server-side driver.
+
+        The listener travels over RPC as a netref callback; the server
+        converts events to brine-dumpable forms before firing.
+        """
+        self._svc.register_status_listener(listener)
+
+    def unregister_status_listener(self, listener: Callable) -> None:
+        """Remove a previously registered status listener.
+
+        Listeners are matched by equality over RPC; unregistering with a
+        different-but-equal callable object may not match. Pass the SAME
+        listener object you registered.
+        """
+        self._svc.unregister_status_listener(listener)
+
+    def register_error_listener(self, listener: Callable) -> None:
+        """Register an error listener on the server-side driver."""
+        self._svc.register_error_listener(listener)
+
+    def unregister_error_listener(self, listener: Callable) -> None:
+        """Remove a previously registered error listener.
+
+        Listeners are matched by equality over RPC; unregistering with a
+        different-but-equal callable object may not match. Pass the SAME
+        listener object you registered.
+        """
+        self._svc.unregister_error_listener(listener)
+
+    def register_reply_listener(self, listener: Callable) -> None:
+        """Register a raw-reply listener on the server-side driver."""
+        self._svc.register_reply_listener(listener)
+
+    def unregister_reply_listener(self, listener: Callable) -> None:
+        """Remove a previously registered reply listener.
+
+        Listeners are matched by equality over RPC; unregistering with a
+        different-but-equal callable object may not match. Pass the SAME
+        listener object you registered.
+        """
+        self._svc.unregister_reply_listener(listener)
+
+    def cancel_script(self) -> None:
+        """Cancel queued scripts on the server-side driver.
+
+        Mirrors RdDriver.cancel_script().
+        """
+        self._svc.cancel_script()
+
+    def set_protect(self, enabled: bool) -> None:
+        """Enable or disable protect mode on the server-side driver.
+
+        Mirrors RdDriver.set_protect().
+        """
+        self._svc.set_protect(enabled)
+
+    @property
+    def protect_enabled(self) -> bool:
+        """True when protect mode is active on the server-side driver.
+
+        Mirrors the direct driver's ``protect_enabled`` attribute.
+        """
+        return bool(self._svc.protect_enabled())
 
     # ------------------------------------------------------------------ #
     #  Live-only commands — jogs, homing, config setters (forwarded)
@@ -729,3 +1092,37 @@ class RpcRdDriver:
     def home_u(self) -> list[str] | None:
         """Home U axis / rotary (forwarded immediately)."""
         return self._svc.home_u()
+
+    # ------------------------------------------------------------------ #
+    #  Format utilities — forwarded passthroughs
+    # ------------------------------------------------------------------ #
+
+    def format_reply_value(
+        self, address: int, raw_reply: bytearray
+    ) -> tuple[str | None, str]:
+        """Decode a reply bytearray into (mnemonic, formatted_value).
+
+        Mirrors RdDriver.format_reply_value().
+        """
+        return self._svc.format_reply_value(address, raw_reply)
+
+    def format_reply(self, reply: bytearray) -> str:
+        """Format a GET_SETTING reply bytearray as a readable string.
+
+        Mirrors RdDriver.format_reply().
+        """
+        return self._svc.format_reply(reply)
+
+    def format_reply_list(self, replies: list[bytearray]) -> list[str]:
+        """Format a list of reply bytearrays into readable strings.
+
+        Mirrors RdDriver.format_reply_list().
+        """
+        return self._svc.format_reply_list(replies)
+
+    def decode_status_value(self, address: int, raw_reply: bytearray) -> Any:
+        """Decode a reply into its typed value (RdDecoder.value).
+
+        Mirrors RdDriver.decode_status_value().
+        """
+        return self._svc.decode_status_value(address, raw_reply)
