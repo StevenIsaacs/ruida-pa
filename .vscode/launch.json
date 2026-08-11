@@ -32,6 +32,18 @@
             "args": [
                 "--tui"
             ]
+        },
+        {
+            "name": "Python Debugger: test-transport",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "discovery/test/uniform-transport/test-uniform-transport.py",
+            // "console": "externalTerminal",
+            // "args": "${command:pickArgs}"
+            "args": [
+                "--transport=rpc",
+                "--udp-host=banger",
+            ]
         }
     ]
 }
