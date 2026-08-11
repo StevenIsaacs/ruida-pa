@@ -529,7 +529,7 @@ guard fails (transcript out of sync), the client falls back to a full
 protocol config `{"import_custom_exceptions": True, "instantiate_custom_exceptions":
 True}` so server-raised `GlueScriptDeltaMismatchError` is reconstructed
 client-side and the fallback can trigger (see "RPyC protocol configuration"
-in the [integration guide §8.9 batching section](integration-guide.md#89-gluescript-job-authoring--live-commands-via-rpc)).
+in the [integration guide §3.8 batching section](integration-guide.md#38-batching-layer-actions-over-rpc)).
 
 ```python
 driver.stage_gluescript()
@@ -569,7 +569,7 @@ RPC (also accessible as the `driver.rpascript` attribute); returns `[]` when
 no driver.
 
 > **Note:** Over RPC these getters report the server's last-flushed state
-> (see the integration guide §8.9 batching section).
+> (see the integration guide §3.8 batching section).
 
 ---
 
@@ -578,8 +578,9 @@ no driver.
 The TUI provides interactive access to GlueScript via the `/gluescript` command.
 
 Every GlueScript method documented below is also callable over RPyC — the
-server exposes all 40 authoring, config-setter, live-jog, homing, and getter methods, so a
-remote client can build and stage a job and drive live commands without the TUI. See the [integration guide §8.9](integration-guide.md#89-gluescript-job-authoring--live-commands-via-rpc)
+server exposes all the authoring, config-setter, live-jog, homing, and getter
+methods, so a remote client can build and stage a job and drive live commands
+without the TUI. See the [integration guide §3.7](integration-guide.md#37-gluescript-job-authoring--live-commands-via-rpc)
 for the full method table, session-less authoring example, and the `exposed_`-prefix note.
 
 ### Available Subcommands

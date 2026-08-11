@@ -240,7 +240,7 @@ RpcRdDriver(svc=None, *, host="127.0.0.1", port=18812,
   mutation of the returned list is NOT reflected server-side, unlike the
   direct driver's live lists.
 
-See the self-connect example in the integration guide §8.9
+See the self-connect example in the integration guide §3.2 (Connecting)
 (`docs/guides/integration-guide.md`).
 
 ### 3.7 Head/Tail Script Accessors
