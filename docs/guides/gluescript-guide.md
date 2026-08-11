@@ -488,7 +488,7 @@ rpascript interpreter matches them case-sensitively; uppercase `DELAY`/`WAIT`
 lines are dropped with an "Unknown command mnemonic" warning.
 
 These directives are transport-uniform: the identical calls work over RPC via
-`RpcGlueScript` (`rgs.delay(...)`, `rgs.wait(...)`).
+`RpcRdDriver` (`rpc_driver.delay(...)`, `rpc_driver.wait(...)`).
 
 #### VSCode extension support
 
@@ -516,7 +516,7 @@ transcript (the finalized rpascript is available via `driver.rpascript`).
 
 **Raises:** `RuntimeError` if `end_job()` has not been called.
 
-**Incremental staging over RPC:** the `RpcGlueScript` client does not call
+**Incremental staging over RPC:** the `RpcRdDriver` client does not call
 `stage_gluescript()` at every boundary. Instead it buffers structural and
 layer-action calls locally and, at each `declare_layer`/`end_job` boundary,
 calls `stage_gluescript_delta(flushed_count, delta_lines, require_complete)`,

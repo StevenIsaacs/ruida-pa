@@ -176,7 +176,7 @@ rpascript when called with `job=None`.
 def stage_gluescript_delta(self, flushed_count: int, delta_lines: list[str], require_complete: bool = True) -> str
 ```
 
-Incremental sibling of `stage_gluescript()` used by the `RpcGlueScript`
+Incremental sibling of `stage_gluescript()` used by the `RpcRdDriver`
 client: the driver transcript already holds the first `flushed_count` lines
 (replayed by earlier deltas or a full stage), so only the appended suffix is
 replayed through the command registry — O(Δ) per flush instead of O(L·N)

@@ -1,11 +1,13 @@
-"""Client-side batching wrapper around an RPyC GlueScript service root.
+"""Client-side batching wrapper around the RPyC service root,
+mirroring the RdDriver surface.
 
-``RpcGlueScript`` wraps the already-connected RPyC service root (the object
+``RpcRdDriver`` wraps the already-connected RPyC service root (the object
 returned by ``connect_stream(...).root``, as in tests/rpyc_poc/test_auth.py)
-and exposes the same GlueScript surface as the driver, but with local
-batching so a whole job reaches the server in a few round trips instead of
-one per command. It does NOT open the socket itself — the caller passes the
-connected ``svc`` root into the constructor.
+and exposes the same job-scripting and lifecycle-execution surface as the
+direct RdDriver, but with local batching so a whole job reaches the server
+in a few round trips instead of one per command. It does NOT open the
+socket itself — the caller passes the connected ``svc`` root into the
+constructor.
 
 Batching semantics
 ------------------
@@ -90,8 +92,10 @@ from rpalib.gluescript_signature import (
 logger = logging.getLogger(__name__)
 
 
-class RpcGlueScript:
-    """Client-side batching wrapper for the RPyC GlueScript service root."""
+class RpcRdDriver:
+    """Client-side batching wrapper for the RPyC service root,
+    mirroring the RdDriver surface.
+    """
 
     _svc: Any
     _transcript: list[str]

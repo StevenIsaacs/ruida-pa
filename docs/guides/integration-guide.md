@@ -622,7 +622,7 @@ script = [
 ```
 
 The GlueScript equivalents are `delay()` and `wait()`, and are identical over
-RPC via `RpcGlueScript`:
+RPC via `RpcRdDriver`:
 
 ```python
 gs = GlueScript()
@@ -640,7 +640,7 @@ gs.stage_gluescript()   # -> rpascript contains: delay 0.5s / wait MACHINE_STATU
 (`0.5`, `"500ms"`, `"30s"`); `wait()` status names are validated at run time
 by the runner. These directives are part of the saved job (persistable, unlike
 jog/home live commands), and the identical calls work over RPC via
-`RpcGlueScript` (`rgs.delay(...)`, `rgs.wait(...)`).
+`RpcRdDriver` (`rpc_driver.delay(...)`, `rpc_driver.wait(...)`).
 
 ### Pattern 5 — Capture Pipeline Round-Trip
 
@@ -1060,8 +1060,8 @@ driver itself — there is no separate `GlueScript` object; the
 `get_gluescript`/`get_rpascript` methods are adapter-level getters returning
 copies of the driver's gluescript/rpascript state. These getters are also
 available as attributes: `driver.gluescript`, `driver.rpascript`, and
-`driver.job_complete` on the direct driver, and `rgs.gluescript`,
-`rgs.rpascript`, and `rgs.job_complete` on the RPC wrapper (the RPC forms
+`driver.job_complete` on the direct driver, and `rpc_driver.gluescript`,
+`rpc_driver.rpascript`, and `rpc_driver.job_complete` on the RPC wrapper (the RPC forms
 report the server's last-flushed state; `get_gluescript()`/`get_rpascript()`
 remain as method aliases on the wrapper). Developers call these methods
 directly on the `RdDriver` instance, which inherits them from `GlueScript`, and
@@ -1228,7 +1228,7 @@ method exists.
 
 The direct client flow above sends one RPC per command: every
 `move_*_to`/`cut_*_to` call round-trips individually, so a large job is chatty
-on the wire. `rpalib/rpyc_client.RpcGlueScript` is a thin client-side wrapper
+on the wire. `rpalib/rpyc_client.RpcRdDriver` is a thin client-side wrapper
 around the same service root that buffers the high-volume layer actions —
 `move_xy_to`/`move_x_to`/`move_y_to`, `cut_xy_to`/`cut_x_to`/`cut_y_to`,
 `power`, `air_assist_on`/`air_assist_off` — locally and flushes them to the
@@ -1262,7 +1262,7 @@ config `{"import_custom_exceptions": True, "instantiate_custom_exceptions":
 True}`. With the rpyc 6.0.2 defaults (both `False`), a server-raised
 `GlueScriptDeltaMismatchError` arrives client-side as
 `rpyc.core.vinegar.GenericException`, so the client's graceful full re-stage
-fallback (`except GlueScriptDeltaMismatchError` in `RpcGlueScript._flush`)
+fallback (`except GlueScriptDeltaMismatchError` in `RpcRdDriver._flush`)
 cannot trigger and the flush instead fails with a generic remote exception.
 The old-server `AttributeError` fallback (no `stage_gluescript_delta` method)
 is NOT affected by this config — it is a client-side netref lookup and works
@@ -1318,7 +1318,7 @@ aliases on the wrapper). Between flushes, buffered actions exist only in the
 client's local transcript and are invisible to the getters until the next
 boundary flush.
 
-**Public `stage_gluescript()` passthrough:** `RpcGlueScript.stage_gluescript()`
+**Public `stage_gluescript()` passthrough:** `RpcRdDriver.stage_gluescript()`
 forwards the call unchanged (including `gluescript=None`), returns the
 signature, and performs no local flush and no drift check — mirroring the
 direct-client flow when you want to stage explicitly.
@@ -1338,7 +1338,7 @@ import socket
 import rpyc
 from rpyc.utils.factory import connect_stream
 from rpyc.utils.classic import SocketStream
-from rpalib.rpyc_client import RpcGlueScript
+from rpalib.rpyc_client import RpcRdDriver
 
 # The server MUST have been started with a token authenticator, e.g.
 #   start_rpyc_server(..., token="s3cret!t0k3n")
@@ -1350,30 +1350,30 @@ sock.sendall(b"\x00")  # empty-token length prefix, read by the authenticator
 # GlueScriptDeltaMismatchError degrades to a GenericException client-side.
 rpyc_config = {"import_custom_exceptions": True, "instantiate_custom_exceptions": True}
 svc = connect_stream(SocketStream(sock), config=rpyc_config).root
-rgs = RpcGlueScript(svc)
+rpc_driver = RpcRdDriver(svc)
 
 # Author a job before any session exists — no controller required yet.
 # Moves and cuts are buffered locally, not round-tripped per action.
-rgs.new_gluescript()
-rgs.declare_job("plate", ref_point="MACHINE", abs_xy=[0, 0])
-rgs.declare_layer("outline", "black", mode="VECTOR", speed=80.0)
-rgs.move_xy_to(0, 0)
-rgs.cut_xy_to(100, 0)
-rgs.cut_xy_to(100, 100)
-rgs.cut_xy_to(0, 100)
-rgs.cut_xy_to(0, 0)
-rgs.declare_layer("fill", "red", mode="IMAGE", speed=60.0)
-rgs.power(50)
-rgs.move_xy_to(10, 10)
-rgs.cut_xy_to(90, 10)
-rgs.cut_xy_to(90, 90)
-rgs.cut_xy_to(10, 90)
-rgs.cut_xy_to(10, 10)
+rpc_driver.new_gluescript()
+rpc_driver.declare_job("plate", ref_point="MACHINE", abs_xy=[0, 0])
+rpc_driver.declare_layer("outline", "black", mode="VECTOR", speed=80.0)
+rpc_driver.move_xy_to(0, 0)
+rpc_driver.cut_xy_to(100, 0)
+rpc_driver.cut_xy_to(100, 100)
+rpc_driver.cut_xy_to(0, 100)
+rpc_driver.cut_xy_to(0, 0)
+rpc_driver.declare_layer("fill", "red", mode="IMAGE", speed=60.0)
+rpc_driver.power(50)
+rpc_driver.move_xy_to(10, 10)
+rpc_driver.cut_xy_to(90, 10)
+rpc_driver.cut_xy_to(90, 90)
+rpc_driver.cut_xy_to(10, 90)
+rpc_driver.cut_xy_to(10, 10)
 
 # Each declare_layer flushed the buffer; end_job() does the final flush.
-rgs.end_job()
-staged = rgs.get_gluescript()   # gluescript transcript (DSL), not rpascript
-print(f"Staged {len(rgs.get_rpascript())} rpascript lines")
+rpc_driver.end_job()
+staged = rpc_driver.get_gluescript()   # gluescript transcript (DSL), not rpascript
+print(f"Staged {len(rpc_driver.get_rpascript())} rpascript lines")
 
 # Later, once a controller is reachable, run it — same flow as the direct
 # client above. run_job composes head + staged + tail scripts around the
