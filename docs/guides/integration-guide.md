@@ -506,7 +506,10 @@ This section covers the RPyC (Remote Python Call) integration path, which makes 
 ```
 
 The RPC server is provided by the TUI process and is started by the TUI
-operator; an application adapter only connects to it.
+operator; an application adapter only connects to it. RpcRdDriver also
+forwards start()/stop() to the server-side driver, so a client that must manage
+the server-side session lifecycle (e.g. a test harness) can do so; the
+connect-only pattern above remains the recommended adapter contract.
 
 ### 3.2 Connecting
 
