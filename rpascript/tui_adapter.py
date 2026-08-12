@@ -2518,6 +2518,17 @@ class TuiAdapter(App):
                 return fn()
         return self.call_from_thread(fn)
 
+    @staticmethod
+    def _format_live_call(name: str, args: tuple[Any, ...] | list[Any]) -> str:
+        """Format a live gluescript call for log display, e.g.
+        ``jog_xy_to(10.0, 20.0)``.
+
+        Renders the arguments in call form; an empty argument list renders
+        as ``name()`` (e.g. ``home()``), matching the RPyC server's
+        ``[RPC] gluescript ...`` log style.
+        """
+        return f"{name}({', '.join(repr(a) for a in args)})"
+
     def _gluescript_live_command(
         self, name: str, *args: Any
     ) -> list[str] | None:
@@ -2526,16 +2537,19 @@ class TuiAdapter(App):
         The driver's jog/home methods now generate AND send the lines in
         a single call (see _emit_live_lines); this delegate no longer
         needs a separate driver.run() step.
+
+        Log lines render the call form (name plus rendered arguments).
         """
         driver = self._ensure_gluescript_driver()
+        call = self._format_live_call(name, args)
         if not name.startswith("jog_set_") and not driver.is_connected:
-            self._log_warning(f"gluescript {name} ignored — no active session")
+            self._log_warning(f"gluescript {call} ignored — no active session")
             return None
         result = getattr(driver, name)(*args)
         if result is None and not name.startswith("jog_set_"):
-            self._log_warning(f"gluescript {name} not sent")
+            self._log_warning(f"gluescript {call} not sent")
         if isinstance(result, list) and result:
-            self._log_info(f"gluescript {name} sent to controller")
+            self._log_info(f"gluescript {call} sent to controller")
         return result
 
     def gluescript_new_gluescript(self) -> None:
@@ -3163,13 +3177,15 @@ class TuiAdapter(App):
                     return
                 values.append(v)
 
+            call = self._format_live_call(name, values)
+
             # Movement jogs mutate position tracking, and home commands are
             # machine actions, so check connectivity before invoking them;
             # is_connected does not guarantee the background script runner
             # thread is alive — run() can still raise RuntimeError, but
             # that is now handled inside _emit_live_lines.
             if not name.startswith("jog_set_") and not driver.is_connected:
-                self._log_warning(f"{name} ignored — no active session")
+                self._log_warning(f"{call} ignored — no active session")
                 return
 
             try:
@@ -3179,12 +3195,12 @@ class TuiAdapter(App):
                 return
 
             if isinstance(result, list) and result:
-                self._log_info(f"{name} sent to controller")
+                self._log_info(f"{call} sent to controller")
             elif name.startswith("jog_set_"):
-                self._log_info(f"{name} applied")
+                self._log_info(f"{call} applied")
             else:
                 self._log_warning(
-                    f"{name} not sent — see driver log for details"
+                    f"{call} not sent — see driver log for details"
                 )
         except Exception as e:
             self._log_error(f"{type(e).__name__}: {e}")
@@ -4219,15 +4235,48 @@ class TuiAdapter(App):
         """AppAdapter interface — TUI creates sessions on demand via command input."""
         pass
 
-    def start(self, udp_host: str | None = None, usb_device: str | None = None, magic: int | None = None) -> bool:
-        """Start the driver session.
+    def _reset_for_takeover(
+        self, resolved_udp: str, resolved_usb: str, magic: int | None
+    ) -> None:
+        """Reset TUI session state before a driver session takeover.
+
+        Clears the connection event and last-known state so the TUI treats
+        the imminent stop/restart inside RdDriver.start() as a clean
+        re-connect.
+        """
+        self._session_connected.clear()
+        self._last_is_connected = None
+        self._last_udp_host = resolved_udp
+        self._last_usb_device = resolved_usb
+        if magic is not None:
+            self._last_magic = magic
+        # _session_disconnected self-corrects via status events; not reset here
+        self._log_warning(
+            f"RPC start() replacing active session "
+            f"(udp_host={resolved_udp}, usb_device={resolved_usb})"
+        )
+
+    def start(
+        self,
+        udp_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+    ) -> bool:
+        """Start the driver session, replacing an active session on change.
 
         Emulates RdDriver.start(). Creates a new RdDriver if none exists,
-        registers TUI listeners, and delegates to RdDriver.start().
+        registers TUI listeners, and delegates to RdDriver.start(). When a
+        session is already active, the incoming params are resolved against
+        the driver's stored start values (None reuses the stored value): an
+        active session is replaced (via the driver) only when the resolved
+        udp_host/usb_device is truthy AND different from the stored value.
+        Same params, a magic-only change, or an empty-string param keep the
+        session (no-op). On a takeover the adapter resets its session state
+        so the TUI treats it as a clean re-connect.
 
         Args:
-            udp_host: UDP host address or hostname.
-            usb_device: USB serial device path.
+            udp_host: UDP host address or hostname. None reuses previous value.
+            usb_device: USB serial device path. None reuses previous value.
             magic: Optional swizzle magic number (default 0x88).
 
         Returns:
@@ -4236,7 +4285,20 @@ class TuiAdapter(App):
         if self._ruida_driver is None:
             self._ruida_driver = self._create_driver()
 
-        result = self._ruida_driver.start(udp_host=udp_host, usb_device=usb_device, magic=magic)
+        driver = self._ruida_driver
+        if driver._session is not None:
+            if udp_host is None:
+                udp_host = driver._start_udp_host
+            if usb_device is None:
+                usb_device = driver._start_usb_device
+            if (udp_host and udp_host != driver._start_udp_host) or (
+                usb_device and usb_device != driver._start_usb_device
+            ):
+                self._reset_for_takeover(udp_host, usb_device, magic)
+
+        result = driver.start(
+            udp_host=udp_host, usb_device=usb_device, magic=magic
+        )
         self._log_info(
             f"[RPC] driver.start(udp_host={udp_host!r}, usb_device={usb_device!r}, magic={magic!r}) -> {result}"
         )

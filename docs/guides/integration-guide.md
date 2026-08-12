@@ -509,7 +509,13 @@ The RPC server is provided by the TUI process and is started by the TUI
 operator; an application adapter only connects to it. RpcRdDriver also
 forwards start()/stop() to the server-side driver, so a client that must manage
 the server-side session lifecycle (e.g. a test harness) can do so; the
-connect-only pattern above remains the recommended adapter contract.
+connect-only pattern above remains the recommended adapter contract. An RPC
+`start()` with a different `udp_host`/`usb_device` than the active
+server-side session stops that session and starts a fresh one — the TUI
+adapter resets its connection state so the TUI treats it as a clean
+re-connect. Same params, a magic-only change, or an empty-string param
+keep the session (no-op). An RPC `start()` executes on the RPyC handler
+thread; avoid issuing it while a TUI-side `/connect` is still in progress.
 
 ### 3.2 Connecting
 
@@ -985,7 +991,7 @@ before switching.
 | `job_complete` | Local property | Server-side snapshot (last-flushed state) |
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
 | Error timing | Authoring errors raise at call time | Buffered authoring validates at flush time (see §3.8); errors surface wrapped in `RuntimeError` ("Error re-staging command ...") |
-| `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs) |
+| `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
 RpcRdDriver buffers structural calls and flushes deltas at
