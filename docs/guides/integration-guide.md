@@ -1046,7 +1046,10 @@ if __name__ == "__main__":
 The transport decision lives in exactly one place — `__init__`; everything
 after is transport-agnostic: the same methods, the same staging, the same
 job flow. The §5 testing patterns run identically against either
-transport.
+transport. A robust adapter polls `is_connected` briefly (e.g. every
+0.25s for up to 2s) after `start()` before issuing live commands, since
+the controller must confirm connection (respond to pings and status
+messages) first.
 
 ---
 
@@ -1250,7 +1253,10 @@ These patterns from §5 require no hardware or minimal hardware:
 - **No mock layer** — `RdDriver` talks to real hardware. It cannot simulate
   controller responses or inject fake status values. Unit tests requiring
   simulated hardware must implement their own mock layer.
-- **`start()` returns `False` on failure** — this is not an exception. The driver retries in background. Check `is_connected` property to confirm connection status.
+- **`start()` returns `False` on failure** — this is not an exception.
+  The driver retries in background; poll the `is_connected` property for
+  up to ~2s (e.g. every 0.25s) for the controller to confirm connection
+  before sending commands.
 - **`end_job()` is required before `stage_gluescript()`** — otherwise `RuntimeError`. Re-staging a transcript missing `end_job()` also raises (unless `require_complete=False`).
 - **Jog and home commands are live-only** — `jog_*` (incl. `jog_set_*`), `home`, `home_z`, `home_u` act on the live session, are never persisted to `.cglu`, and are skipped with a warning when re-staging.
 - **`power()` is only valid for IMAGE/DEPTHMAP layers** — calling it on a VECTOR layer logs a warning and is ignored.
