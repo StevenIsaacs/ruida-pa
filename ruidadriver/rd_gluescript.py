@@ -1110,6 +1110,19 @@ class GlueScript:
             return "NEAR"
         return "FAR"
 
+    @staticmethod
+    def _format_coord(
+        form: str, axis: str, absolute: float, delta: float
+    ) -> str:
+        """Format one coordinate param for a move/cut layer action.
+
+        NEAR commands are relative to the current position (nearX=/nearY=);
+        FAR commands are absolute (X=/Y=).
+        """
+        if form == "NEAR":
+            return f"near{axis}={delta:.3f}mm"
+        return f"{axis}={absolute:.3f}mm"
+
     def _expand_bounding_boxes(self, x: float, y: float) -> None:
         """Expand layer and document bounding boxes to include (x, y)."""
         self._last_layer_has_content = True
@@ -1170,7 +1183,8 @@ class GlueScript:
         form = "NEAR" if form_x == "NEAR" and form_y == "NEAR" else "FAR"
         self.gluescript.append(f"move_xy_to({x!r}, {y!r})")
         self._layer_actions.setdefault(self._layer, []).append(
-            f"MOVE_{form}_XY X={x:.3f}mm Y={y:.3f}mm"
+            f"MOVE_{form}_XY {self._format_coord(form, 'X', x, delta_x)} "
+            f"{self._format_coord(form, 'Y', y, delta_y)}"
         )
         self._current_x = x
         self._current_y = y
@@ -1181,7 +1195,9 @@ class GlueScript:
         delta_x = x - self._current_x
         form = self._choose_move_form(delta_x)
         self.gluescript.append(f"move_x_to({x!r})")
-        self._layer_actions.setdefault(self._layer, []).append(f"MOVE_{form}_X X={x:.3f}mm")
+        self._layer_actions.setdefault(self._layer, []).append(
+            f"MOVE_{form}_X {self._format_coord(form, 'X', x, delta_x)}"
+        )
         self._current_x = x
         self._expand_bounding_boxes(x, self._current_y)
 
@@ -1190,7 +1206,9 @@ class GlueScript:
         delta_y = y - self._current_y
         form = self._choose_move_form(delta_y)
         self.gluescript.append(f"move_y_to({y!r})")
-        self._layer_actions.setdefault(self._layer, []).append(f"MOVE_{form}_Y Y={y:.3f}mm")
+        self._layer_actions.setdefault(self._layer, []).append(
+            f"MOVE_{form}_Y {self._format_coord(form, 'Y', y, delta_y)}"
+        )
         self._current_y = y
         self._expand_bounding_boxes(self._current_x, y)
 
@@ -1211,7 +1229,8 @@ class GlueScript:
         form = "NEAR" if form_x == "NEAR" and form_y == "NEAR" else "FAR"
         self.gluescript.append(f"cut_xy_to({x!r}, {y!r})")
         self._layer_actions.setdefault(self._layer, []).append(
-            f"CUT_{form}_XY X={x:.3f}mm Y={y:.3f}mm"
+            f"CUT_{form}_XY {self._format_coord(form, 'X', x, delta_x)} "
+            f"{self._format_coord(form, 'Y', y, delta_y)}"
         )
         self._current_x = x
         self._current_y = y
@@ -1222,7 +1241,13 @@ class GlueScript:
         delta_x = x - self._current_x
         form = self._choose_move_form(delta_x)
         self.gluescript.append(f"cut_x_to({x!r})")
-        self._layer_actions.setdefault(self._layer, []).append(f"CUT_{form}_X X={x:.3f}mm")
+        if form == "NEAR":
+            line = f"CUT_NEAR_X {self._format_coord(form, 'X', x, delta_x)}"
+        else:
+            # CUT_FAR_X is not yet discovered — cut along X using the
+            # two-axis FAR form, holding Y at its current position.
+            line = f"CUT_FAR_XY X={x:.3f}mm Y={self._current_y:.3f}mm"
+        self._layer_actions.setdefault(self._layer, []).append(line)
         self._current_x = x
         self._expand_bounding_boxes(x, self._current_y)
 
@@ -1231,7 +1256,13 @@ class GlueScript:
         delta_y = y - self._current_y
         form = self._choose_move_form(delta_y)
         self.gluescript.append(f"cut_y_to({y!r})")
-        self._layer_actions.setdefault(self._layer, []).append(f"CUT_{form}_Y Y={y:.3f}mm")
+        if form == "NEAR":
+            line = f"CUT_NEAR_Y {self._format_coord(form, 'Y', y, delta_y)}"
+        else:
+            # CUT_FAR_Y is not yet discovered — cut along Y using the
+            # two-axis FAR form, holding X at its current position.
+            line = f"CUT_FAR_XY X={self._current_x:.3f}mm Y={y:.3f}mm"
+        self._layer_actions.setdefault(self._layer, []).append(line)
         self._current_y = y
         self._expand_bounding_boxes(self._current_x, y)
 

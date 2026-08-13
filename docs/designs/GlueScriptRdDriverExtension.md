@@ -702,7 +702,7 @@ MOVE_FAR_XY X=50.000mm Y=50.000mm
 CUT_FAR_XY X=150.000mm Y=50.000mm
 ...
 SELECT_LAYER Layer:2
-MOVE_NEAR_XY X=10.000mm Y=10.000mm
+MOVE_NEAR_XY nearX=1.000mm nearY=1.000mm
 ...
 ```
 
@@ -716,7 +716,9 @@ The move and cut actions on the X and/or Y axis use the job reference point and 
 **Far Form:**
 Used for moves and cuts having a distance greater than what can be represented using a near form.
 **Near Form:** 
-Used for moves and cuts having a distance less than what can be represented using a signed 14 bit integer / 1000 (in the range -8.192mm to 8.191mm).
+Used for moves and cuts having a distance less than what can be represented
+using a signed 14 bit integer / 1000 (in the range -8.192mm to 8.191mm).
+Near-form emissions use relative deltas from the current position.
 
 **AGENT:** Cut coordinates are used to determine the current layer bounding box as well as the overall job bounding box. Add code to test when a coordinate is beyond the limit of either bounding box and expand the bounding box as needed.
 **AGENT:** Because the number of layer actions can quickly become unwieldy for large projects add a means, when RDP is used, to accumulate all actions and send them all at one time to the TUI RDP server. Sending the accumulated actions should be triggered when starting a new layer (i.e. `declare_layer`) or ending the job (i.e. `end_job`). 
@@ -800,7 +802,7 @@ MOVE_FAR_XY X={x:.3f}mm Y={y:.3f}mm
 ```
 Near form expands to:
 ```
-MOVE_NEAR_XY X={x:.3f}mm Y={y:.3f}mm
+MOVE_NEAR_XY nearX={dx:.3f}mm nearY={dy:.3f}mm
 ```
 #### move_x_to(...)
 Move the laser head to an absolute X coordinate relative to the job reference point.
@@ -818,7 +820,7 @@ MOVE_FAR_X X={x:.3f}mm
 ```
 Near form expands to:
 ```
-MOVE_NEAR_X X={x:.3f}mm
+MOVE_NEAR_X nearX={dx:.3f}mm
 ```
 #### move_y_to(...)
 Move the laser head to an absolute Y coordinate relative to the job reference point.
@@ -836,7 +838,7 @@ MOVE_FAR_Y Y={y:.3f}mm
 ```
 Near form expands to:
 ```
-MOVE_NEAR_Y Y={y:.3f}mm
+MOVE_NEAR_Y nearY={dy:.3f}mm
 ```
 #### move_z_to(...)
 Move the laser bed to an absolute Z coordinate relative to the job reference point.
@@ -877,7 +879,7 @@ CUT_FAR_XY X={x:.3f}mm Y={y:.3f}mm
 ```
 Near form expands to:
 ```
-CUT_NEAR_XY X={x:.3f}mm Y={y:.3f}mm
+CUT_NEAR_XY nearX={dx:.3f}mm nearY={dy:.3f}mm
 ```
 #### cut_x_to(...)
 With the laser turned on move the laser head to an absolute X coordinate relative to the job reference point.
@@ -891,11 +893,12 @@ Parameters:
 
 Far form expands to:
 ```
-CUT_FAR_X X={x:.3f}mm
+# CUT_FAR_X not yet discovered — work-around holds Y at its current position
+CUT_FAR_XY X={x:.3f}mm Y={current_y:.3f}mm
 ```
 Near form expands to:
 ```
-CUT_NEAR_X X={x:.3f}mm
+CUT_NEAR_X nearX={dx:.3f}mm
 ```
 #### cut_y_to(...)
 With the laser turned on move the laser head to an absolute Y coordinate relative to the job reference point.
@@ -909,11 +912,12 @@ Parameters:
 
 Far form expands to:
 ```
-CUT_FAR_Y Y={y:.3f}mm
+# CUT_FAR_Y not yet discovered — work-around holds X at its current position
+CUT_FAR_XY X={current_x:.3f}mm Y={y:.3f}mm
 ```
 Near form expands to:
 ```
-CUT_NEAR_Y Y={y:.3f}mm
+CUT_NEAR_Y nearY={dy:.3f}mm
 ```
 #### cut_z_to(...)
 With the laser turned on move the laser head to an absolute Z coordinate relative to the job reference point.
