@@ -776,6 +776,14 @@ it runs the rpascript most recently staged by `stage_gluescript()`. A job
 authored over RPC is retained in the driver and can be executed after
 `rpc_driver.start()`.
 
+**Loaded-script slot stays in sync:** staging through the RPC path —
+`stage_gluescript()` or `stage_gluescript_delta()` on the TUI's `gluescript_*`
+delegate methods — keeps the loaded-script slot (`_loaded_script`) in sync,
+as with the interactive `/gluescript stage`/`run`/`load` subcommands: the
+generated rpascript becomes the loaded script, viewable with `/list script`.
+`new_gluescript` mirrors `/gluescript new` in resetting that slot and the
+preserved transcript.
+
 **Live jogs and homing require a connected session.** Movement jogs
 (`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to` and the `jog_*_rel`
 relative moves) and homing (`home`, `home_z`, `home_u`) execute immediately

@@ -608,7 +608,10 @@ remain live-only, as described above.)
 
 - `stage`, `run`, `load`, and `edit` (on save) make the generated rpascript
   the loaded script — the same `.rds` slot `/load` fills — so it can be
-  viewed with `/list script` and edited with `/edit`.
+  viewed with `/list script` and edited with `/edit`. The same applies when a
+  gluescript is staged through the RPC/delegate path (`stage_gluescript` /
+  `stage_gluescript_delta`); a remote `new_gluescript` resets the loaded-script
+  slot and the preserved transcript, mirroring `/gluescript new`.
 
 - The transcript survives session end/disconnect — it is preserved on teardown
   and restored automatically the next time a session-less subcommand (re)creates

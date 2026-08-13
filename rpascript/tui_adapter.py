@@ -2553,10 +2553,26 @@ class TuiAdapter(App):
         return result
 
     def gluescript_new_gluescript(self) -> None:
-        """Reset all script data for a new job (session-less)."""
-        return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().new_gluescript()
-        )
+        """Reset all script data for a new job (session-less).
+
+        Mirrors interactive /gluescript new: also resets the loaded-script
+        slot, the preserved transcript, the run flag, and the .cglu preselect.
+        """
+
+        def _new() -> None:
+            # Before ensure: clear preserved transcript and loaded-slot up
+            # front so a driver-creation failure leaves no partial state —
+            # no restore-then-wipe waste and no half-cleared window.
+            self._preserved_gluescript = None
+            self._loaded_script = []
+            self._loaded_script_path = None
+            self._ensure_gluescript_driver().new_gluescript()
+            self._gluescript_was_run = False
+            self._gluescript_cglu_path = None
+            # NOTE: _plot_source deliberately left untouched (mirrors
+            # interactive /gluescript new).
+
+        return self._gluescript_bridge(_new)
 
     def gluescript_comment(self, comments: list[str]) -> None:
         """Append comment lines to the generated rpascript (session-less)."""
@@ -2710,13 +2726,18 @@ class TuiAdapter(App):
         """Finalize the rpascript or re-stage a gluescript.
 
         Returns the SHA-256 signature (hex) of the staged gluescript
-        transcript.
+        transcript. On success the staged rpascript becomes the loaded
+        script (/list script).
         """
-        return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().stage_gluescript(
+
+        def _stage() -> str:
+            sig = self._ensure_gluescript_driver().stage_gluescript(
                 gluescript, require_complete
             )
-        )
+            self._copy_staged_rpascript_to_loaded()
+            return sig
+
+        return self._gluescript_bridge(_stage)
 
     def gluescript_stage_gluescript_delta(
         self,
@@ -2731,13 +2752,18 @@ class TuiAdapter(App):
         current transcript length.
 
         Returns the SHA-256 signature (hex) of the staged gluescript
-        transcript.
+        transcript. On success the staged rpascript becomes the loaded
+        script (/list script).
         """
-        return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().stage_gluescript_delta(
+
+        def _stage_delta() -> str:
+            sig = self._ensure_gluescript_driver().stage_gluescript_delta(
                 flushed_count, delta_lines, require_complete
             )
-        )
+            self._copy_staged_rpascript_to_loaded()
+            return sig
+
+        return self._gluescript_bridge(_stage_delta)
 
     def gluescript_jog_set_xy_speed(self, speed: float) -> None:
         """Set XY jog speed (mm/s) on the live session."""
