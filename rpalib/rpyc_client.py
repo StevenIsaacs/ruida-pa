@@ -790,10 +790,9 @@ class RpcRdDriver:
 
         Preserves ``None`` defaults verbatim in the mirrored line; the
         server resolves them from the layer's declared powers when the
-        delta is staged. Constraint violations (no declared layer, repeat
-        use, after a jog/move/cut, min > max, min < 8%) surface at the
-        next flush wrapped in RuntimeError, like the other buffered
-        actions.
+        delta is staged. Constraint violations (no declared layer,
+        min > max, min < 8%) surface at the next flush wrapped in
+        RuntimeError, like the other buffered actions.
 
         Raises:
             RuntimeError: If the driver is closed, or the job is complete

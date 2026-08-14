@@ -166,12 +166,9 @@ class GlueScript:
         self._layer_blx: float = -float('inf')
         self._layer_bly: float = -float('inf')
         self._last_layer_has_content: bool = False
-        # Power-range state for the current layer: power_range() reads the
-        # declared powers when its own args are omitted and enforces its
-        # once-per-layer / precedes-positioning constraints. Defaults mirror
-        # the declare_layer() arguments and are reset per layer.
-        self._layer_power_range_set: bool = False
-        self._layer_positioning_started: bool = False
+        # Per-layer power fallbacks: power_range() resolves omitted args
+        # from these declared powers. Defaults mirror the declare_layer()
+        # arguments and are reset per layer.
         self._current_layer_min_power: float = 8.0
         self._current_layer_max_power: float = 70.0
 
@@ -422,9 +419,7 @@ class GlueScript:
         self._layer_blx = -float('inf')
         self._layer_bly = -float('inf')
         self._last_layer_has_content = False
-        # Power-range state — defaults mirror the declare_layer() arguments.
-        self._layer_power_range_set = False
-        self._layer_positioning_started = False
+        # Power-range fallbacks — defaults mirror the declare_layer() args.
         self._current_layer_min_power = 8.0
         self._current_layer_max_power = 70.0
         # rpascript is assembled by stage_gluescript() — clear to empty
@@ -790,14 +785,10 @@ class GlueScript:
         self._layer_blx = -float('inf')
         self._layer_bly = -float('inf')
         self._last_layer_has_content = False
-        # Snapshot the declared power range and reset the power_range()
-        # guards for this layer: omitted args resolve from the snapshots,
-        # and power_range() must precede any jog/move/cut and appear only
-        # once.
+        # Snapshot the declared power range for this layer: power_range()
+        # resolves omitted args from these snapshots.
         self._current_layer_min_power = min_power_1
         self._current_layer_max_power = max_power_1
-        self._layer_power_range_set = False
-        self._layer_positioning_started = False
 
         # gluescript (positional args only — matches _parse_gluescript_line)
         self.gluescript.append(
@@ -845,13 +836,6 @@ class GlueScript:
         """
         return lines
 
-    def _emit_live(self, lines: list[str]) -> list[str] | None:
-        """Send live lines; mark layer positioning as started on success."""
-        sent = self._emit_live_lines(lines)
-        if sent:
-            self._layer_positioning_started = True
-        return sent
-
     def jog_set_xy_speed(self, speed: float) -> None:
         """Set XY jog speed in mm/s."""
         self.jog_xy_speed = speed
@@ -895,7 +879,7 @@ class GlueScript:
         ]
         self._current_x = x
         self._current_y = y
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_x_to(self, x: float) -> list[str] | None:
         """Generate jog rpascript to move X to absolute coordinate.
@@ -910,7 +894,7 @@ class GlueScript:
             f"JOG_X Rel:MACHINE X={x}mm",
         ]
         self._current_x = x
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_y_to(self, y: float) -> list[str] | None:
         """Generate jog rpascript to move Y to absolute coordinate.
@@ -925,7 +909,7 @@ class GlueScript:
             f"JOG_Y Rel:MACHINE Y={y}mm",
         ]
         self._current_y = y
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_z_to(self, z: float) -> list[str] | None:
         """Generate jog rpascript to move Z to absolute coordinate.
@@ -948,7 +932,7 @@ class GlueScript:
             f"JOG_Z Rel:MACHINE Z={z}mm",
         ]
         self._current_z = z
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_u_to(self, u: float) -> list[str] | None:
         """Generate jog rpascript to move U to absolute coordinate.
@@ -963,7 +947,7 @@ class GlueScript:
             f"JOG_U Rel:MACHINE U={u}mm",
         ]
         self._current_u = u
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_xy_rel(self, x: float | None = None, y: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move XY relative to current position.
@@ -984,7 +968,7 @@ class GlueScript:
         ]
         self._current_x += x
         self._current_y += y
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_x_rel(self, x: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move X relative to current position.
@@ -1001,7 +985,7 @@ class GlueScript:
             f"JOG_X Rel:CURRENT X={x}mm",
         ]
         self._current_x += x
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_y_rel(self, y: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move Y relative to current position.
@@ -1018,7 +1002,7 @@ class GlueScript:
             f"JOG_Y Rel:CURRENT Y={y}mm",
         ]
         self._current_y += y
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_z_rel(self, z: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move Z relative to current position.
@@ -1035,7 +1019,7 @@ class GlueScript:
             f"JOG_Z Rel:CURRENT Z={z}mm",
         ]
         self._current_z += z
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def jog_u_rel(self, u: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move U relative to current position.
@@ -1052,7 +1036,7 @@ class GlueScript:
             f"JOG_U Rel:CURRENT U={u}mm",
         ]
         self._current_u += u
-        return self._emit_live(lines)
+        return self._emit_live_lines(lines)
 
     def update_position(
         self,
@@ -1154,9 +1138,6 @@ class GlueScript:
 
     def _expand_bounding_boxes(self, x: float, y: float) -> None:
         """Expand layer and document bounding boxes to include (x, y)."""
-        # Every implemented move/cut routes through here, so this flag is
-        # the power_range() "must precede any jog/move/cut" guard.
-        self._layer_positioning_started = True
         self._last_layer_has_content = True
         # Coerce to float so _expand_deferred applies .3f formatting
         fx, fy = float(x), float(y)
@@ -1196,8 +1177,8 @@ class GlueScript:
 
         Expands to ``MIN_POWER_1 Power:{min:.1f}%`` and
         ``MAX_POWER_1 Power:{max:.1f}%`` in the layer's action block,
-        overriding the powers declared in declare_layer() for the rest of
-        the layer.
+        overriding the previously active ramp range from that point
+        onward.
 
         Args:
             min: Minimum power percentage, or None to use the layer's
@@ -1207,12 +1188,16 @@ class GlueScript:
 
         Constraints (each violation raises ValueError):
             - A layer must be declared first.
-            - May be used only once per layer.
-            - Must precede any jog, move, or cut action in the layer.
             - min must not exceed max (also guards a no-arg call on a
               layer whose declared powers are inverted).
             - min must be at least 8% (CO2 laser threshold).
         A max above 70% logs a warning, mirroring declare_layer().
+
+        May be called multiple times per layer, including between jog,
+        move, or cut actions: each call emits MIN_POWER_1/MAX_POWER_1 into
+        the layer's action block at its call position, overriding the ramp
+        range from that point onward. Omitted args always resolve from the
+        layer's declared powers (not the previous power_range() call).
 
         Error surfaces: this method raises ValueError on the direct path;
         when re-staging wraps a replay of a persisted transcript, the same
@@ -1223,15 +1208,6 @@ class GlueScript:
             raise ValueError(
                 "power_range() requires a declared layer — call "
                 "declare_layer() first"
-            )
-        if self._layer_power_range_set:
-            raise ValueError(
-                "power_range() may be used only once per layer"
-            )
-        if self._layer_positioning_started:
-            raise ValueError(
-                "power_range() must precede any jog, move, or cut action "
-                "in the layer"
             )
         # Transcript must preserve the caller's own args (None falls back
         # to the declared layer powers on replay), while the rpascript
@@ -1259,7 +1235,6 @@ class GlueScript:
             f"MIN_POWER_1 Power:{resolved_min:.1f}%",
             f"MAX_POWER_1 Power:{resolved_max:.1f}%",
         ])
-        self._layer_power_range_set = True
 
     def air_assist_on(self) -> None:
         """Enable air assist for the current layer.
@@ -1539,9 +1514,7 @@ class GlueScript:
             self._layer_blx = -float('inf')
             self._layer_bly = -float('inf')
             self._last_layer_has_content = False
-            # Power-range state — defaults mirror the declare_layer() args.
-            self._layer_power_range_set = False
-            self._layer_positioning_started = False
+            # Power-range fallbacks — defaults mirror the declare_layer() args.
             self._current_layer_min_power = 8.0
             self._current_layer_max_power = 70.0
             self._assembling = True

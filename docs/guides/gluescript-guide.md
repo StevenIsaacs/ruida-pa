@@ -329,22 +329,22 @@ Omitted arguments fall back to the current layer's declared
 
 `power_range()` is a **saved-job command** — it is persisted to, and replayed
 from, `.cglu` files (unlike jog/home commands, which are live-only). It may
-follow `power()` in `IMAGE`/`DEPTHMAP` layers — `power()` does not count as a
-jog/move/cut for ordering purposes.
+be used in `IMAGE`/`DEPTHMAP` layers as well.
 
 **Constraints** (each violation raises `ValueError` on the direct path; it
 surfaces as `RuntimeError` when re-staging a persisted transcript):
 
 - A layer must be declared first.
-- May be used only **once per layer**.
-- Must **precede any jog, move, or cut action** in the layer.
 - `min` must not exceed `max`.
 - `min` must be at least 8% (CO2 laser threshold) — raising below 8 mirrors
   `declare_layer`; `max` above 70% logs a warning.
 
-The ordering constraint applies to the GlueScript methods (`jog_*`,
-`move_*`, `cut_*`); it is intentionally NOT enforced against raw injection
-via `inline()`/`add_layer_action()`.
+`power_range()` may be called **multiple times per layer**, including between
+`jog_*`/`move_*`/`cut_*` actions: each call emits `MIN_POWER_1`/`MAX_POWER_1`
+into the layer's action block at its call position, overriding the ramp range
+from that point onward. Omitted args always resolve from the layer's declared
+powers (not the previous `power_range()` call). Ordering is not constrained
+against raw injection via `inline()`/`add_layer_action()` either.
 
 #### `air_assist_on()`
 

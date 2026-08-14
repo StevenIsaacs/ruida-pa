@@ -1002,11 +1002,11 @@ before switching.
 | `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
-`power_range` constraint violations (once-per-layer, must-precede-jog/move/cut,
-`min > max`, etc.) are **flush-time-only** over RPC: because the client mirror
-buffers `power_range` locally without validating it, the first layer action
-whose constraint errors do not raise at call time — they surface wrapped in
-`RuntimeError` at the NEXT flush.
+`power_range` constraint violations (no declared layer, `min > max`,
+`min < 8%`, etc.) are **flush-time-only** over RPC: because the client mirror
+buffers `power_range` locally without validating it, the constraint errors do
+not raise at call time — they surface wrapped in `RuntimeError` at the NEXT
+flush.
 
 RpcRdDriver buffers structural calls and flushes deltas at
 `declare_layer`/`end_job` boundaries — see §3.8 — reducing round trips;
