@@ -736,6 +736,51 @@ Expands to:
 ```
 IMD_POWER_1 Power:{percent:.1f}%
 ```
+#### power_range(...)
+Set the min/max power range percentages used to ramp laser power during
+accel/decel for the current layer.
+
+Prototype:
+```
+power_range(min: float=None, max: float=None)
+```
+
+Parameters:
+- `min`: The minimum power percentage. If this is `None` then the current layer's declared `min_power_1` is used.
+- `max`: The maximum power percentage. If this is `None` then the current layer's declared `max_power_1` is used.
+
+Expands to:
+```
+MIN_POWER_1 Power:{min:.1f}%
+MAX_POWER_1 Power:{max:.1f}%
+```
+
+Omitted arguments fall back to the current layer's declared
+`min_power_1`/`max_power_1` from `declare_layer()` (defaults 8.0/70.0), so
+`power_range()`, `power_range(max=85)`, and `power_range(10)` are all valid.
+
+`power_range()` is a **saved-job command** — it is persisted to, and replayed
+from, `.cglu` files (unlike jog/home commands, which are live-only). It may
+follow `power()` in `IMAGE`/`DEPTHMAP` layers — `power()` does not count as a
+jog/move/cut for ordering purposes.
+
+**Constraints** (each violation raises `ValueError` on the direct path; it
+surfaces as `RuntimeError` when re-staging a persisted transcript):
+
+- A layer must be declared first.
+- May be used only **once per layer**.
+- Must **precede any jog, move, or cut action** in the layer.
+- `min` must not exceed `max`.
+- `min` must be at least 8% (CO2 laser threshold) — raising below 8 mirrors
+  `declare_layer`; `max` above 70% logs a warning.
+
+The ordering constraint applies to the GlueScript methods (`jog_*`,
+`move_*`, `cut_*`); it is intentionally NOT enforced against raw injection
+via `inline()`/`add_layer_action()`.
+
+**Transcript preserves original args:** the gluescript line keeps the caller's
+arguments (e.g. `power_range(None, 85)`), while the rpascript lines carry the
+resolved values (defaults resolved identically on re-stage from layer state).
 #### energy(...)
 **AGENT:** Do not implement this method. It still requires further definition.
 

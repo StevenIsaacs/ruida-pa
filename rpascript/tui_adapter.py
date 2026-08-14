@@ -2713,6 +2713,16 @@ class TuiAdapter(App):
             lambda: self._ensure_gluescript_driver().power(percent)
         )
 
+    def gluescript_power_range(
+        self, min: float | None = None, max: float | None = None
+    ) -> None:
+        """Set the min/max power ramp range for the current layer
+        (session-less).
+        """
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().power_range(min, max)
+        )
+
     def gluescript_air_assist_on(self) -> None:
         """Enable air assist for the current layer (session-less)."""
         return self._gluescript_bridge(

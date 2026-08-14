@@ -318,7 +318,7 @@ below shows which section each GlueScript call produces:
 | Layer Settings (§10.5) | Yes | `declare_layer()` (+ `LAST_LAYER` from `stage_gluescript`) |
 | Offset Settings (§10.6) | No | `set_head_script` raw rpascript if needed |
 | Array Settings (§10.7) | No | `set_head_script` raw rpascript if needed |
-| Layer Actions (§10.8) | Yes | `move_xy_to()`/`cut_xy_to()`/`power()`/`air_assist_on()`/`air_assist_off()` |
+| Layer Actions (§10.8) | Yes | `move_xy_to()`/`cut_xy_to()`/`power()`/`power_range()`/`air_assist_on()`/`air_assist_off()` |
 | Tail (§10.9) | Yes | `stage_gluescript()` emits `END_JOB`/`EOF` (extra tail via `set_tail_script`) |
 
 The staged output is structured as: job header (Section 1) → inline prelude →
@@ -969,7 +969,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Surface area | Methods | Notes |
 | ------------ | ------- | ----- |
 | Job authoring | `new_gluescript`, `comment`, `inline`, `delay`, `wait`, `declare_job`, `declare_layer`, `end_job` | Buffered locally over RPC; flushed at layer/job boundaries (see §3.8) |
-| Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `air_assist_on`, `air_assist_off` | Same buffering note |
+| Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `air_assist_on`, `air_assist_off` | Same buffering note; `power_range` sets the min/max power ramp range for the layer (accel/decel), expanding to `MIN_POWER_1`/`MAX_POWER_1` |
 | Staging & getters | `stage_gluescript`, `stage_gluescript_delta`, `gluescript`/`rpascript` attributes — plus RPC-only getters `get_gluescript()`/`get_rpascript()` on the wrapper | `stage_gluescript` returns a SHA-256 signature; the direct driver exposes the attributes directly |
 | Lifecycle & execution | `start`, `stop`, `run`, `run_job`, `cancel_script` | `start` returns bool |
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |
@@ -1001,6 +1001,12 @@ before switching.
 | Error timing | Authoring errors raise at call time | Buffered authoring validates at flush time (see §3.8); errors surface wrapped in `RuntimeError` ("Error re-staging command ...") |
 | `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
+
+`power_range` constraint violations (once-per-layer, must-precede-jog/move/cut,
+`min > max`, etc.) are **flush-time-only** over RPC: because the client mirror
+buffers `power_range` locally without validating it, the first layer action
+whose constraint errors do not raise at call time — they surface wrapped in
+`RuntimeError` at the NEXT flush.
 
 RpcRdDriver buffers structural calls and flushes deltas at
 `declare_layer`/`end_job` boundaries — see §3.8 — reducing round trips;

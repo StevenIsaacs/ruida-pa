@@ -474,6 +474,12 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info(f"[RPC] gluescript power({percent})")
         return self._exposed_gluescript("power", percent)
 
+    def exposed_power_range(
+        self, min: float | None = None, max: float | None = None
+    ) -> None:
+        self._rpc_info(f"[RPC] gluescript power_range({min}, {max})")
+        return self._exposed_gluescript("power_range", min, max)
+
     def exposed_air_assist_on(self) -> None:
         self._rpc_info("[RPC] gluescript air_assist_on()")
         return self._exposed_gluescript("air_assist_on")

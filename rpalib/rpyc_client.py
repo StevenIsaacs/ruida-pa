@@ -783,6 +783,37 @@ class RpcRdDriver:
             return
         self._append(f"power({percent!r})")
 
+    def power_range(
+        self, min: float | None = None, max: float | None = None
+    ) -> None:
+        """Buffer a min/max power ramp range (flushed at next boundary).
+
+        Preserves ``None`` defaults verbatim in the mirrored line; the
+        server resolves them from the layer's declared powers when the
+        delta is staged. Constraint violations (no declared layer, repeat
+        use, after a jog/move/cut, min > max, min < 8%) surface at the
+        next flush wrapped in RuntimeError, like the other buffered
+        actions.
+
+        Raises:
+            RuntimeError: If the driver is closed, or the job is complete
+                — after end_job() no flush boundary remains, so fail fast
+                instead of silently dropping the action.
+        """
+        if self._closed:
+            raise RuntimeError("driver closed")
+        # Deliberate fail-fast asymmetry: the sibling buffered actions
+        # (move_xy_to / cut_xy_to / air_assist_on) silently buffer forever
+        # after end_job() with no flush boundary left to deliver them.
+        # power_range() guards _job_complete so a post-end_job call cannot
+        # be dropped silently — do not "fix" this by removing the guard.
+        if self._job_complete:
+            raise RuntimeError(
+                "power_range() called after end_job() — no flush boundary "
+                "remains to stage it"
+            )
+        self._append(f"power_range({min!r}, {max!r})")
+
     def air_assist_on(self) -> None:
         """Buffer air assist enable (flushed at the next boundary)."""
         if self._closed:
