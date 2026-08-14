@@ -188,6 +188,8 @@ The TUI provides interactive access to Ruida controllers via terminal,
 combining connection management, script execution, real-time monitoring,
 and capture import from other laser applications.
 
+NOTE: The TUI is intended to be used only for discovery and diagnostic purposes and is NOT for a production environment. Jobs requiring thousands of layer actions should not be run using the TUI because of the overhead involved.
+
 ### Crash Handling
 
 If an unhandled exception occurs, a persistent error screen displays the
@@ -499,6 +501,26 @@ The analyzer uses a finite state machine with the following states:
 - `SUBCOMMAND_BYTE`: Processing hierarchical subcommands
 - `PARAMETER_PARSING`: Extracting typed parameters
 - `ERROR`: Handling parse failures
+
+## Known Issues
+
+- **File checksum discrepancy with LightBurn captures**: The analyzer's file checksum does not always match the value in `SET_FILE_SUM`. Using LightBurn captures there is a consistent discrepancy of 220, implying only one or two bytes are missing from the calculation — at least for LightBurn captures. Exactly which bytes participate in the checksum remains unclear. See the [File Checksum](#file-checksum) section for details and an example mismatch. (`auto_checksum=True` in the driver may likewise not match LightBurn output.)
+
+- **Incomplete protocol coverage**: Much of the Ruida protocol is unknown. Unknown commands, addresses, and parameter formats are marked `TBD` in the output and require further investigation (see [Unknown Data Output](#unknown-data-output)). Examples of open questions: the meaning of the 35-bit `FEED_INFO` value, and the effect of min/max power settings on plotting.
+
+- **TUI unresponsiveness when listing large scripts**: In the interactive TUI, `/list script` (and the related `/list` subcommands) writes each line to the log widget in a synchronous loop, which can freeze the interface for a noticeable period when a script has thousands of lines. A related handshake-thread blocking issue that caused random status disconnects has been fixed; the event-loop saturation from per-line writes remains. This is why the TUI is intended for discovery and diagnostic use only and not for production workloads (see the [Interactive TUI](#interactive-tui-terminal-user-interface) section).
+
+## Future Plans
+
+- **Controlled release process**: This project evolves rapidly with near-daily changes. Once all planned features have been added, a more controlled release process will be used (see the note at the top of this README).
+
+- **Multi-job GlueScript support**: A GlueScript currently contains a single job; support for more than one job per script is planned.
+
+- **Configurable driver commands**: Driver commands are currently hard-coded as `RdDriver` class private variables; a configuration file for these is planned.
+
+- **Additional protocol support**: The driver architecture is designed to support other protocols, such as GCODE, in the future. Adding a protocol means creating a parallel `protocols/<name>/` directory with its own analyzer.
+
+- **U-axis plotting support**: Move plotting currently covers the X/Y axes; U-axis moves are a planned addition.
 
 ## Contributing
 

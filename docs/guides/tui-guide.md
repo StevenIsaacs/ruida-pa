@@ -19,6 +19,12 @@ Ruida laser controllers directly from the terminal. It combines:
   status updates
 - **Visualization** — interactive Bokeh plots of head moves and cut paths
 
+### Intended use
+
+The TUI is intended to be used only for discovery and diagnostic purposes and
+is NOT for a production environment. Jobs requiring thousands of layer actions
+should not be run using the TUI because of the overhead involved.
+
 ---
 
 ## 2. Launching
