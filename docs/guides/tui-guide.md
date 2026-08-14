@@ -34,6 +34,23 @@ python rpascript/tui.py
 No arguments needed — the TUI starts immediately. If a script file is provided
 as an argument, it is processed in batch mode instead (see `rpa-script --help`).
 
+### Auto-starting the RPC server
+
+Launch the TUI with the RPyC RPC server automatically started using `--rpc`
+together with `--tui`:
+
+```bash
+rpa-script --tui --rpc
+# With non-default host/port/token:
+rpa-script --tui --rpc --rpc-host 0.0.0.0 --rpc-port 19001 --rpc-token secret
+```
+
+Defaults are host `localhost`, port `18812`, and no token. `--rpc` is only valid
+together with `--tui`; `--rpc-host`, `--rpc-port`, and `--rpc-token` are only valid
+together with `--rpc`. This is equivalent to typing `server start` in the TUI.
+Localhost connections always skip TLS and token authentication; a token is only
+enforced when `--rpc-host` is a non-local address.
+
 ---
 
 ## 3. Layout

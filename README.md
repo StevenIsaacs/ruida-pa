@@ -18,6 +18,17 @@ NOTE: This is a project which is rapidly evolving. New features and changes are 
 
 This tool is designed to be used to discover and diagnose problems related to UDP communications with a Ruida controller. Much of the Ruida protocol is unknown and new commands or parameters may be discovered during analysis. The nature of such discovery often requires new experiments or parsing algorithms when new information is learned. Because of this the best experience using this tool is within VSCode or its forks like VSCodium and Antigravity. These IDEs allow stepping through the code to observe the analyzer's behavior along with side by side display of moves and cuts. And, when needed, this tool can be hacked to refine analysis. If you create a hack which can be useful to others please consider contributing it to this project.
 
+## Documentation
+
+In-depth guides for working with the scripting and interface layers are available in `docs/guides/`:
+
+| Guide | Description |
+|-------|-------------|
+| [docs/guides/gluescript-guide.md](docs/guides/gluescript-guide.md) | High-level job scripting layer (GlueScript) between application code and low-level rpascript, covering job/layer declarations, `.cglu` persistence, and the command registry for re-staging jobs. |
+| [docs/guides/integration-guide.md](docs/guides/integration-guide.md) | For developers building external applications that control Ruida controllers programmatically via the RdDriver API, including remote control over RPyC. |
+| [docs/guides/rpascript-guide.md](docs/guides/rpascript-guide.md) | Reference for the low-level rpascript (`.rds`) line-oriented script format consumed by `RdDriver.run()`. |
+| [docs/guides/tui-guide.md](docs/guides/tui-guide.md) | User guide for the interactive terminal UI of `rpa-script`: session management, script execution, capture import, real-time monitoring, and slash commands. |
+
 ## Background
 
 The Ruida protocol is a proprietary binary communication protocol used by Ruida CNC controllers, commonly found in:

@@ -45,6 +45,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
     )
     parser.add_argument(
+        "--rpc",
+        help="Auto-start the RPC server when the TUI launches. "
+        "Requires --tui.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--rpc-host",
+        help="RPC server bind address (default: localhost)",
+        default="localhost",
+    )
+    parser.add_argument(
+        "--rpc-port",
+        help="RPC server bind port (default: 18812)",
+        type=int,
+        default=18812,
+    )
+    parser.add_argument(
+        "--rpc-token",
+        help="RPC authentication token (only enforced for non-local hosts)",
+        default=None,
+    )
+    parser.add_argument(
         "-v",
         "--version",
         action="version",
@@ -58,6 +80,18 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    # --rpc and its tuning params are only meaningful with the TUI:
+    # reject them at the parse boundary instead of silently ignoring them.
+    if args.rpc and not args.tui:
+        parser.error("--rpc requires --tui")
+    rpc_tuning_given = (
+        args.rpc_host != "localhost"
+        or args.rpc_port != 18812
+        or args.rpc_token
+    )
+    if rpc_tuning_given and not args.rpc:
+        parser.error("--rpc-host/--rpc-port/--rpc-token require --rpc")
+
     # TUI mode: launch interactive terminal interface
     if args.tui:
         from rpascript.tui_adapter import run_tui
@@ -67,7 +101,12 @@ def main() -> None:
                 f'Note: script argument "{args.script}" ignored in TUI mode. '
                 "Use Ctrl+L to load scripts within the TUI."
             )
-        run_tui()
+        run_tui(
+            rpc=args.rpc,
+            rpc_host=args.rpc_host,
+            rpc_port=args.rpc_port,
+            rpc_token=args.rpc_token,
+        )
         return
 
     # Script argument is required when not in TUI mode

@@ -536,7 +536,23 @@ class TuiAdapter(App):
     }
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        rpc_auto_start: bool = False,
+        rpc_host: str = "localhost",
+        rpc_port: int = 18812,
+        rpc_token: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        # Consume the RPC auto-start params here, BEFORE super().__init__,
+        # so they never reach Textual's App.__init__ (which would silently
+        # swallow them and make --rpc a no-op).
+        self._rpc_auto_start = rpc_auto_start
+        self._rpc_auto_host = rpc_host
+        self._rpc_auto_port = rpc_port
+        self._rpc_auto_token = rpc_token
+        self._rpc_auto_start_task: asyncio.Task | None = None
         super().__init__(*args, **kwargs)
         self._ruida_driver: RdDriver | None = None
         self._last_udp_host: str = ""
@@ -722,6 +738,21 @@ class TuiAdapter(App):
         self._update_status_bar()
         self._load_command_history()
         self.query_one("#command-input", Input).focus()
+        if self._rpc_auto_start:
+            self._log_info(
+                f"Auto-starting RPC server on "
+                f"{self._rpc_auto_host}:{self._rpc_auto_port} (per --rpc)..."
+            )
+            self._rpc_auto_start_task = asyncio.create_task(
+                self._start_server(
+                    host=self._rpc_auto_host,
+                    port=self._rpc_auto_port,
+                    token=self._rpc_auto_token,
+                )
+            )
+            self._rpc_auto_start_task.add_done_callback(
+                self._on_rpc_auto_start_done
+            )
 
     # ------------------------------------------------------------------
     # Command input handling
@@ -3684,6 +3715,16 @@ class TuiAdapter(App):
         except Exception as e:
             self._log_error(f"Error stopping RPC server: {e}")
 
+    def _on_rpc_auto_start_done(self, task: asyncio.Task) -> None:
+        """Log any exception from the auto-start task.
+
+        Prevents "Task exception was never retrieved" warnings.
+        """
+        try:
+            task.result()
+        except Exception as e:
+            self._log_error(f"RPC auto-start failed: {e}")
+
     async def _teardown_session(self) -> None:
         """Tear down the current session (stop driver, disconnect).
 
@@ -4913,11 +4954,28 @@ def _resolve_hostname(host: str, port: int = 50200) -> str | None:
             return None
 
 
-def run_tui() -> None:
+def run_tui(
+    rpc: bool = False,
+    rpc_host: str = "localhost",
+    rpc_port: int = 18812,
+    rpc_token: str | None = None,
+) -> None:
     """Run the TuiAdapter TUI application.
 
     Creates an TuiAdapter instance and enters the Textual event loop.
     Blocks until the user quits (Ctrl+C).
+
+    Args:
+        rpc: When True, auto-start the RPyC RPC server on mount.
+        rpc_host: RPC server bind address (default: localhost).
+        rpc_port: RPC server bind port (default: 18812).
+        rpc_token: RPC authentication token; only enforced for non-local
+            hosts (localhost always skips auth).
     """
-    app = TuiAdapter()
+    app = TuiAdapter(
+        rpc_auto_start=rpc,
+        rpc_host=rpc_host,
+        rpc_port=rpc_port,
+        rpc_token=rpc_token,
+    )
     app.run()
