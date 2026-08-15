@@ -475,11 +475,11 @@ CT = {
     },
     0xCA: {
         0x01: {
-            0x00: "OVERSCAN_OFF",
-            0x01: "OVERSCAN_H_BI",
-            0x02: "OVERSCAN_H_UNI",
-            0x03: "OVERSCAN_V_BI",
-            0x04: "OVERSCAN_V_UNI",
+            0x00: "OVERSCAN_OFF",  # Verified StevenIsaacs using Lightburn and RDWorks
+            0x01: "OVERSCAN_H_BI",  # Verified StevenIsaacs using Lightburn and RDWorks
+            0x02: "OVERSCAN_H_UNI",  # Verified StevenIsaacs using Lightburn and RDWorks
+            0x03: "OVERSCAN_V_BI",  # Verified StevenIsaacs using Lightburn and RDWorks
+            0x04: "OVERSCAN_V_UNI",  # Verified StevenIsaacs using Lightburn and RDWorks
             0x05: "OVERSCAN_DIAGONAL",
             0x10: "LASER_DEVICE_0",
             0x11: "LASER_DEVICE_1",
@@ -511,9 +511,9 @@ CT = {
         0x01: "STOP_JOB",
         0x02: "PAUSE_JOB",
         0x03: "RESUME_JOB",
-        0x10: "REF_POINT_ABSOLUTE",
-        0x11: "REF_POINT_ANCHOR",
-        0x12: "REF_POINT_CURRENT",
+        0x10: "REF_POINT_MACHINE",  # Verified StevenIsaacs using Lightburn and RDWorks
+        0x11: "REF_POINT_ORIGIN",  # Verified StevenIsaacs using Lightburn and RDWorks
+        0x12: "REF_POINT_CURRENT",  # Verified StevenIsaacs using Lightburn and RDWorks
         0x20: "KEYDOWN_X_LEFT",
         0x21: "KEYDOWN_X_RIGHT",
         0x22: "KEYDOWN_Y_TOP",

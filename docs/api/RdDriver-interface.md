@@ -259,7 +259,7 @@ lock and getters return a copy — both are thread-safe.
 The default head script is:
 
 ```
-REF_POINT_ABSOLUTE
+REF_POINT_MACHINE
 SET_ABSOLUTE
 REF_POINT_SET
 ENABLE_BLOCK_CUTTING State:OFF

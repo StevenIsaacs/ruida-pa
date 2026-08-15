@@ -9,7 +9,7 @@
   "job-header": {
     "prefix": "job-header",
     "body": [
-      "REF_POINT_ABSOLUTE",
+      "REF_POINT_MACHINE",
       "SET_ABSOLUTE",
       "START_JOB",
       "FEED_REPEAT 0 0",

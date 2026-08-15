@@ -68,8 +68,8 @@
   ],
   "repository": {
     "verified": {
-      "comment": "Verified MT/CT mnemonics render green (populated as mnemonics are verified)",
-      "match": "\\b(?!)",
+      "comment": "Verified MT/CT mnemonics render green; populated as mnemonics are verified",
+      "match": "\\b(?:REF_POINT_MACHINE|REF_POINT_ORIGIN|REF_POINT_CURRENT|OVERSCAN_OFF|OVERSCAN_H_BI|OVERSCAN_H_UNI|OVERSCAN_V_BI|OVERSCAN_V_UNI)\\b",
       "name": "support.function.verified.rpascript"
     }
   }

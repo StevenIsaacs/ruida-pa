@@ -211,7 +211,7 @@ class GlueScript:
         # Reference point and overscan dictionaries
         self._ref_points: dict[str, list[str]] = {
             "MACHINE": [
-                "REF_POINT_ABSOLUTE",
+                "REF_POINT_MACHINE",
                 "SET_ABSOLUTE",
             ],
             "ABSOLUTE": [
@@ -222,7 +222,7 @@ class GlueScript:
                 "REF_POINT_CURRENT",
             ],
             "SET_POINT": [
-                "REF_POINT_ANCHOR",
+                "REF_POINT_ORIGIN",
             ],
         }
         

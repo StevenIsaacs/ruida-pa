@@ -8,7 +8,7 @@ This whole paragraph is ignored when the file is parsed.
 
 session start udp=127.0.0.1
 
-REF_POINT_ABSOLUTE
+REF_POINT_MACHINE
 SET_ABSOLUTE
 START_JOB
 FEED_REPEAT 0 0

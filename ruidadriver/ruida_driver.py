@@ -133,7 +133,7 @@ class RdDriver(GlueScript):
         self._decoded_values: dict[int, Any] = {}
         self._build_status_map()
         self._head_script: list[str] = [
-            "REF_POINT_ABSOLUTE",
+            "REF_POINT_MACHINE",
             "SET_ABSOLUTE",
             "REF_POINT_SET",
             "ENABLE_BLOCK_CUTTING State:OFF",

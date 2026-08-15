@@ -54,8 +54,20 @@ The mechanism:
 }
 ```
 
-All mnemonics are currently **unverified**, so nothing renders green yet; as
-mnemonics are verified, the list in the grammar rule grows.
+The following **8 mnemonics** are verified and render green:
+
+- `REF_POINT_MACHINE`
+- `REF_POINT_ORIGIN`
+- `REF_POINT_CURRENT`
+- `OVERSCAN_OFF`
+- `OVERSCAN_H_BI`
+- `OVERSCAN_H_UNI`
+- `OVERSCAN_V_BI`
+- `OVERSCAN_V_UNI`
+
+All other mnemonics remain **unverified** (rendered normally) until their
+declaration lines in `protocols/ruida/ruida_protocol.py` are marked with a
+`# Verified <source>` comment and the names are added to the grammar rule.
 
 **Known limitation:** mnemonics on `CORE`/`CMD`-prefixed lines and names
 shadowed by other grammar rules (`EOF`, `session`/`server`/`new_packet`/

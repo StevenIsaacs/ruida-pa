@@ -148,8 +148,9 @@ Each line is parsed as:
 | `HOME_XY`             | *(none)*                | Home X and Y axes                     |
 | `HOME_Z`              | *(none)*                | Home Z axis                           |
 | `HOME_U`              | *(none)*                | Home U axis (rotary)                  |
-| `REF_POINT_ABSOLUTE`  | *(none)*                | Set reference point (origin)          |
-| `REF_POINT_ANCHOR`    | *(none)*                | Set reference point (alternative)     |
+| `REF_POINT_MACHINE`  | *(none)*                | Move and cut coordinates are relative to machine home (0,0) which is the bed top right corner |
+| `REF_POINT_ORIGIN`   | *(none)*                | Move and cut coordinates are relative to a position set by user pressing the controller origin button |
+| `REF_POINT_CURRENT`  | *(none)*                | Move and cut coordinates are relative to the current head position |
 | `REF_POINT_SET`      | *(none)*                | Set reference point for coordinate system |
 | `FOCUS_Z`             | *(none)*                | Auto-focus Z axis                     |
 | `MOVE_FAR_X`         | `X=mm`                  | Single-axis X move                    |
@@ -237,9 +238,12 @@ Each line is parsed as:
 | `EN_LASER_TUBE_START`     | `State=ON/OFF`         | Enable laser tube at start           |
 | `LAYER_ATTRIBUTES`        | `Layer={n} {n}`          | Layer attribute flags            |
 | `LAST_LAYER`              | `Layer={n}`              | Indicates the last layer index   |
-| `OVERSCAN_START`          | *(none)*                 | Overscan at start only           |
-| `OVERSCAN_END`            | *(none)*                 | Overscan at end only             |
-| `OVERSCAN_ALL`            | *(none)*                 | Overscan at both start and end   |
+| `OVERSCAN_OFF`            | *(none)*                 | No overscan                       |
+| `OVERSCAN_H_BI`           | *(none)*                 | Horizontal bi-directional         |
+| `OVERSCAN_H_UNI`          | *(none)*                 | Horizontal uni-directional        |
+| `OVERSCAN_V_BI`           | *(none)*                 | Vertical bi-directional           |
+| `OVERSCAN_V_UNI`          | *(none)*                 | Vertical uni-directional          |
+| `OVERSCAN_DIAGONAL`       | *(none)*                 | Incorrect — Ruida does not support diagonal overscan |
 | `EN_LASER_2_OFFSET_0`     | *(none)*                 | Enable laser 2 position offset   |
 | `EN_EX_IO`                | `{n}`                    | Enable external I/O              |
 
@@ -685,7 +689,7 @@ The header section sets initial or known states for the job and identifies the
 beginning of the commands to be included in the file checksum.
 
 ```
-REF_POINT_ABSOLUTE
+REF_POINT_MACHINE
 SET_ABSOLUTE
 REF_POINT_SET
 ENABLE_BLOCK_CUTTING State:OFF
@@ -798,7 +802,7 @@ first, followed by a series of move and cut commands. There is one block of laye
 actions for each layer in the job.
 
 Variables:
-- `<mode>` = The overscan mode (START, END, or ALL).
+- `<mode>` = The overscan mode suffix (OFF, H_BI, H_UNI, V_BI, or V_UNI).
 - `<layer>` = The layer to which these commands apply.
 - `<speed>` = The cut speed for the layer.
 - `<power>` = The power at which to cut.
@@ -857,7 +861,7 @@ Below is a complete `.rd` file structure combining all sections:
 
 ```
 # ── Header ──
-REF_POINT_ABSOLUTE
+REF_POINT_MACHINE
 SET_ABSOLUTE
 REF_POINT_SET
 ENABLE_BLOCK_CUTTING State:OFF
@@ -916,7 +920,7 @@ ARRAY_EVEN_DISTANCE XStep=0.000mm YStep=0.000mm
 ARRAY_COPIES Columns=1 Rows=1 XStep=0.000mm YStep=0.000mm
 
 # ── Layer Actions (Layer 0) ──
-OVERSCAN_START
+OVERSCAN_OFF
 SELECT_LAYER Layer:0
 EN_LASER_2_OFFSET_0
 LASER_DEVICE_0
