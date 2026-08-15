@@ -1,0 +1,17 @@
+# Local project artifacts — never package these
+tmp/
+docs/
+discovery/
+testing/
+.venv/
+.venv*/
+__pycache__/
+*.pyc
+*.png
+*.log
+*.tshark
+*.rd
+.git/
+.gitignore
+.gitattributes
+.gitmodules

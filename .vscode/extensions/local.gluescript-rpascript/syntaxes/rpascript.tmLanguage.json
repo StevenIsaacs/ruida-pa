@@ -1,0 +1,76 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Ruida Script",
+  "scopeName": "source.rpascript",
+  "patterns": [
+    {
+      "include": "#verified"
+    },
+    {
+      "match": "\\\\#[0-9a-fA-F]{6}",
+      "name": "constant.other.color.rpascript"
+    },
+    {
+      "match": "#[^\\n]*",
+      "name": "comment.line.number-sign.rpascript"
+    },
+    {
+      "begin": "\"\"\"",
+      "end": "\"\"\"",
+      "name": "comment.block.rpascript"
+    },
+    {
+      "match": "^\\s*(session|server|new_packet|delay|wait)\\b",
+      "name": "keyword.control.rpascript"
+    },
+    {
+      "match": "\\bEOF\\b",
+      "name": "keyword.control.rpascript"
+    },
+    {
+      "match": "^\\s*(?:(CORE|MOVE|LASER|CONFIG|QUERY|ENGRAVE|CUT|FILE|SYSTEM)\\s+)?(?:(CMD)\\s+)?([A-Z][A-Z0-9_]*)\\b",
+      "captures": {
+        "1": {
+          "name": "storage.type.rpascript"
+        },
+        "2": {
+          "name": "keyword.other.rpascript"
+        },
+        "3": {
+          "name": "support.function.rpascript"
+        }
+      }
+    },
+    {
+      "match": "\\b[A-Za-z][A-Za-z0-9_]*\\s*[:=]",
+      "name": "variable.parameter.rpascript"
+    },
+    {
+      "match": "\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b",
+      "name": "constant.numeric.rpascript"
+    },
+    {
+      "match": "\\b\\d+(?:\\.\\d+)?(?:%|(?:mm/S|mm/s|MM/S|MM|mm|KHz|kHz|khz|mS|MS|ms|s)?\\b)",
+      "name": "constant.numeric.rpascript"
+    },
+    {
+      "match": "\\b0x[0-9a-fA-F]+\\b",
+      "name": "constant.numeric.hex.rpascript"
+    },
+    {
+      "match": "\\bMACHINE_STATUS_[A-Z0-9_]+\\b",
+      "name": "constant.language.rpascript"
+    },
+    {
+      "match": "\\b(MACHINE|CURRENT|ABSOLUTE|SET_POINT)\\b",
+      "name": "constant.language.rpascript"
+    }
+  ],
+  "repository": {
+    "verified": {
+      "comment": "Verified MT/CT mnemonics render green (populated as mnemonics are verified)",
+      "match": "\\b(?!)",
+      "name": "support.function.verified.rpascript"
+    }
+  }
+}

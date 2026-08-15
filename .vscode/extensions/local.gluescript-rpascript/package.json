@@ -1,0 +1,68 @@
+{
+  "name": "gluescript-rpascript",
+  "publisher": "local",
+  "displayName": "GlueScript & Ruida Script",
+  "description": "Syntax highlighting, language configuration, and snippets for GlueScript (.cglu) and Ruida Script (.rds) files.",
+  "version": "0.1.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "gluescript",
+        "aliases": [
+          "GlueScript",
+          "gluescript"
+        ],
+        "extensions": [
+          ".cglu"
+        ],
+        "configuration": "./language-configuration.gluescript.json"
+      },
+      {
+        "id": "rpascript",
+        "aliases": [
+          "Ruida Script",
+          "rpascript"
+        ],
+        "extensions": [
+          ".rds"
+        ],
+        "configuration": "./language-configuration.rpascript.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "gluescript",
+        "scopeName": "source.gluescript",
+        "path": "./syntaxes/gluescript.tmLanguage.json"
+      },
+      {
+        "language": "rpascript",
+        "scopeName": "source.rpascript",
+        "path": "./syntaxes/rpascript.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "gluescript",
+        "path": "./snippets/gluescript.json"
+      },
+      {
+        "language": "rpascript",
+        "path": "./snippets/rpascript.json"
+      }
+    ],
+    "themes": [
+      {
+        "label": "Ruida Verified",
+        "uiTheme": "vs-dark",
+        "path": "./themes/ruida-verified.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+# Demo Ruida Script (.rds)
+# Commands are UPPERCASE mnemonics; session/delay/wait directives are lowercase.
+
+"""
+Block comments are stripped by the rpascript interpreter.
+This whole paragraph is ignored when the file is parsed.
+"""
+
+session start udp=127.0.0.1
+
+REF_POINT_ABSOLUTE
+SET_ABSOLUTE
+START_JOB
+FEED_REPEAT 0 0
+
+OVERSCAN_OFF
+LAYER_COLOR Layer:0 Color:\#ff0000
+LAYER_SPEED_LASER_1 Layer:0 Speed:100.0mm/S
+
+MOVE_FAR_XY X=10.0mm Y=10.0mm
+
+delay 0.5s
+wait MACHINE_STATUS_MOVING to=30s
+
+END_JOB
+EOF

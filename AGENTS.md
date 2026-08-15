@@ -39,7 +39,16 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 
 ## Key conventions
 
-- Protocol command tables live in `protocols/ruida/ruida_parser.py` (CT dict: byte → command name + param specs).
+- Protocol command tables live in `protocols/ruida/ruida_protocol.py` (CT dict: byte → command name + param specs).
+
+### Mnemonic verification
+
+- MT and CT protocol tables are defined ONLY in `protocols/ruida/ruida_protocol.py` (`MT` memory table and `CT` command table).
+- A mnemonic is "verified" only when its byte-level semantics have been confirmed (e.g. from LightBurn captures, the ruida-laser source, or manual controller probing).
+- Verified mnemonics are marked by appending `# Verified <source>` to the END of the mnemonic's declaration line, e.g.: `0x04: ("MEM_IO_ENABLE", TBDU35),  # Verified LightBurn` — where `<source>` names the verification source (e.g. `LightBurn`, `ruida-laser`).
+- ALL mnemonics start in the UNVERIFIED state: no trailing comment at all. Never add the marker preemptively.
+- When a mnemonic becomes verified, add the `# Verified <source>` comment to the corresponding line(s) AND update the VSCode extension's verified-mnemonic list in `.vscode/extensions/local.gluescript-rpascript/syntaxes/rpascript.tmLanguage.json` (the `verified` repository rule) so the mnemonic renders green in `.rds` files.
+
 - Parameter decoder tuples: `(format_string, decoder_fn, raw_type)` — e.g. `('X={}mm', dim, 'int_35')`.
 - Checksum is a running sum of bytes in engrave/cut commands; excludes memory and jog commands. Known ~220-byte discrepancy with LightBurn captures.
 - `discovery/` is a **separate git repo** (submodule). Commit test case changes there, not in the parent.

@@ -1,0 +1,37 @@
+# Demo GlueScript transcript (.cglu)
+#
+# Canonical, valid example: every line is a positional-arg method call
+# in the format the /gluescript save command writes and load re-stages.
+# Blank lines and # comment lines are legal and skipped on load.
+
+declare_job('Demo Panel', 'MACHINE', [0.0, 0.0], 1, 1, 0.0, 0.0)
+
+comment(['Setup complete'])
+comment(['Starting vector outline pass'])
+inline(['LAYER_COLOR Layer:0 Color:\\#336699'])
+
+wait('MACHINE_STATUS_MOVING', 30)
+delay(0.5)
+
+# --- Layer 1: vector outline ---
+declare_layer('Outline', '#336699', 'VECTOR', 'NONE', 100.0, 20.0, 8.0, 70.0)
+
+air_assist_on()
+move_xy_to(10.0, 10.0)
+cut_xy_to(100.0, 10.0)
+cut_x_to(100.0)
+cut_y_to(50.0)
+cut_x_to(10.0)
+cut_y_to(10.0)
+air_assist_off()
+
+# --- Layer 2: raster fill ---
+declare_layer('Fill', '#ff9900', 'IMAGE', 'NONE', 100.0, 20.0, 8.0, 70.0)
+
+move_xy_to(10.0, 10.0)
+power(70.0)
+cut_xy_to(100.0, 50.0)
+move_x_to(5.0)
+move_y_to(5.0)
+
+end_job()

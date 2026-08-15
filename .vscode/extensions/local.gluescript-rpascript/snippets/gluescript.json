@@ -1,0 +1,156 @@
+{
+  "declare_job": {
+    "prefix": "declare_job",
+    "body": [
+      "declare_job('${1:Label}', '${2:MACHINE}', [${3:0.0}, ${4:0.0}], ${5:1}, ${6:1}, ${7:0.0}, ${8:0.0})"
+    ],
+    "description": "Declare a new job with label, machine id, origin, and copies"
+  },
+  "declare_layer": {
+    "prefix": "declare_layer",
+    "body": [
+      "declare_layer('${1:Label}', '${2:#000000}', '${3:VECTOR}', '${4:NONE}', ${5:100.0}, ${6:20.0}, ${7:8.0}, ${8:70.0})"
+    ],
+    "description": "Declare a layer with label, color, kind, mode, speed, and power settings"
+  },
+  "end_job": {
+    "prefix": "end_job",
+    "body": [
+      "end_job()"
+    ],
+    "description": "Finish the current job"
+  },
+  "comment": {
+    "prefix": "comment",
+    "body": [
+      "comment(['${1:text}'])"
+    ],
+    "description": "Add a comment line to the transcript"
+  },
+  "inline": {
+    "prefix": "inline",
+    "body": [
+      "inline(['${1:RAW_COMMAND}'])"
+    ],
+    "description": "Emit a raw Ruida Script command into the transcript"
+  },
+  "delay": {
+    "prefix": "delay",
+    "body": [
+      "delay(${1:0.5})"
+    ],
+    "description": "Insert a fixed delay in seconds"
+  },
+  "wait": {
+    "prefix": "wait",
+    "body": [
+      "wait('${1:MACHINE_STATUS_MOVING}', ${2:30})"
+    ],
+    "description": "Wait for a machine status with a timeout in seconds"
+  },
+  "power": {
+    "prefix": "power",
+    "body": [
+      "power(${1:70.0})"
+    ],
+    "description": "Set the laser power percentage"
+  },
+  "power_range": {
+    "prefix": "power_range",
+    "body": [
+      "power_range(${1:None}, ${2:None})"
+    ],
+    "description": "Set the min/max power ramp range for the layer (accel/decel)"
+  },
+  "air_assist_on": {
+    "prefix": "air_assist_on",
+    "body": [
+      "air_assist_on()"
+    ],
+    "description": "Turn air assist on"
+  },
+  "air_assist_off": {
+    "prefix": "air_assist_off",
+    "body": [
+      "air_assist_off()"
+    ],
+    "description": "Turn air assist off"
+  },
+  "cut_speed": {
+    "prefix": "cut_speed",
+    "body": [
+      "cut_speed(${1:100.0})"
+    ],
+    "description": "Set the cut speed in mm/s for the current layer (comment-only; expansion not yet wired into rpascript)"
+  },
+  "move_speed": {
+    "prefix": "move_speed",
+    "body": [
+      "move_speed(${1:200.0})"
+    ],
+    "description": "Set the move speed in mm/s for the current layer (comment-only; expansion not yet wired into rpascript)"
+  },
+  "frequency": {
+    "prefix": "frequency",
+    "body": [
+      "frequency(${1:30.0})"
+    ],
+    "description": "Set the laser pulse frequency for the current layer (comment-only; expansion not yet wired into rpascript)"
+  },
+  "pwm": {
+    "prefix": "pwm",
+    "body": [
+      "pwm(${1:800})"
+    ],
+    "description": "Set the laser pulse width in microseconds (max 1000us/1mS; comment-only - requires unverified SET_SETTING)"
+  },
+  "select_laser": {
+    "prefix": "select_laser",
+    "body": [
+      "select_laser(${1:1})"
+    ],
+    "description": "Select the laser head (1-based); only head 1 is wired - emits LASER_DEVICE_1"
+  },
+  "move_xy_to": {
+    "prefix": "move_xy_to",
+    "body": [
+      "move_xy_to(${1:0.0}, ${2:0.0})"
+    ],
+    "description": "Move without cutting to an absolute (x, y) position"
+  },
+  "move_x_to": {
+    "prefix": "move_x_to",
+    "body": [
+      "move_x_to(${1:0.0})"
+    ],
+    "description": "Move without cutting to an absolute x position"
+  },
+  "move_y_to": {
+    "prefix": "move_y_to",
+    "body": [
+      "move_y_to(${1:0.0})"
+    ],
+    "description": "Move without cutting to an absolute y position"
+  },
+  "cut_xy_to": {
+    "prefix": "cut_xy_to",
+    "body": [
+      "cut_xy_to(${1:0.0}, ${2:0.0})"
+    ],
+    "description": "Cut to an absolute (x, y) position"
+  },
+  "cut_x_to": {
+    "prefix": "cut_x_to",
+    "body": [
+      "cut_x_to(${1:0.0})"
+    ],
+    "description": "Cut to an absolute x position"
+  },
+  "cut_y_to": {
+    "prefix": "cut_y_to",
+    "body": [
+      "cut_y_to(${1:0.0})"
+    ],
+    "description": "Cut to an absolute y position"
+  }
+}

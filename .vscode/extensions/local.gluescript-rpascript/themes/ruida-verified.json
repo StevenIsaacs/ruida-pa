@@ -1,0 +1,13 @@
+{
+  "name": "Ruida Verified",
+  "type": "dark",
+  "colors": {},
+  "tokenColors": [
+    {
+      "scope": "support.function.verified.rpascript",
+      "settings": {
+        "foreground": "#00FF00"
+      }
+    }
+  ]
+}

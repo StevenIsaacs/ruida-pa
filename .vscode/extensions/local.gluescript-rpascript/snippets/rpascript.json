@@ -1,0 +1,61 @@
+{
+  "session": {
+    "prefix": "session",
+    "body": [
+      "session start udp=${1:127.0.0.1}"
+    ],
+    "description": "Start a live Ruida Script session on a UDP endpoint"
+  },
+  "job-header": {
+    "prefix": "job-header",
+    "body": [
+      "REF_POINT_ABSOLUTE",
+      "SET_ABSOLUTE",
+      "START_JOB",
+      "FEED_REPEAT 0 0",
+      "JOB_TOP_RIGHT X=${1:0.0}mm Y=${2:0.0}mm",
+      "JOB_BOTTOM_LEFT X=${3:0.0}mm Y=${4:0.0}mm"
+    ],
+    "description": "Standard job header: absolute reference point, job start, and job bounds"
+  },
+  "layer-block": {
+    "prefix": "layer-block",
+    "body": [
+      "LAYER_COLOR Layer:0 Color:\\#${1:ff0000}",
+      "OVERSCAN_OFF",
+      "LAYER_SPEED_LASER_1 Layer:0 Speed:${2:100.0}mm/S",
+      "LAYER_MIN_POWER_1 Layer:0 Power:${3:8.0}%",
+      "LAYER_MAX_POWER_1 Layer:0 Power:${4:70.0}%"
+    ],
+    "description": "Define a layer: color, overscan off, speed, and power range"
+  },
+  "move": {
+    "prefix": "move",
+    "body": [
+      "MOVE_FAR_XY X=${1:0.0}mm Y=${2:0.0}mm"
+    ],
+    "description": "Move the head to an absolute (x, y) position"
+  },
+  "delay": {
+    "prefix": "delay",
+    "body": [
+      "delay ${1:0.5}s"
+    ],
+    "description": "Insert a fixed delay in seconds"
+  },
+  "wait": {
+    "prefix": "wait",
+    "body": [
+      "wait ${1:MACHINE_STATUS_MOVING} to=${2:30}s"
+    ],
+    "description": "Wait for a machine status with a timeout in seconds"
+  },
+  "end-job": {
+    "prefix": "end-job",
+    "body": [
+      "END_JOB",
+      "EOF"
+    ],
+    "description": "Finish the job and mark the end of the script"
+  }
+}
