@@ -29,6 +29,63 @@ In-depth guides for working with the scripting and interface layers are availabl
 | [docs/guides/rpascript-guide.md](docs/guides/rpascript-guide.md) | Reference for the low-level rpascript (`.rds`) line-oriented script format consumed by `RdDriver.run()`. |
 | [docs/guides/tui-guide.md](docs/guides/tui-guide.md) | User guide for the interactive terminal UI of `rpa-script`: session management, script execution, capture import, real-time monitoring, and slash commands. |
 
+## VSCode Extension (GlueScript & Ruida Script)
+
+The repository ships a zero-build VSCode **workspace extension** for authoring
+the two script formats, located at
+`.vscode/extensions/local.gluescript-rpascript/`:
+
+- **GlueScript (`.cglu`)** — the high-level job scripting transcript used by the `/gluescript` TUI command, documented in the [GlueScript guide](docs/guides/gluescript-guide.md).
+- **Ruida Script (`.rds`)** — the low-level line-oriented script format consumed by `RdDriver.run()`, documented in the [Ruida Script guide](docs/guides/rpascript-guide.md).
+
+The extension provides syntax highlighting, language configuration, and code
+snippets for both formats. It works in VSCode and its forks such as VSCodium
+and Antigravity.
+
+### Installing
+
+Open this repository as the workspace root in VSCode. The editor detects the
+`.vscode/extensions/` folder and prompts you to install the extension into
+the workspace. After the one-time install, the extension auto-loads whenever
+this workspace is opened. No build step is required.
+
+### Features
+
+- **Syntax highlighting** for `.cglu` and `.rds` files
+- **Language configuration** — comment markers, bracket pairs, and
+  auto-closing pairs tuned to each format
+- **Snippets** for common GlueScript methods and Ruida Script commands
+
+### Snippets
+
+Type a snippet prefix in a `.cglu` or `.rds` file and select it from the
+IntelliSense completion list (or press `Ctrl+Space`), then tab through the
+placeholders to fill in values.
+
+GlueScript method snippets (22) cover the persisted layer actions and
+job/layer declarations: `declare_job`, `declare_layer`, `end_job`, `comment`,
+`inline`, `delay`, `wait`, `power`, `power_range`, `air_assist_on`,
+`air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`,
+`select_laser`, `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`,
+`cut_x_to`, `cut_y_to`.
+
+Ruida Script snippets (7) cover common script blocks: `session`,
+`job-header`, `layer-block`, `move`, `delay`, `wait`, `end-job`.
+
+### File Associations
+
+| Extension | Language ID  | Grammar             |
+|-----------|--------------|---------------------|
+| `.cglu`   | `gluescript` | `source.gluescript` |
+| `.rds`    | `rpascript`  | `source.rpascript`  |
+
+`.rd` files are deliberately **not** associated — `.rd` is the binary RDWorks
+format, not Ruida Script text.
+
+### Samples
+
+Example `.cglu` and `.rds` files demonstrating both formats live in the extension's `samples/` directory.
+
 ## Background
 
 The Ruida protocol is a proprietary binary communication protocol used by Ruida CNC controllers, commonly found in:
