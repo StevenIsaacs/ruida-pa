@@ -825,6 +825,62 @@ class RpcRdDriver:
             raise RuntimeError("driver closed")
         self._append("air_assist_off()")
 
+    def cut_speed(self, speed: float) -> None:
+        """Buffer a cut speed setting (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
+        self._append(f"cut_speed({speed!r})")
+
+    def move_speed(self, speed: float) -> None:
+        """Buffer a move speed setting (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
+        self._append(f"move_speed({speed!r})")
+
+    def frequency(self, frequency: float) -> None:
+        """Buffer a laser frequency setting (flushed at the next boundary)."""
+        if self._closed:
+            raise RuntimeError("driver closed")
+        self._append(f"frequency({frequency!r})")
+
+    def pwm(self, duration: float) -> None:
+        """Buffer a laser pulse width setting (flushed at next boundary).
+
+        Mirrors the driver's warning when the duration exceeds the 1000us
+        (1mS) maximum laser pulse width; the mirrored transcript line is
+        still appended so the SHA-256 drift check stays in sync. Over RPC
+        the warning fires twice (once locally, once when the server
+        re-warns as the delta replays), which is intentional and
+        consistent with select_laser.
+        """
+        if self._closed:
+            raise RuntimeError("driver closed")
+        if duration > 1000:
+            logger.warning(
+                "pwm(%s) duration exceeds the 1000us (1mS) maximum laser pulse width",
+                duration,
+            )
+        self._append(f"pwm({duration!r})")
+
+    def select_laser(self, laser: int) -> None:
+        """Buffer a laser head selection (flushed at the next boundary).
+
+        The line is always appended — even for ``laser != 1`` — to keep
+        the client transcript byte-identical to the driver's for the
+        SHA-256 drift check in ``_flush()``. The driver warns and drops
+        the rpascript line for heads other than 1; over RPC the warning
+        fires twice (once locally, once on the server), which is
+        intentional.
+        """
+        if self._closed:
+            raise RuntimeError("driver closed")
+        if laser != 1:
+            logger.warning(
+                "select_laser(%s) ignored - only laser head 1 is currently wired in rpascript",
+                laser,
+            )
+        self._append(f"select_laser({laser!r})")
+
     # ------------------------------------------------------------------ #
     #  Staging passthrough and getters — last-flushed server state only
     # ------------------------------------------------------------------ #

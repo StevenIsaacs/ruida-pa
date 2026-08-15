@@ -182,6 +182,17 @@ class GlueScript:
         # declare_job(), which calls new_gluescript(); resetting here would
         # re-arm the flag mid-replay and defeat the suppression.
         self._warn_inline: bool = True
+        # Per-job flag: set when a comment-only layer action
+        # (cut_speed/move_speed/frequency/pwm) is used; cleared by
+        # new_gluescript() and the re-stage reset block.
+        self._comment_only_used: bool = False
+        # Caller-set toggle (per-instance): when False, the staging warning
+        # for comment-only layer actions is suppressed (the TUI validates a
+        # throwaway instance before applying to the real driver). Never
+        # reset by new_gluescript() or the re-stage reset block — re-stage
+        # replays declare_job(), which calls new_gluescript(); resetting
+        # here would re-arm the flag mid-replay and defeat the suppression.
+        self._warn_comment_only: bool = True
         self._inline_prelude: list[str] = []    # inline() before first layer
         self._inline_epilogue: list[str] = []   # inline() after end_job()
         self._stage_complete: bool = False
@@ -268,6 +279,11 @@ class GlueScript:
             "power_range",
             "air_assist_on",
             "air_assist_off",
+            "cut_speed",
+            "move_speed",
+            "frequency",
+            "pwm",
+            "select_laser",
             "jog_set_xy_speed",
             "jog_set_z_speed",
             "jog_set_u_speed",
@@ -405,6 +421,7 @@ class GlueScript:
         self._job_declared = False
         self._assembling = False
         self._inline_used = False
+        self._comment_only_used = False
         self._inline_prelude = []
         self._inline_epilogue = []
         self._stage_complete = False
@@ -1252,6 +1269,71 @@ class GlueScript:
         self.gluescript.append("air_assist_off()")
         self._layer_actions.setdefault(self._layer, []).append("AIR_ASSIST_OFF")
 
+    def cut_speed(self, speed: float) -> None:
+        """Set cut speed for the current layer (comment-only for now).
+
+        Expands to a ``# cut_speed(...)`` comment in the rpascript layer
+        actions — the speed command is not yet wired into rpascript, so
+        the value is preserved in the transcript only.
+        """
+        self.gluescript.append(f"cut_speed({speed!r})")
+        self._layer_actions.setdefault(self._layer, []).append(f"# cut_speed({speed!r})")
+        self._comment_only_used = True
+
+    def move_speed(self, speed: float) -> None:
+        """Set move speed for the current layer (comment-only for now).
+
+        Expands to a ``# move_speed(...)`` comment in the rpascript layer
+        actions — the speed command is not yet wired into rpascript, so
+        the value is preserved in the transcript only.
+        """
+        self.gluescript.append(f"move_speed({speed!r})")
+        self._layer_actions.setdefault(self._layer, []).append(f"# move_speed({speed!r})")
+        self._comment_only_used = True
+
+    def frequency(self, frequency: float) -> None:
+        """Set laser frequency for the current layer (comment-only for now).
+
+        Expands to a ``# frequency(...)`` comment in the rpascript layer
+        actions — the frequency command is not yet wired into rpascript,
+        so the value is preserved in the transcript only.
+        """
+        self.gluescript.append(f"frequency({frequency!r})")
+        self._layer_actions.setdefault(self._layer, []).append(f"# frequency({frequency!r})")
+        self._comment_only_used = True
+
+    def pwm(self, duration: float) -> None:
+        """Set laser pulse width in microseconds (comment-only for now).
+
+        Expands to a ``# pwm(...)`` comment in the rpascript layer actions.
+        Durations above 1000us (1mS) exceed the maximum laser pulse width
+        and log a warning.
+        """
+        if duration > 1000:
+            logger.warning(
+                "pwm(%s) duration exceeds the 1000us (1mS) maximum laser pulse width",
+                duration,
+            )
+        self.gluescript.append(f"pwm({duration!r})")
+        self._layer_actions.setdefault(self._layer, []).append(f"# pwm({duration!r})")
+        self._comment_only_used = True
+
+    def select_laser(self, laser: int) -> None:
+        """Select a laser head for the current layer.
+
+        Only laser head 1 is currently wired into rpascript; selecting any
+        other head logs a warning and emits nothing, so the job keeps a
+        single-head transcript.
+        """
+        self.gluescript.append(f"select_laser({laser!r})")
+        if laser == 1:
+            self._layer_actions.setdefault(self._layer, []).append("LASER_DEVICE_1")
+        else:
+            logger.warning(
+                "select_laser(%s) ignored - only laser head 1 is currently wired in rpascript",
+                laser,
+            )
+
     def move_xy_to(self, x: float, y: float) -> None:
         """Move to absolute XY coordinate relative to job reference point."""
         delta_x = x - self._current_x
@@ -1424,7 +1506,9 @@ class GlueScript:
         job header, inline prelude, all layer attributes, LAST_LAYER, all
         layer actions with SELECT_LAYER prefix, inline epilogue, END_JOB,
         EOF, then deferred-variable expansion. Sets ``_stage_complete``
-        and fires the inline() staging warning when inline was used.
+        and fires the inline() staging warning when inline was used and
+        the comment-only warning when cut_speed/move_speed/frequency/pwm
+        were used.
         """
         self.rpascript = []
 
@@ -1472,6 +1556,11 @@ class GlueScript:
                 "commands are for experimentation and workarounds; a "
                 "GlueScript method may be needed instead"
             )
+        if self._comment_only_used and self._warn_comment_only:
+            logger.warning(
+                "GlueScript used cut_speed/move_speed/frequency/pwm - these "
+                "expand to comments only; the job's speed/frequency will not change"
+            )
 
     def stage_gluescript(
         self, gluescript: list[str] | None = None, require_complete: bool = True
@@ -1507,6 +1596,7 @@ class GlueScript:
             self._job_declared = False
             self._layer = 0
             self._inline_used = False
+            self._comment_only_used = False
             self._inline_prelude = []
             self._inline_epilogue = []
             self._layer_trx = float('inf')
@@ -1577,6 +1667,9 @@ class GlueScript:
         # the delta re-arms it, so the first delta containing inline
         # warns and later deltas do not.
         self._inline_used = False
+        # Parallel to the _inline_used re-arm above: comment-only actions
+        # warn once per delta over RPC.
+        self._comment_only_used = False
         self._assembling = True
         try:
             self._replay_lines(delta_lines)

@@ -71,4 +71,4 @@ def _version_from_metadata():
 
 
 # Keep in sync with pyproject.toml [project] version
-__version__ = _version_from_pyproject() or _version_from_metadata() or "0.15.5"
+__version__ = _version_from_pyproject() or _version_from_metadata() or "0.16.0"

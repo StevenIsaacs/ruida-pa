@@ -2735,6 +2735,36 @@ class TuiAdapter(App):
             lambda: self._ensure_gluescript_driver().air_assist_off()
         )
 
+    def gluescript_cut_speed(self, speed: float) -> None:
+        """Set the cut speed for the current layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().cut_speed(speed)
+        )
+
+    def gluescript_move_speed(self, speed: float) -> None:
+        """Set the move speed for the current layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().move_speed(speed)
+        )
+
+    def gluescript_frequency(self, frequency: float) -> None:
+        """Set the laser frequency for the current layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().frequency(frequency)
+        )
+
+    def gluescript_pwm(self, duration: float) -> None:
+        """Set the laser pulse width for the current layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().pwm(duration)
+        )
+
+    def gluescript_select_laser(self, laser: int) -> None:
+        """Select a laser head for the current layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().select_laser(laser)
+        )
+
     def gluescript_add_layer_action(
         self, layer: int, lines: list[str]
     ) -> None:
@@ -3204,6 +3234,7 @@ class TuiAdapter(App):
         try:
             validation = GlueScript()
             validation._warn_inline = False
+            validation._warn_comment_only = False
             validation.stage_gluescript(kept_lines)
         except RuntimeError as e:
             self._log_error(f"{fail_prefix} failed: {e}")

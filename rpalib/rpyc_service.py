@@ -488,6 +488,26 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info("[RPC] gluescript air_assist_off()")
         return self._exposed_gluescript("air_assist_off")
 
+    def exposed_cut_speed(self, speed: float) -> None:
+        self._rpc_info(f"[RPC] gluescript cut_speed({speed})")
+        return self._exposed_gluescript("cut_speed", speed)
+
+    def exposed_move_speed(self, speed: float) -> None:
+        self._rpc_info(f"[RPC] gluescript move_speed({speed})")
+        return self._exposed_gluescript("move_speed", speed)
+
+    def exposed_frequency(self, frequency: float) -> None:
+        self._rpc_info(f"[RPC] gluescript frequency({frequency})")
+        return self._exposed_gluescript("frequency", frequency)
+
+    def exposed_pwm(self, duration: float) -> None:
+        self._rpc_info(f"[RPC] gluescript pwm({duration})")
+        return self._exposed_gluescript("pwm", duration)
+
+    def exposed_select_laser(self, laser: int) -> None:
+        self._rpc_info(f"[RPC] gluescript select_laser({laser})")
+        return self._exposed_gluescript("select_laser", laser)
+
     def exposed_add_layer_action(self, layer: int, lines: list[str]) -> None:
         self._rpc_info(f"[RPC] gluescript add_layer_action(layer={layer}, {len(lines)} lines)")
         return self._exposed_gluescript("add_layer_action", layer, lines)
