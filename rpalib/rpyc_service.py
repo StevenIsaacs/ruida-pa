@@ -552,7 +552,7 @@ class RpycTuiService(rpyc.Service):
             require_complete,
         )
 
-    # --- GlueScript — live-only commands (jogs and homing) ---
+    # --- GlueScript — live-only commands (jogs, homing, and job control) ---
 
     def exposed_jog_set_xy_speed(self, speed: float) -> None:
         self._rpc_info(f"[RPC] gluescript jog_set_xy_speed({speed})")
@@ -631,6 +631,22 @@ class RpycTuiService(rpyc.Service):
     def exposed_home_u(self) -> list[str] | None:
         self._rpc_info("[RPC] gluescript home_u()")
         return self._exposed_gluescript("home_u")
+
+    def exposed_pause(self) -> list[str] | None:
+        self._rpc_info("[RPC] gluescript pause()")
+        return self._exposed_gluescript("pause")
+
+    def exposed_resume(self) -> list[str] | None:
+        self._rpc_info("[RPC] gluescript resume()")
+        return self._exposed_gluescript("resume")
+
+    def exposed_stop_job(self) -> list[str] | None:
+        self._rpc_info("[RPC] gluescript stop_job()")
+        return self._exposed_gluescript("stop_job")
+
+    def exposed_reset(self) -> list[str] | None:
+        self._rpc_info("[RPC] gluescript reset()")
+        return self._exposed_gluescript("reset")
 
     # --- GlueScript — getters ---
 

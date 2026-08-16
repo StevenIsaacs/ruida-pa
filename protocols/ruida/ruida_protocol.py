@@ -416,7 +416,7 @@ CT = {
         0x02: ("MOVE_FAR_U", UFARDIM),
         0x03: ("MOVE_FAR_Z", ZFARDIM),
     },
-    0x88: ("MOVE_FAR_XY", XFARDIM, YFARDIM),
+    0x88: ("MOVE_FAR_XY", XFARDIM, YFARDIM),  # Verified StevenIsaacs
     0x89: ("MOVE_NEAR_XY", XNEARDIM, YNEARDIM),
     0x8A: ("MOVE_NEAR_X", XNEARDIM),
     0x8B: ("MOVE_NEAR_Y", YNEARDIM),
@@ -425,7 +425,7 @@ CT = {
         0x08: ("MOVE_FAR_U", UFARDIM),
     },
     0xA7: KT,
-    0xA8: ("CUT_FAR_XY", XFARDIM, YFARDIM),
+    0xA8: ("CUT_FAR_XY", XFARDIM, YFARDIM),  # Verified StevenIsaacs
     0xA9: ("CUT_NEAR_XY", XNEARDIM, YNEARDIM),
     0xAA: ("CUT_NEAR_X", XNEARDIM),
     0xAB: ("CUT_NEAR_Y", YNEARDIM),
@@ -450,8 +450,8 @@ CT = {
         0x16: ("LASER_OFF_DELAY2", TIME),
         0x21: ("MIN_POWER_2", POWER),
         0x22: ("MAX_POWER_2", POWER),
-        0x31: ("LAYER_MIN_POWER_1", LAYER, POWER),
-        0x32: ("LAYER_MAX_POWER_1", LAYER, POWER),
+        0x31: ("LAYER_MIN_POWER_1", LAYER, POWER),  # Verified StevenIsaacs
+        0x32: ("LAYER_MAX_POWER_1", LAYER, POWER),  # Verified StevenIsaacs
         0x35: ("LAYER_MIN_POWER_3", LAYER, POWER),
         0x36: ("LAYER_MAX_POWER_3", LAYER, POWER),
         0x37: ("LAYER_MIN_POWER_4", LAYER, POWER),
@@ -469,7 +469,7 @@ CT = {
     0xC9: {
         0x02: ("SPEED_LASER_1", SPEED),
         0x03: ("SPEED_AXIS", SPEED),
-        0x04: ("LAYER_SPEED_LASER_1", LAYER, SPEED),
+        0x04: ("LAYER_SPEED_LASER_1", LAYER, SPEED),  # Verified StevenIsaacs
         0x05: ("FORCE_ENG_SPEED", SPEED),
         0x06: ("SPEED_AXIS_MOVE", SPEED),
     },
@@ -483,20 +483,20 @@ CT = {
             0x05: "OVERSCAN_DIAGONAL",
             0x10: "LASER_DEVICE_0",
             0x11: "LASER_DEVICE_1",
-            0x12: "AIR_ASSIST_OFF",
-            0x13: "AIR_ASSIST_ON",
+            0x12: "AIR_ASSIST_OFF",  # Verified StevenIsaacs
+            0x13: "AIR_ASSIST_ON",  # Verified StevenIsaacs
             0x14: "DB_HEAD",
             0x30: "EN_LASER_2_OFFSET_0",
             0x31: "EN_LASER_2_OFFSET_1",
             0x55: "OVERSCAN_5",
         },
-        0x02: ("SELECT_LAYER", LAYER),
+        0x02: ("SELECT_LAYER", LAYER),  # Verified StevenIsaacs
         0x03: ("EN_LASER_TUBE_START", SWITCH),
         0x04: ("X_SIGN_MAP", VALUE),
         0x05: ("DEFAULT_COLOR", COLOR),
-        0x06: ("LAYER_COLOR", LAYER, COLOR),
+        0x06: ("LAYER_COLOR", LAYER, COLOR),  # Verified StevenIsaacs
         0x10: ("EN_EX_IO", VALUE),
-        0x22: ("LAST_LAYER", LAYER),
+        0x22: ("LAST_LAYER", LAYER),  # Verified StevenIsaacs
         0x30: ("U_FILE_ID", ID),
         0x40: ("ZU_MAP", VALUE),
         0x41: ("LAYER_ATTRIBUTES", LAYER, UINT7),
@@ -505,9 +505,9 @@ CT = {
     0xD0: {  # This was discovered with LightBurn
         0x29: ("SKIP", SKIP, 2)
     },
-    0xD7: "EOF",
+    0xD7: "EOF",  # Verified StevenIsaacs
     0xD8: {
-        0x00: "START_JOB",
+        0x00: "START_JOB",  # Verified StevenIsaacs
         0x01: "STOP_JOB",
         0x02: "PAUSE_JOB",
         0x03: "RESUME_JOB",
@@ -552,19 +552,19 @@ CT = {
     0xE5: {  # FILE
         0x00: ("DOCUMENT_FILE_UPLOAD", FNUM, UINT35, UINT35),
         0x02: "DOCUMENT_FILE_END",
-         0x05: ("END_JOB", FILE_SUM),
+         0x05: ("END_JOB", FILE_SUM),  # Verified StevenIsaacs
     },
     0xE6: {
         0x01: "SET_ABSOLUTE",
     },
     0xE7: {
-        0x00: "BLOCK_END",
+        0x00: "BLOCK_END",  # Verified StevenIsaacs
         0x01: ("SET_FILE_NAME", FNAME),
-        0x03: ("JOB_TOP_RIGHT", XFARDIM, YFARDIM),
+        0x03: ("JOB_TOP_RIGHT", XFARDIM, YFARDIM),  # Verified StevenIsaacs
         0x04: ("JOB_COPIES", COLUMNS, ROWS, XSTEP, YSTEP),
         0x05: ("ARRAY_DIRECTION", DIRECTION),
         0x06: ("FEED_REPEAT", UINT35, UINT35),
-        0x07: ("JOB_BOTTOM_LEFT", XFARDIM, YFARDIM),
+        0x07: ("JOB_BOTTOM_LEFT", XFARDIM, YFARDIM),  # Verified StevenIsaacs
         0x08: ("ARRAY_COPIES", COLUMNS, ROWS, XSTEP, YSTEP),
         0x09: ("FEED_LENGTH", INT35),
         0x0A: ("FEED_INFO", TBD35),
@@ -582,8 +582,8 @@ CT = {
         0x3A: "UNION_BLOCK_PROPERTY",
         0x50: ("DOCUMENT_TOP_RIGHT", XFARDIM, YFARDIM),
         0x51: ("DOCUMENT_BOTTOM_LEFT", XFARDIM, YFARDIM),
-        0x52: ("LAYER_TOP_RIGHT", LAYER, XFARDIM, YFARDIM),
-        0x53: ("LAYER_BOTTOM_LEFT", LAYER, XFARDIM, YFARDIM),
+        0x52: ("LAYER_TOP_RIGHT", LAYER, XFARDIM, YFARDIM),  # Verified StevenIsaacs
+        0x53: ("LAYER_BOTTOM_LEFT", LAYER, XFARDIM, YFARDIM),  # Verified StevenIsaacs
         0x54: ("PEN_OFFSET_AXIS", AXIS, OFFSET),
         0x55: ("LAYER_OFFSET_AXIS", AXIS, OFFSET),
         0x60: ("SET_CURRENT_ELEMENT_INDEX", UINT7),
@@ -598,7 +598,7 @@ CT = {
         0x04: "CALCULATE_DOCUMENT_TIME",
     },
     0xEA: ("ARRAY_START", UINT7),
-    0xEB: "ARRAY_END",
+    0xEB: "ARRAY_END",  # Verified StevenIsaacs
     0xF0: "REF_POINT_SET",
     0xF1: {
         0x00: ("ELEMENT_MAX_INDEX", UINT7),

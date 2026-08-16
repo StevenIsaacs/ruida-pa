@@ -573,6 +573,8 @@ The analyzer uses a finite state machine with the following states:
 
 - **Multi-job GlueScript support**: A GlueScript currently contains a single job; support for more than one job per script is planned.
 
+- **Direct to machine code:** Currently GlueScript generates rpascript which is then used to generate raw Ruida machine code. Using rpascript as an intermediate format aids problem diagnosis and discovery but at a cost in additional overhead. In a future release GlueScript will generate machine code directly.
+
 - **Configurable driver commands**: Driver commands are currently hard-coded as `RdDriver` class private variables; a configuration file for these is planned.
 
 - **Additional protocol support**: The driver architecture is designed to support other protocols, such as GCODE, in the future. Adding a protocol means creating a parallel `protocols/<name>/` directory with its own analyzer.

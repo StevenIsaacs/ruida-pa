@@ -63,7 +63,7 @@ enforced when `--rpc-host` is a non-local address.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.16.0               [Header]   │
+│  Ruida Script TUI v0.16.1               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │
@@ -164,15 +164,19 @@ session end
 Directives that control the connection lifecycle, handled internally
 without involving the controller.
 
-### 5.2 Jog & Home Commands
+### 5.2 Jog, Home & Job-Control Commands
 
-The 16 jog commands and 3 homing commands are bare commands (no `/` prefix)
-that act on the live session:
+The 16 jog commands, 3 homing commands, and 4 job-control commands are bare
+commands (no `/` prefix) that act on the live session:
 
 ```
 home                            # Home X and Y axes (machine origin)
 home_z                          # Home Z axis
 home_u                          # Home U axis (rotary)
+pause                           # Pause the current job
+resume                          # Resume the paused job
+stop_job                        # Stop the current job
+reset                           # Stop the job and home X and Y axes
 jog_xy_to 10 20             # Jog XY to absolute position (mm)
 jog_x_to 50                 # Jog X to absolute position (mm)
 jog_y_to 50                 # Jog Y to absolute position (mm)
@@ -191,14 +195,15 @@ jog_set_z_rel 10            # Set relative Z jog distance (mm)
 jog_set_u_rel 10            # Set relative U jog distance (mm)
 ```
 
-- **Live-only semantics** — movement jogs and homing (`home`, `home_z`,
-  `home_u`) run immediately against a connected controller (requiring an active
+- **Live-only semantics** — movement jogs, homing (`home`, `home_z`,
+  `home_u`), and job-control commands (`pause`, `resume`, `stop_job`,
+  `reset`) run immediately against a connected controller (requiring an active
   session) and are never persisted to `.cglu` files; `jog_set_*` setters
   configure the live jog session (speeds and relative distances) and never
   produce gluescript lines.
 - **Autocomplete** — typing a `jog` or `home` prefix in the command input shows
   suggestions with usage text.
-- **Help** — `/help` lists all 19 under "Jog & Home commands (live-only)".
+- **Help** — `/help` lists all 23 under "Jog, Home & Job-Control commands (live-only)".
 
 ### 5.3 Slash Commands
 

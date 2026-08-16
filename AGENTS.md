@@ -54,7 +54,7 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 - `discovery/` is a **separate git repo** (submodule). Commit test case changes there, not in the parent.
 - `/gluescript` TUI command for high-level job scripting (see [docs/guides/gluescript-guide.md](docs/guides/gluescript-guide.md)).
   Subcommands: `new`, `show`, `stage`, `run`, `save`, `load`, `edit`, `list`.
-  `save`/`load` persist the current gluescript to `.cglu` files (the on-disk GlueScript format; `.gs` is deliberately unused). Jog commands (`jog_*`, including the `jog_set_*` config setters) and homing commands (`home`, `home_z`, `home_u`) are live-only actions — they act on the live session (movement jogs and homing execute immediately; `jog_set_*` configure jog speed/distance) and are never persisted to, or replayed from, `.cglu` files.
+  `save`/`load` persist the current gluescript to `.cglu` files (the on-disk GlueScript format; `.gs` is deliberately unused). Jog commands (`jog_*`, including the `jog_set_*` config setters) and homing commands (`home`, `home_z`, `home_u`) are live-only actions — they act on the live session (movement jogs and homing execute immediately; `jog_set_*` configure jog speed/distance) and are never persisted to, or replayed from, `.cglu` files. Job-control commands (`pause`, `resume`, `stop_job`, `reset`) likewise act immediately on the live session and are never persisted to, or replayed from, `.cglu` files.
 
 ## No test/lint/CI infrastructure
 

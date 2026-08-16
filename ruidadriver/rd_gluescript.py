@@ -119,14 +119,25 @@ class GlueScript:
         "home_z",
         "home_u",
     })
-    # Home commands are the live-only non-jog commands. Any FUTURE live-only
-    # command that is neither a jog nor a home must be added to
-    # LIVE_ONLY_COMMANDS separately (e.g. LIVE_ONLY_COMMANDS = JOG_COMMANDS | {...}).
-    # Register any future live-only command in BOTH LIVE_ONLY_COMMANDS and
-    # registry_methods: the re-stage check consults the registry first, so a
-    # missing registry entry would surface as "Unknown gluescript command"
-    # instead of the live-only skip.
-    LIVE_ONLY_COMMANDS: frozenset[str] = JOG_COMMANDS | HOME_COMMANDS
+    # Job-control commands act immediately on the controller regardless
+    # of job-running state.
+    JOB_CONTROL_COMMANDS: frozenset[str] = frozenset({
+        "pause",
+        "resume",
+        "stop_job",
+        "reset",
+    })
+    # Jog, home, and job-control commands form the three live-only command
+    # groups. Any FUTURE live-only command that belongs to none of these
+    # three groups must be added to LIVE_ONLY_COMMANDS separately (e.g.
+    # LIVE_ONLY_COMMANDS = JOG_COMMANDS | {...}). Every live-only command —
+    # including the job-control commands — must be registered in
+    # registry_methods as well: the re-stage check consults the registry
+    # first, so a missing registry entry would surface as "Unknown
+    # gluescript command" instead of the live-only skip.
+    LIVE_ONLY_COMMANDS: frozenset[str] = (
+        JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS
+    )
 
     def __init__(self) -> None:
         """Initialize GlueScript with empty scripts and default state."""
@@ -303,9 +314,24 @@ class GlueScript:
             "home",
             "home_z",
             "home_u",
+            "pause",
+            "resume",
+            "stop_job",
+            "reset",
         ]
         for name in registry_methods:
             self._command_registry[name] = getattr(self, name)
+
+        # Job-control commands are safety-critical live actions: each must
+        # resolve to GlueScript's own method so a subclass (e.g. RdDriver)
+        # can never shadow it with a differently-behaved implementation.
+        for name in GlueScript.JOB_CONTROL_COMMANDS:
+            if getattr(type(self), name) is not getattr(GlueScript, name):
+                raise AssertionError(
+                    f"job-control command {name!r} must not be shadowed: "
+                    f"expected GlueScript.{name}, got "
+                    f"{type(self).__name__}.{name}"
+                )
 
     # ------------------------------------------------------------------ #
     #  Internal helpers
@@ -1126,6 +1152,65 @@ class GlueScript:
         lines = ["HOME_U"]
         return self._emit_live_lines(lines)
 
+    def pause(self) -> list[str] | None:
+        """Generate rpascript to pause the current job.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+
+        Returns:
+            list[str] | None: ["PAUSE_JOB"] as rpascript to pause the job.
+        """
+        lines = ["PAUSE_JOB"]
+        return self._emit_live_lines(lines)
+
+    def resume(self) -> list[str] | None:
+        """Generate rpascript to resume the current job.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+
+        Returns:
+            list[str] | None: ["RESUME_JOB"] as rpascript to resume the
+            job.
+        """
+        lines = ["RESUME_JOB"]
+        return self._emit_live_lines(lines)
+
+    def stop_job(self) -> list[str] | None:
+        """Generate rpascript to stop the current job.
+
+        Named stop_job (never stop) so this job-control command cannot
+        shadow the RdDriver lifecycle stop() teardown. On RdDriver, sends
+        the lines immediately via _emit_live_lines; on a standalone
+        GlueScript (default hook), returns the generated lines unchanged.
+        Returns the sent lines, or None if nothing was sent.
+
+        Returns:
+            list[str] | None: ["STOP_JOB"] as rpascript to stop the job.
+        """
+        lines = ["STOP_JOB"]
+        return self._emit_live_lines(lines)
+
+    def reset(self) -> list[str] | None:
+        """Generate rpascript to reset the controller.
+
+        Stops the current job and homes the X and Y axes. On RdDriver,
+        sends the lines immediately via _emit_live_lines; on a standalone
+        GlueScript (default hook), returns the generated lines unchanged.
+        Returns the sent lines, or None if nothing was sent.
+
+        Returns:
+            list[str] | None: ["STOP_JOB", "HOME_XY"] as rpascript to
+            reset the controller.
+        """
+        lines = ["STOP_JOB", "HOME_XY"]
+        return self._emit_live_lines(lines)
+
     # ------------------------------------------------------------------ #
     #  Phase 5: Layer Actions — Moves, Cuts & Power
     # ------------------------------------------------------------------ #
@@ -1488,7 +1573,7 @@ class GlueScript:
             if name in self.LIVE_ONLY_COMMANDS:
                 logger.warning(
                     "Skipping live-only command %r during re-stage "
-                    "(jog and home commands act on the live session and are not part of a saved job)",
+                    "(live-only commands act on the live session and are not part of a saved job)",
                     name,
                 )
                 continue

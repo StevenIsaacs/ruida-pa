@@ -55,17 +55,22 @@ server stop
 - These are processed by `start_rpyc_server()` / `server.stop()`, not
   sent to the controller as commands.
 
-### Jog & Home Commands
+### Jog, Home & Job-Control Commands
 
-The 16 jog commands and 3 homing commands (`home`, `home_z`, `home_u`) are bare
-commands (no `/` prefix) processed by the TUI before rpascript parsing. They
-are **live-only** — they act on the live session and are never persisted to, or
+The 16 jog commands, 3 homing commands (`home`, `home_z`, `home_u`), and 4
+job-control commands (`pause`, `resume`, `stop_job`, `reset`) are bare commands
+(no `/` prefix) processed by the TUI before rpascript parsing. They are
+**live-only** — they act on the live session and are never persisted to, or
 replayed from, `.cglu` files:
 
 ```rds
 home                            # Home X and Y axes (machine origin)
 home_z                          # Home Z axis
 home_u                          # Home U axis (rotary)
+pause                           # Pause the current job
+resume                          # Resume the paused job
+stop_job                        # Stop the current job
+reset                           # Stop the job and home the X/Y axes
 jog_xy_to 10 20             # Jog XY to absolute position (mm)
 jog_x_to 50                 # Jog X to absolute position (mm)
 jog_y_to 50                 # Jog Y to absolute position (mm)
@@ -92,6 +97,9 @@ jog_set_u_rel 10            # Set relative U jog distance (mm)
 - **Homing commands** (`home`, `home_z`, `home_u`) require a connected session
   and run immediately (expanding to `HOME_XY`/`HOME_Z`/`HOME_U`); they never
   produce gluescript lines.
+- **Job-control commands** (`pause`, `resume`, `stop_job`, `reset`) require a
+  connected session and run immediately (expanding to `PAUSE_JOB`, `RESUME_JOB`,
+  `STOP_JOB`, and `STOP_JOB`+`HOME_XY`); they never produce gluescript lines.
 - These commands are not rpascript — the rpascript parser is not involved.
 
 ### new_packet Directive

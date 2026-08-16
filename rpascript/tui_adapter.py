@@ -475,7 +475,7 @@ class TuiAdapter(App):
     )
     # Only _cmd_descriptions and the /help block (usage text) stay
     # hand-maintained for live-only commands; recognition
-    # (GlueScript.LIVE_ONLY_COMMANDS = JOG_COMMANDS | HOME_COMMANDS) and
+    # (GlueScript.LIVE_ONLY_COMMANDS = JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS) and
     # this autocomplete list stay in sync automatically.
     _NORMAL_COMMANDS: tuple[str, ...] = ("session", "server") + tuple(
         sorted(GlueScript.LIVE_ONLY_COMMANDS)
@@ -653,6 +653,10 @@ class TuiAdapter(App):
             "jog_set_xy_rel": "jog_set_xy_rel <delta>: Set relative XY jog distance (mm)",
             "jog_set_z_rel": "jog_set_z_rel <delta>: Set relative Z jog distance (mm)",
             "jog_set_u_rel": "jog_set_u_rel <delta>: Set relative U jog distance (mm)",
+            "pause": "pause: Pause the current job",
+            "resume": "resume: Resume the paused job",
+            "stop_job": "stop_job: Stop the current job",
+            "reset": "reset: Stop the job and home the X/Y axes",
         }
         self._suggest_matches: list[str] = []
         self._suggest_selected: int = 0
@@ -1286,10 +1290,14 @@ class TuiAdapter(App):
             "  session end               Disconnect\n"
             "  server start host=<IP> port=<N>  Start the RPC server\n"
             "  server stop                Stop the RPC server\n"
-            "  Jog & Home commands (live-only):\n"
+            "  Jog, Home & Job-Control commands (live-only):\n"
             "    home                        Home X and Y axes (machine origin)\n"
             "    home_z                      Home Z axis\n"
             "    home_u                      Home U axis (rotary)\n"
+            "    pause                       Pause the current job\n"
+            "    resume                      Resume the paused job\n"
+            "    stop_job                    Stop the current job\n"
+            "    reset                       Stop the job and home the X/Y axes\n"
             "    jog_xy_to <x> <y>           Jog XY to absolute position (mm)\n"
             "    jog_x_to <x>                Jog X to absolute position (mm)\n"
             "    jog_y_to <y>                Jog Y to absolute position (mm)\n"
@@ -2563,7 +2571,7 @@ class TuiAdapter(App):
     def _gluescript_live_command(
         self, name: str, *args: Any
     ) -> list[str] | None:
-        """Run a live gluescript command (jogs/homing) against the driver.
+        """Run a live gluescript command (jogs/homing/job control) against the driver.
 
         The driver's jog/home methods now generate AND send the lines in
         a single call (see _emit_live_lines); this delegate no longer
@@ -2952,6 +2960,30 @@ class TuiAdapter(App):
             lambda: self._gluescript_live_command("home_u")
         )
 
+    def gluescript_pause(self) -> list[str] | None:
+        """Pause the current job on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("pause")
+        )
+
+    def gluescript_resume(self) -> list[str] | None:
+        """Resume the paused job on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("resume")
+        )
+
+    def gluescript_stop_job(self) -> list[str] | None:
+        """Stop the current job on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("stop_job")
+        )
+
+    def gluescript_reset(self) -> list[str] | None:
+        """Stop the current job and home the X/Y axes on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("reset")
+        )
+
     def gluescript_get_gluescript(self) -> list[str]:
         """Return a copy of the driver's gluescript (empty when no driver)."""
         return self._gluescript_bridge(
@@ -3189,7 +3221,7 @@ class TuiAdapter(App):
         """Filter live-only lines, validate, and apply a gluescript to the driver.
 
         Shared pipeline for ``/gluescript load`` and ``/gluescript edit``:
-        drops live-only jog/home lines with a warning, requires at least one
+        drops live-only jog/home/job-control lines with a warning, requires at least one
         stageable command, validates on a throwaway GlueScript instance
         (suppressing the inline() staging warning), then applies via
         ``driver.stage_gluescript()``. Returns the kept lines and the number
@@ -3226,7 +3258,7 @@ class TuiAdapter(App):
             if live_only_dropped:
                 self._log_error(
                     f"GlueScript: no stageable commands {where_ctx} "
-                    "(live-only commands — jogs and homing — were ignored)"
+                    "(live-only commands — jogs, homing, and job control — were ignored)"
                 )
             else:
                 self._log_error(f"GlueScript: no stageable commands {where_ctx}")
@@ -3244,7 +3276,7 @@ class TuiAdapter(App):
         return kept_lines, len(driver.rpascript)
 
     def _handle_live_command(self, line: str) -> None:
-        """Dispatch a bare live-only command (jog or home) to the driver."""
+        """Dispatch a bare live-only command (jog, home, or job control) to the driver."""
         try:
             tokens = line.split()
             name = tokens[0]
@@ -3277,8 +3309,9 @@ class TuiAdapter(App):
 
             call = self._format_live_call(name, values)
 
-            # Movement jogs mutate position tracking, and home commands are
-            # machine actions, so check connectivity before invoking them;
+            # Movement jogs mutate position tracking, and home and job-control
+            # commands are machine actions, so check connectivity before
+            # invoking them;
             # is_connected does not guarantee the background script runner
             # thread is alive — run() can still raise RuntimeError, but
             # that is now handled inside _emit_live_lines.

@@ -54,25 +54,46 @@ The mechanism:
 }
 ```
 
-The following **8 mnemonics** are verified and render green:
+The following **27 mnemonics** are verified and render green:
 
-- `REF_POINT_MACHINE`
-- `REF_POINT_ORIGIN`
-- `REF_POINT_CURRENT`
-- `OVERSCAN_OFF`
+- `AIR_ASSIST_OFF`
+- `AIR_ASSIST_ON`
+- `ARRAY_END`
+- `BLOCK_END`
+- `CUT_FAR_XY`
+- `END_JOB`
+- `EOF`
+- `JOB_BOTTOM_LEFT`
+- `JOB_TOP_RIGHT`
+- `LAST_LAYER`
+- `LAYER_BOTTOM_LEFT`
+- `LAYER_COLOR`
+- `LAYER_MAX_POWER_1`
+- `LAYER_MIN_POWER_1`
+- `LAYER_SPEED_LASER_1`
+- `LAYER_TOP_RIGHT`
+- `MOVE_FAR_XY`
 - `OVERSCAN_H_BI`
 - `OVERSCAN_H_UNI`
+- `OVERSCAN_OFF`
 - `OVERSCAN_V_BI`
 - `OVERSCAN_V_UNI`
+- `REF_POINT_CURRENT`
+- `REF_POINT_MACHINE`
+- `REF_POINT_ORIGIN`
+- `SELECT_LAYER`
+- `START_JOB`
 
 All other mnemonics remain **unverified** (rendered normally) until their
 declaration lines in `protocols/ruida/ruida_protocol.py` are marked with a
 `# Verified <source>` comment and the names are added to the grammar rule.
 
 **Known limitation:** mnemonics on `CORE`/`CMD`-prefixed lines and names
-shadowed by other grammar rules (`EOF`, `session`/`server`/`new_packet`/
-`delay`/`wait`, `MACHINE_STATUS_*`, `MACHINE`/`CURRENT`/`ABSOLUTE`/
-`SET_POINT`) will not render green.
+shadowed by other grammar rules (`session`/`server`/`new_packet`/`delay`/
+`wait`, `MACHINE_STATUS_*`, `MACHINE`/`CURRENT`/`ABSOLUTE`/`SET_POINT`)
+will not render green. `EOF` was previously shadowed by its own `\bEOF\b`
+keyword rule; it is no longer listed because the `verified` rule (patterns[0])
+now matches it first and renders it green.
 
 ## File Associations
 

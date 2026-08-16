@@ -1098,7 +1098,7 @@ class RpcRdDriver:
         return bool(self._svc.protect_enabled())
 
     # ------------------------------------------------------------------ #
-    #  Live-only commands — jogs, homing, config setters (forwarded)
+    #  Live-only commands — jogs, homing, job control, config setters (forwarded)
     # ------------------------------------------------------------------ #
 
     def jog_set_xy_speed(self, speed: float) -> None:
@@ -1178,6 +1178,22 @@ class RpcRdDriver:
     def home_u(self) -> list[str] | None:
         """Home U axis / rotary (forwarded immediately)."""
         return self._svc.home_u()
+
+    def pause(self) -> list[str] | None:
+        """Pause the live job (forwarded immediately)."""
+        return self._svc.pause()
+
+    def resume(self) -> list[str] | None:
+        """Resume the paused live job (forwarded immediately)."""
+        return self._svc.resume()
+
+    def stop_job(self) -> list[str] | None:
+        """Stop the live job (forwarded immediately)."""
+        return self._svc.stop_job()
+
+    def reset(self) -> list[str] | None:
+        """Reset the live session (forwarded immediately)."""
+        return self._svc.reset()
 
     # ------------------------------------------------------------------ #
     #  Format utilities — forwarded passthroughs

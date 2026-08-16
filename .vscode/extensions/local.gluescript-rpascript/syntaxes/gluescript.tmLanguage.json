@@ -24,7 +24,7 @@
       "name": "constant.language.gluescript"
     },
     {
-      "match": "\\b(?:new_gluescript|comment|inline|delay|wait|declare_job|end_job|job_complete|declare_layer|jog_set_xy_speed|jog_set_z_speed|jog_set_u_speed|jog_set_xy_rel|jog_set_z_rel|jog_set_u_rel|jog_xy_to|jog_x_to|jog_y_to|jog_z_to|jog_u_to|jog_xy_rel|jog_x_rel|jog_y_rel|jog_z_rel|jog_u_rel|update_position|home|home_z|home_u|power|power_range|air_assist_on|air_assist_off|move_xy_to|move_x_to|move_y_to|move_z_to|move_u_to|cut_xy_to|cut_x_to|cut_y_to|cut_z_to|cut_u_to|add_layer_action|stage_gluescript|stage_gluescript_delta)\\b",
+      "match": "\\b(?:new_gluescript|comment|inline|delay|wait|declare_job|end_job|job_complete|declare_layer|jog_set_xy_speed|jog_set_z_speed|jog_set_u_speed|jog_set_xy_rel|jog_set_z_rel|jog_set_u_rel|jog_xy_to|jog_x_to|jog_y_to|jog_z_to|jog_u_to|jog_xy_rel|jog_x_rel|jog_y_rel|jog_z_rel|jog_u_rel|update_position|home|home_z|home_u|pause|resume|stop_job|reset|power|power_range|air_assist_on|air_assist_off|move_xy_to|move_x_to|move_y_to|move_z_to|move_u_to|cut_xy_to|cut_x_to|cut_y_to|cut_z_to|cut_u_to|add_layer_action|stage_gluescript|stage_gluescript_delta)\\b",
       "name": "support.function.gluescript"
     },
     {

@@ -445,16 +445,17 @@ The decoded output should preserve the original section order, parameter
 values, and command count. Discrepancies usually indicate incorrect
 parameter encoding or omitted sections.
 
-### 2.11 Live Jog & Home Commands (single-call)
+### 2.11 Live Jog, Home & Job-Control Commands (single-call)
 
-The jog and home commands are **live-only**: `jog_*`, `home`, `home_z`, and
-`home_u` generate AND send in a single call when the driver is started and a
-session is connected. They return the rpascript lines sent, or `None` when
-nothing was sent — no active session, script runner not started, or the
-command produced no lines (e.g. `jog_z_to` above 2000mm).
+The jog, home, and job-control commands are **live-only**: `jog_*`, `home`,
+`home_z`, `home_u`, `pause`, `resume`, `stop_job`, and `reset` generate AND
+send in a single call when the driver is started and a session is connected.
+They return the rpascript lines sent, or `None` when nothing was sent — no
+active session, script runner not started, or the command produced no lines
+(e.g. `jog_z_to` above 2000mm).
 
 > **CRITICAL:** do NOT pass the returned lines to `run()` — the lines are
-> already sent; doing so double-sends the jog.
+> already sent; doing so double-sends the command.
 
 The `jog_set_*` config setters return `None` and configure the live jog
 session without a session. These commands are live-only and never persisted
@@ -704,9 +705,10 @@ server-side detail.
 Head/tail composition and the five head/tail RPC
 methods are covered separately in [§3.6](#36-headtail-script-management-via-rpc).
 
-The methods fall into five groups — authoring (session-less), config setters,
-movement jogs, homing, and getters. The table lists each client-facing name,
-its signature, return type, and whether a connected session is required.
+The methods fall into six groups — authoring (session-less), config setters,
+movement jogs, homing, job control, and getters. The table lists each
+client-facing name, its signature, return type, and whether a connected
+session is required.
 
 | RPC method | Signature | Returns | Session required |
 | ---------- | --------- | ------- | ---------------- |
@@ -759,17 +761,22 @@ its signature, return type, and whether a connected session is required.
 | `home` | `()` | `list[str] \| None` | Yes |
 | `home_z` | `()` | `list[str] \| None` | Yes |
 | `home_u` | `()` | `list[str] \| None` | Yes |
+| **Job control (live)** | | | |
+| `pause` | `()` | `list[str] \| None` | Yes |
+| `resume` | `()` | `list[str] \| None` | Yes |
+| `stop_job` | `()` | `list[str] \| None` | Yes |
+| `reset` | `()` | `list[str] \| None` | Yes |
 | **Getters** | | | |
 | `get_gluescript` | `()` | `list[str]` | No |
 | `get_rpascript` | `()` | `list[str]` | No |
 | `job_complete` | `(property)` | `bool` | No |
 
-**Returns for live commands:** Movement jogs and homing generate AND send in
-a single call on both transports — direct `RdDriver` and over RPC — returning
-the rpascript lines sent to the controller, or `None` when disconnected, or
-when the command produces no lines. The returned lines are for inspection
-only: do NOT pass them to `run()` — they are already sent; doing so
-double-sends the jog.
+**Returns for live commands:** Movement jogs, homing, and job-control commands
+generate AND send in a single call on both transports — direct `RdDriver` and
+over RPC — returning the rpascript lines sent to the controller, or `None`
+when disconnected, or when the command produces no lines. The returned lines
+are for inspection only: do NOT pass them to `run()` — they are already sent;
+doing so double-sends the command.
 
 **Session-less authoring:** The authoring methods work with no connected
 session — they build a job in the driver's GlueScript state. `stage_gluescript()`
@@ -789,12 +796,13 @@ generated rpascript becomes the loaded script, viewable with `/list script`.
 `new_gluescript` mirrors `/gluescript new` in resetting that slot and the
 preserved transcript.
 
-**Live jogs and homing require a connected session.** Movement jogs
-(`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to` and the `jog_*_rel`
-relative moves) and homing (`home`, `home_z`, `home_u`) execute immediately
-against the live session. When disconnected, these calls warn and return
-`None`. The `jog_set_*` config setters configure the live jog session's speed
-and relative distance and work without a session.
+**Live jogs, homing, and job control require a connected session.** Movement
+jogs (`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to` and the
+`jog_*_rel` relative moves), homing (`home`, `home_z`, `home_u`), and
+job-control commands (`pause`, `resume`, `stop_job`, `reset`) execute
+immediately against the live session. When disconnected, these calls warn and
+return `None`. The `jog_set_*` config setters configure the live jog session's
+speed and relative distance and work without a session.
 
 ```python
 # Movement jogs and homing require a connected session.
@@ -802,7 +810,7 @@ if rpc_driver.is_connected:
     rpc_driver.jog_xy_to(50, 50)
     rpc_driver.home()
 else:
-    print("Disconnected — jog/home will warn and return None")
+    print("Disconnected — jog/home/job-control will warn and return None")
 
 # Config setters configure the live jog session and work without one.
 rpc_driver.jog_set_xy_speed(120.0)
@@ -886,9 +894,10 @@ post-`end_job()` `comment`/`inline` (the epilogue — the only way lines reach
 the server after the last flush boundary; forwarded epilogue lines break
 `len(server) == flushed_count`, restored by `sync()` or a new
 `declare_job()`). `add_layer_action`, `update_position`, the getters
-(`get_gluescript`, `get_rpascript`, `job_complete`), and the live jog/home
-commands (`jog_*`, `home`, `home_z`, `home_u`) plus the `jog_set_*` config
-setters are forwarded immediately as today. `power` is buffered only when the
+(`get_gluescript`, `get_rpascript`, `job_complete`), and the live
+jog/home/job-control commands (`jog_*`, `home`, `home_z`, `home_u`, `pause`,
+`resume`, `stop_job`, `reset`) plus the `jog_set_*` config setters are
+forwarded immediately as today. `power` is buffered only when the
 current layer mode is `IMAGE`/`DEPTHMAP` and `percent` is not `None`;
 otherwise the call is dropped locally with the driver's guard warning — it
 never reaches the server.
@@ -1293,7 +1302,7 @@ These patterns from §5 require no hardware or minimal hardware:
   up to ~2s (e.g. every 0.25s) for the controller to confirm connection
   before sending commands.
 - **`end_job()` is required before `stage_gluescript()`** — otherwise `RuntimeError`. Re-staging a transcript missing `end_job()` also raises (unless `require_complete=False`).
-- **Jog and home commands are live-only** — `jog_*` (incl. `jog_set_*`), `home`, `home_z`, `home_u` act on the live session, are never persisted to `.cglu`, and are skipped with a warning when re-staging.
+- **Jog, home, and job-control commands are live-only** — `jog_*` (incl. `jog_set_*`), `home`, `home_z`, `home_u`, `pause`, `resume`, `stop_job`, `reset` act on the live session, are never persisted to `.cglu`, and are skipped with a warning when re-staging.
 - **`power()` is only valid for IMAGE/DEPTHMAP layers** — calling it on a VECTOR layer logs a warning and is ignored.
 
 ### 7.6 Verification Workflow

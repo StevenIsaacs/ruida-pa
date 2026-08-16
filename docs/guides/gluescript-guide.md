@@ -28,12 +28,13 @@ a more expressive interface for defining laser jobs.
 - **Command registry for re-staging** — gluescript lines can be re-processed
   through the command registry to regenerate rpascript, enabling iterative
   job editing.
-- **Jogs and homing are live-only** — Jog commands (`jog_*`) and homing
-  commands (`home`, `home_z`, `home_u`) act on the live session and are never
-  part of a saved job. Movement jogs and homing execute immediately against the
-  controller; `jog_set_*` config setters configure the live jog session (speeds
-  and relative distances). None of these commands are ever persisted to `.cglu`
-  files nor replayed from them.
+- **Jogs, homing, and job-control are live-only** — Jog commands (`jog_*`),
+  homing commands (`home`, `home_z`, `home_u`), and job-control commands
+  (`pause`, `resume`, `stop_job`, `reset`) act on the live session and are
+  never part of a saved job. Movement jogs, homing, and job-control actions
+  execute immediately against the controller; `jog_set_*` config setters
+  configure the live jog session (speeds and relative distances). None of
+  these commands are ever persisted to `.cglu` files nor replayed from them.
 
 ### Why GlueScript?
 
@@ -525,6 +526,30 @@ immediately against a connected controller, are never appended to the
 gluescript, and their lines in a `.cglu` file are ignored with a warning
 on load (see Section 5).
 
+### 4.5.2 Job Control
+
+Control the running job. Job-control commands are bare no-parameter mnemonics
+expanding to rpascript lines:
+
+```python
+driver.pause()        # Produces: PAUSE_JOB
+driver.resume()       # Produces: RESUME_JOB
+driver.stop_job()     # Produces: STOP_JOB
+driver.reset()        # Produces: STOP_JOB then HOME_XY
+```
+
+| Method | Expands to | Description |
+|--------|------------|-------------|
+| `pause()` | `PAUSE_JOB` | Pause the current job |
+| `resume()` | `RESUME_JOB` | Resume the paused job |
+| `stop_job()` | `STOP_JOB` | Stop the current job |
+| `reset()` | `STOP_JOB` then `HOME_XY` | Stop the current job and home X and Y axes |
+
+Job-control commands are **live-only**, like homing: they execute immediately
+against a connected controller, are never appended to the gluescript, and
+their lines in a `.cglu` file are ignored with a warning on load (see
+Section 5).
+
 ### 4.6 Utilities
 
 #### `comment(comments: list[str])`
@@ -792,8 +817,9 @@ lines that `/gluescript list` displays — the canonical `.cglu` format that
 `save` writes.
 
 On save the edited lines go through the same pipeline as `load`: live-only
-jog/home lines are ignored with a warning (`ignoring live-only command line
-after edit`), the result is validated on a throwaway `GlueScript` instance,
+jog/home/job-control lines are ignored with a warning (`ignoring live-only
+command line after edit`), the result is validated on a throwaway
+`GlueScript` instance,
 and only then applied via `driver.stage_gluescript(lines)` — which rebuilds
 both the rpascript and the transcript. A failed validation reports
 `Edit failed: ...` and leaves the live state untouched. Success logs
@@ -802,13 +828,14 @@ Cancelling logs `GlueScript: Edit cancelled.` With nothing to edit the
 command reports `Nothing to edit (gluescript is empty). Use /gluescript new
 or /gluescript load first.`
 
-### Jog & Home Commands Are Live-Only
+### Jog, Home & Job-Control Commands Are Live-Only
 
 All 16 jog commands (`jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`,
 `jog_u_to`, `jog_xy_rel`, `jog_x_rel`, `jog_y_rel`, `jog_z_rel`, `jog_u_rel`,
 plus the `jog_set_*` config setters: `jog_set_xy_speed`, `jog_set_z_speed`,
-`jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`) and the
-3 homing commands (`home`, `home_z`, `home_u`) are live-only:
+`jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`), the
+3 homing commands (`home`, `home_z`, `home_u`), and the 4 job-control commands
+(`pause`, `resume`, `stop_job`, `reset`) are live-only:
 
 - **In the TUI**, there is no `/gluescript layer` wrapper anymore — jog commands
   are used as bare TUI commands only (see next paragraph). A bare jog never
@@ -817,17 +844,20 @@ plus the `jog_set_*` config setters: `jog_set_xy_speed`, `jog_set_z_speed`,
   With no active session it warns and ignores the jog; if the background script
   runner is dead it warns `not sent — <reason>`. Homing behaves the same way:
   `home`/`home_z`/`home_u` run immediately against a connected controller.
-- **In a `.cglu` file**, jog and home lines are ignored with a warning on load
+  Job-control commands behave the same way: `pause`/`resume`/`stop_job`/`reset`
+  run immediately against a connected controller.
+- **In a `.cglu` file**, jog, home, and job-control lines are ignored with a
+  warning on load
   (`ignoring live-only command line on load`) and are never used for position
   tracking — the re-stage loop skips all `LIVE_ONLY_COMMANDS`.
 - **`jog_set_*` config setters** (speed / relative distance) are live-only too —
   they configure defaults for the live jog session, are never appended to the
   gluescript, and lines in a `.cglu` file are ignored with a warning on load.
 
-### Bare Jog & Home Commands
+### Bare Jog, Home & Job-Control Commands
 
-All 16 jog commands and the 3 homing commands are also available in the TUI as
-**bare commands**, alongside `session`/`server`:
+All 16 jog commands, the 3 homing commands, and the 4 job-control commands are
+also available in the TUI as **bare commands**, alongside `session`/`server`:
 
 ```
 home                         # Home X and Y axes (machine origin)
@@ -840,14 +870,15 @@ jog_set_xy_speed 150       # Set XY jog speed (mm/s) — applies live
 jog_set_xy_rel 25          # Set relative XY jog distance (mm) — applies live
 ```
 
-- Bare jog and home commands are live-only: movement jogs and homing run
-  immediately against a connected controller; `jog_set_*` setters configure
-  the live jog session and never produce gluescript lines.
-- Programmatically (direct RdDriver or over RPC), jog/home calls generate
-  AND send in a single call; the returned lines are informational and must
-  not be passed to `run()`.
+- Bare jog, home, and job-control commands are live-only: movement jogs,
+  homing, and job-control actions run immediately against a connected
+  controller; `jog_set_*` setters configure the live jog session and never
+  produce gluescript lines.
+- Programmatically (direct RdDriver or over RPC), jog, home, and job-control
+  calls generate AND send in a single call; the returned lines are
+  informational and must not be passed to `run()`.
 - Typing a `jog` or `home` prefix brings up autocomplete with usage text;
-  `/help` lists all 19 under "Jog & Home commands (live-only)".
+  `/help` lists all 23 under "Jog, Home & Job-Control commands (live-only)".
 - Movement jogs without an active session warn-and-ignore; `jog_z_to` with
   `z > 2000` is refused (no rpascript lines are produced).
 
@@ -877,7 +908,7 @@ GlueScript: Staged 28 rpascript lines.
 
 > /list script
    0: # Job: My Job
-   1: # Generated by: GlueScript 0.16.0
+   1: # Generated by: GlueScript 0.16.1
    2: REF_POINT_MACHINE
    3: SET_ABSOLUTE
    4: REF_POINT_SET
@@ -1029,9 +1060,10 @@ Re-staging (calling `stage_gluescript()` with a gluescript list) parses each
 gluescript command line and replays it through the command registry:
 
 - Standard commands are replayed via their corresponding methods
-- Jog commands (`jog_*`, including `jog_set_*` config setters) and homing
-  commands (`home`, `home_z`, `home_u`) are skipped — they are live-only and
-  are never replayed or used for position tracking during re-staging
+- Jog commands (`jog_*`, including `jog_set_*` config setters), homing
+  commands (`home`, `home_z`, `home_u`), and job-control commands (`pause`,
+  `resume`, `stop_job`, `reset`) are skipped — they are live-only and are
+  never replayed or used for position tracking during re-staging
 - `inline()` commands are passed through verbatim — they are stored as-is and
   not re-parsed, and land positionally in the output, exactly where they were
   called
@@ -1086,7 +1118,7 @@ end_job()
 
 ```
 # Job: Demo
-# Generated by: GlueScript 0.16.0
+# Generated by: GlueScript 0.16.1
 REF_POINT_MACHINE
 SET_ABSOLUTE
 REF_POINT_SET
