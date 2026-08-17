@@ -634,7 +634,7 @@ class TuiAdapter(App):
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
             "gluescript": "GlueScript high-level scripting. Subcommands: new, show, stage, run, save, load, edit, list",
-            "home": "home: Home X and Y axes (machine origin)",
+            "home": "home: Jog X and Y axes to the origin reference",
             "home_z": "home_z: Home Z axis",
             "home_u": "home_u: Home U axis (rotary)",
             "jog_xy_to": "jog_xy_to <x> <y>: Jog XY to absolute position (mm)",
@@ -1291,7 +1291,7 @@ class TuiAdapter(App):
             "  server start host=<IP> port=<N>  Start the RPC server\n"
             "  server stop                Stop the RPC server\n"
             "  Jog, Home & Job-Control commands (live-only):\n"
-            "    home                        Home X and Y axes (machine origin)\n"
+            "    home                        Jog X and Y axes to the origin reference\n"
             "    home_z                      Home Z axis\n"
             "    home_u                      Home U axis (rotary)\n"
             "    pause                       Pause the current job\n"

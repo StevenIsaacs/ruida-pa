@@ -63,7 +63,7 @@ enforced when `--rpc-host` is a non-local address.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.16.1               [Header]   │
+│  Ruida Script TUI v0.16.2               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │
@@ -170,7 +170,7 @@ The 16 jog commands, 3 homing commands, and 4 job-control commands are bare
 commands (no `/` prefix) that act on the live session:
 
 ```
-home                            # Home X and Y axes (machine origin)
+home                            # Jog X and Y axes to the origin reference
 home_z                          # Home Z axis
 home_u                          # Home U axis (rotary)
 pause                           # Pause the current job

@@ -98,11 +98,18 @@ Jogging and job coordinates are relative to defined reference points. The refere
 
 **AGENT:** Valid reference points are defined in `ruida_protocol.py`. The valid reference point mnemonics are defined by the `RELT` table and the format specifier is `REL`.
 ## Jogging Moves
-Jogging moves are to be used to move the laser when a job is not running. Movement jogs are **live-only**: in the TUI they are executed immediately against the controller and are never appended to the `gluescript`, and movement jog lines in a persisted file are ignored with a warning on load. The jog settings methods (`jog_set_*`) are live-only as well — they configure the live jog session (speeds and relative distances) without transmitting anything, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The homing methods (`home`, `home_z`, `home_u` — machine homing actions) are live-only too: they run against a connected session, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The job-control methods (`pause`, `resume`, `stop_job`, `reset` — pausing, resuming, stopping, and resetting the running job) are live-only too: they run against a connected session, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The on-disk GlueScript format is `.cglu` (the `.gs` extension is deliberately unused because it conflicts with Google Apps Script); `/gluescript save` and `/gluescript load` read and write this format.
+Jogging moves are to be used to move the laser when a job is not running. Movement jogs are **live-only**: in the TUI they are executed immediately against the controller and are never appended to the `gluescript`, and movement jog lines in a persisted file are ignored with a warning on load. The jog settings methods (`jog_set_*`) are live-only as well — they configure the live jog session (speeds and relative distances) without transmitting anything, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The homing methods (`home`, `home_z`, `home_u`) are live-only too: `home()` jogs the XY axes to the current origin reference, while `home_z`/`home_u` are machine homing actions — they run against a connected session, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The job-control methods (`pause`, `resume`, `stop_job`, `reset` — pausing, resuming, stopping, and resetting the running job) are live-only too: they run against a connected session, never append to the `gluescript`, and their lines in a persisted file are ignored with a warning on load. The on-disk GlueScript format is `.cglu` (the `.gs` extension is deliberately unused because it conflicts with Google Apps Script); `/gluescript save` and `/gluescript load` read and write this format.
 ### Homing methods
 Home the machine axes. Homing methods are live-only like movement jogs — they run immediately against a connected session and never append to the `gluescript`:
 #### home(...)
-Home the X and Y axes (machine origin).
+Move the X and Y axes to the current origin reference.
+
+This jogs the XY axes to the controller's current (0, 0) reference point
+rather than performing a true machine home (which would establish the
+origin via limit switches). It deliberately avoids the controller reset
+that the HOME_XY command triggers. Note this intentionally differs from
+home_z()/home_u() (true homing) and from reset() (which still emits
+HOME_XY).
 
 Prototype:
 ```
@@ -113,7 +120,7 @@ Returns: the sent rpascript lines, or `None` if nothing was sent (e.g. no active
 
 Expands to and returns:
 ```
-["HOME_XY"]
+["SPEED_LASER_1 <jog_xy_speed>", "JOG_XY Rel:MACHINE X=0mm Y=0mm"]
 ```
 #### home_z(...)
 Home the Z axis.

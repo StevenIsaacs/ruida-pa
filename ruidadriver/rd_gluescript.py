@@ -920,9 +920,11 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_xy_speed}",
             f"JOG_XY Rel:MACHINE X={x}mm Y={y}mm",
         ]
-        self._current_x = x
-        self._current_y = y
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_x = x
+            self._current_y = y
+        return sent
 
     def jog_x_to(self, x: float) -> list[str] | None:
         """Generate jog rpascript to move X to absolute coordinate.
@@ -936,8 +938,10 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_xy_speed}",
             f"JOG_X Rel:MACHINE X={x}mm",
         ]
-        self._current_x = x
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_x = x
+        return sent
 
     def jog_y_to(self, y: float) -> list[str] | None:
         """Generate jog rpascript to move Y to absolute coordinate.
@@ -951,8 +955,10 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_xy_speed}",
             f"JOG_Y Rel:MACHINE Y={y}mm",
         ]
-        self._current_y = y
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_y = y
+        return sent
 
     def jog_z_to(self, z: float) -> list[str] | None:
         """Generate jog rpascript to move Z to absolute coordinate.
@@ -974,8 +980,10 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_z_speed}",
             f"JOG_Z Rel:MACHINE Z={z}mm",
         ]
-        self._current_z = z
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_z = z
+        return sent
 
     def jog_u_to(self, u: float) -> list[str] | None:
         """Generate jog rpascript to move U to absolute coordinate.
@@ -989,8 +997,10 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_u_speed}",
             f"JOG_U Rel:MACHINE U={u}mm",
         ]
-        self._current_u = u
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_u = u
+        return sent
 
     def jog_xy_rel(self, x: float | None = None, y: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move XY relative to current position.
@@ -1009,9 +1019,11 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_xy_speed}",
             f"JOG_XY Rel:CURRENT X={x}mm Y={y}mm",
         ]
-        self._current_x += x
-        self._current_y += y
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_x += x
+            self._current_y += y
+        return sent
 
     def jog_x_rel(self, x: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move X relative to current position.
@@ -1027,8 +1039,10 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_xy_speed}",
             f"JOG_X Rel:CURRENT X={x}mm",
         ]
-        self._current_x += x
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_x += x
+        return sent
 
     def jog_y_rel(self, y: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move Y relative to current position.
@@ -1044,8 +1058,10 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_xy_speed}",
             f"JOG_Y Rel:CURRENT Y={y}mm",
         ]
-        self._current_y += y
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_y += y
+        return sent
 
     def jog_z_rel(self, z: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move Z relative to current position.
@@ -1061,8 +1077,10 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_z_speed}",
             f"JOG_Z Rel:CURRENT Z={z}mm",
         ]
-        self._current_z += z
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_z += z
+        return sent
 
     def jog_u_rel(self, u: float | None = None) -> list[str] | None:
         """Generate jog rpascript to move U relative to current position.
@@ -1078,8 +1096,10 @@ class GlueScript:
             f"SPEED_LASER_1 {self.jog_u_speed}",
             f"JOG_U Rel:CURRENT U={u}mm",
         ]
-        self._current_u += u
-        return self._emit_live_lines(lines)
+        sent = self._emit_live_lines(lines)
+        if sent is not None:
+            self._current_u += u
+        return sent
 
     def update_position(
         self,
@@ -1110,7 +1130,15 @@ class GlueScript:
             self._current_u = float(u)
 
     def home(self) -> list[str] | None:
-        """Generate rpascript to home the X and Y axes.
+        """Move the X and Y axes to the current origin reference.
+
+        This jogs the XY axes to the controller's current (0, 0)
+        reference point rather than performing a true machine home
+        (which would establish the origin via limit switches). It
+        deliberately avoids the controller reset that the HOME_XY
+        command triggers. Note this intentionally differs from
+        home_z()/home_u() (true homing) and from reset() (which still
+        emits HOME_XY).
 
         On RdDriver, sends the lines immediately via _emit_live_lines;
         on a standalone GlueScript (default hook), returns the generated
@@ -1120,8 +1148,7 @@ class GlueScript:
         Returns:
             list[str] | None: rpascript lines for the home command.
         """
-        lines = ["HOME_XY"]
-        return self._emit_live_lines(lines)
+        return self.jog_xy_to(0, 0)
 
     def home_z(self) -> list[str] | None:
         """Generate rpascript to home the Z axis.

@@ -64,7 +64,7 @@ job-control commands (`pause`, `resume`, `stop_job`, `reset`) are bare commands
 replayed from, `.cglu` files:
 
 ```rds
-home                            # Home X and Y axes (machine origin)
+home                            # Jog X and Y axes to the origin reference
 home_z                          # Home Z axis
 home_u                          # Home U axis (rotary)
 pause                           # Pause the current job
@@ -95,7 +95,8 @@ jog_set_u_rel 10            # Set relative U jog distance (mm)
 - **Setters** (`jog_set_*`) configure the live jog session (speeds and relative
   defaults) and never produce rpascript lines.
 - **Homing commands** (`home`, `home_z`, `home_u`) require a connected session
-  and run immediately (expanding to `HOME_XY`/`HOME_Z`/`HOME_U`); they never
+  and run immediately (`home()` jogs the XY axes to the current origin
+  reference, while `home_z`/`home_u` expand to `HOME_Z`/`HOME_U`); they never
   produce gluescript lines.
 - **Job-control commands** (`pause`, `resume`, `stop_job`, `reset`) require a
   connected session and run immediately (expanding to `PAUSE_JOB`, `RESUME_JOB`,
