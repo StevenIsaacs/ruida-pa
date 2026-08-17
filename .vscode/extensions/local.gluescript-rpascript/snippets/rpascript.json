@@ -23,7 +23,7 @@
     "body": [
       "LAYER_COLOR Layer:0 Color:\\#${1:ff0000}",
       "OVERSCAN_OFF",
-      "LAYER_SPEED_LASER_1 Layer:0 Speed:${2:100.0}mm/S",
+      "CUT_SPEED_LASER_1 Layer:0 Speed:${2:100.0}mm/S",
       "LAYER_MIN_POWER_1 Layer:0 Power:${3:8.0}%",
       "LAYER_MAX_POWER_1 Layer:0 Power:${4:70.0}%"
     ],

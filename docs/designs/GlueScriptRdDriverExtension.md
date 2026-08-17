@@ -630,13 +630,13 @@ self._overscan_modes = {
 
 Expands to:
 ```
-# Layer {self._layer}: {label}
-LAYER_COLOR Layer:{self._layer} Color:{color}
+# Layer {self._layer - 1}: {label}
+LAYER_COLOR Layer:{self._layer - 1} Color:{color}
 {self._overscan_modes[overscan]}
-LAYER_SPEED_LASER_1 Layer:{self._layer} Speed:{speed}mm/S
-LAYER_MIN_POWER_1 Layer:{self._layer} Power:{min_power_1}%
-LAYER_MAX_POWER_1 Layer:{self._layer} Power:{max_power_1}%
-LAYER_ATTRIBUTES Layer:{self._layer} 0
+CUT_SPEED_LASER_1 Layer:{self._layer - 1} Speed:{speed}mm/S
+LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{min_power_1}%
+LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{max_power_1}%
+LAYER_ATTRIBUTES Layer:{self._layer - 1} 0
 # Per-layer bounding boxes are emitted as concrete values at the next
 # declare_layer() call or end_job(), only for layers that have content.
 ```
@@ -667,7 +667,7 @@ structure:
 
 1. **Job header** — reference point setup, START_JOB, JOB_TOP_RIGHT/JOB_BOTTOM_LEFT,
    DOCUMENT_TOP_RIGHT/DOCUMENT_BOTTOM_LEFT, JOB_COPIES
-2. **Layer attributes** — all layers' LAYER_COLOR, LAYER_SPEED, LAYER_POWER,
+2. **Layer attributes** — all layers' LAYER_COLOR, CUT_SPEED, LAYER_POWER,
    LAYER_ATTRIBUTES, and bounding box lines, sorted by layer number
 3. **Layer actions** — each layer's actions preceded by `SELECT_LAYER Layer:{n}`,
    sorted by layer number

@@ -469,7 +469,7 @@ CT = {
     0xC9: {
         0x02: ("SPEED_LASER_1", SPEED),
         0x03: ("SPEED_AXIS", SPEED),
-        0x04: ("LAYER_SPEED_LASER_1", LAYER, SPEED),  # Verified StevenIsaacs
+        0x04: ("CUT_SPEED_LASER_1", LAYER, SPEED),  # Verified StevenIsaacs
         0x05: ("FORCE_ENG_SPEED", SPEED),
         0x06: ("SPEED_AXIS_MOVE", SPEED),
     },

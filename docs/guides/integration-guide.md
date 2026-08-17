@@ -842,10 +842,10 @@ server at each `declare_layer`/`end_job` boundary. A job with thousands of
 moves and cuts reaches the server in a handful of round trips instead of one
 per action.
 
-**Comment-only actions over RPC:** `cut_speed`, `move_speed`, `frequency`,
+**Comment-only actions over RPC:** `move_speed`, `frequency`,
 and `pwm` are buffered and mirrored like any other layer action; on the server
 they expand to `#` comment lines, so a staging warning is logged there once
-per stage (once per delta over RPC; the job's speed/frequency will not
+per stage (once per delta over RPC; move speed/frequency will not
 change). `select_laser` with a head
 other than 1 warns twice over RPC — once locally in the wrapper and once when
 the server replays the mirrored line — which is intentional: the client always
@@ -993,7 +993,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Surface area | Methods | Notes |
 | ------------ | ------- | ----- |
 | Job authoring | `new_gluescript`, `comment`, `inline`, `delay`, `wait`, `declare_job`, `declare_layer`, `end_job` | Buffered locally over RPC; flushed at layer/job boundaries (see §3.8) |
-| Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `air_assist_on`, `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`, `select_laser` | Same buffering note; `power_range` sets the min/max power ramp range for the layer (accel/decel), expanding to `MIN_POWER_1`/`MAX_POWER_1`; `cut_speed`/`move_speed`/`frequency`/`pwm` expand to comments only; `select_laser(1)` emits `LASER_DEVICE_1` |
+| Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `air_assist_on`, `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`, `select_laser` | Same buffering note; `power_range` sets the min/max power ramp range for the layer (accel/decel), expanding to `MIN_POWER_1`/`MAX_POWER_1`; `cut_speed` expands to `CUT_SPEED_LASER_1`; `move_speed`/`frequency`/`pwm` expand to comments only; `select_laser(1)` emits `LASER_DEVICE_1` |
 | Staging & getters | `stage_gluescript`, `stage_gluescript_delta`, `gluescript`/`rpascript` attributes — plus RPC-only getters `get_gluescript()`/`get_rpascript()` on the wrapper | `stage_gluescript` returns a SHA-256 signature; the direct driver exposes the attributes directly |
 | Lifecycle & execution | `start`, `stop`, `run`, `run_job`, `cancel_script` | `start` returns bool |
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |

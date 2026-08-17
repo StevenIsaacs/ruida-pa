@@ -61,6 +61,7 @@ The following **27 mnemonics** are verified and render green:
 - `ARRAY_END`
 - `BLOCK_END`
 - `CUT_FAR_XY`
+- `CUT_SPEED_LASER_1`
 - `END_JOB`
 - `EOF`
 - `JOB_BOTTOM_LEFT`
@@ -70,7 +71,6 @@ The following **27 mnemonics** are verified and render green:
 - `LAYER_COLOR`
 - `LAYER_MAX_POWER_1`
 - `LAYER_MIN_POWER_1`
-- `LAYER_SPEED_LASER_1`
 - `LAYER_TOP_RIGHT`
 - `MOVE_FAR_XY`
 - `OVERSCAN_H_BI`

@@ -81,7 +81,7 @@
     "body": [
       "cut_speed(${1:100.0})"
     ],
-    "description": "Set the cut speed in mm/s for the current layer (comment-only; expansion not yet wired into rpascript)"
+    "description": "Set the cut speed in mm/s for the current layer (expands to a CUT_SPEED_LASER_1 rpascript action)"
   },
   "move_speed": {
     "prefix": "move_speed",

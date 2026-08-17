@@ -194,7 +194,7 @@ class GlueScript:
         # re-arm the flag mid-replay and defeat the suppression.
         self._warn_inline: bool = True
         # Per-job flag: set when a comment-only layer action
-        # (cut_speed/move_speed/frequency/pwm) is used; cleared by
+        # (move_speed/frequency/pwm) is used; cleared by
         # new_gluescript() and the re-stage reset block.
         self._comment_only_used: bool = False
         # Caller-set toggle (per-instance): when False, the staging warning
@@ -851,7 +851,7 @@ class GlueScript:
         attrs.append(f"LAYER_COLOR Layer:{self._layer - 1} Color:{color.replace('#', '\\#')}")
         attrs.extend(self._overscan_modes[resolved_overscan])
         attrs.append(
-            f"LAYER_SPEED_LASER_1 Layer:{self._layer - 1} Speed:{speed}mm/S"
+            f"CUT_SPEED_LASER_1 Layer:{self._layer - 1} Speed:{speed}mm/S"
         )
         attrs.append(
             f"LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{min_power_1}%"
@@ -1355,15 +1355,15 @@ class GlueScript:
         self._layer_actions.setdefault(self._layer, []).append("AIR_ASSIST_OFF")
 
     def cut_speed(self, speed: float) -> None:
-        """Set cut speed for the current layer (comment-only for now).
+        """Set cut speed for the current layer.
 
-        Expands to a ``# cut_speed(...)`` comment in the rpascript layer
-        actions — the speed command is not yet wired into rpascript, so
-        the value is preserved in the transcript only.
+        Expands to a ``CUT_SPEED_LASER_1`` rpascript layer action carrying
+        the speed value.
         """
         self.gluescript.append(f"cut_speed({speed!r})")
-        self._layer_actions.setdefault(self._layer, []).append(f"# cut_speed({speed!r})")
-        self._comment_only_used = True
+        self._layer_actions.setdefault(self._layer, []).append(
+            f"CUT_SPEED_LASER_1 Layer:{self._layer - 1} Speed={speed}"
+        )
 
     def move_speed(self, speed: float) -> None:
         """Set move speed for the current layer (comment-only for now).
@@ -1592,7 +1592,7 @@ class GlueScript:
         layer actions with SELECT_LAYER prefix, inline epilogue, END_JOB,
         EOF, then deferred-variable expansion. Sets ``_stage_complete``
         and fires the inline() staging warning when inline was used and
-        the comment-only warning when cut_speed/move_speed/frequency/pwm
+        the comment-only warning when move_speed/frequency/pwm
         were used.
         """
         self.rpascript = []
@@ -1643,8 +1643,8 @@ class GlueScript:
             )
         if self._comment_only_used and self._warn_comment_only:
             logger.warning(
-                "GlueScript used cut_speed/move_speed/frequency/pwm - these "
-                "expand to comments only; the job's speed/frequency will not change"
+                "GlueScript used move_speed/frequency/pwm - these "
+                "expand to comments only; move speed/frequency will not change"
             )
 
     def stage_gluescript(

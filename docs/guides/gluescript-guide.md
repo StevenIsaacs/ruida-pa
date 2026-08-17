@@ -370,21 +370,20 @@ driver.air_assist_off()
 #### `cut_speed(speed: float)`
 
 Set the cut speed for the currently active layer, in mm/s, dynamically
-varying the cut speed between cuts. Expands to a `#` comment placeholder in
+varying the cut speed between cuts. Expands to a `CUT_SPEED_LASER_1` action in
 the layer's action block:
 
 ```python
 driver.cut_speed(80.0)
-# Produces: # cut_speed(80.0)
+# Produces: CUT_SPEED_LASER_1 Layer:0 Speed=80.0
 ```
 
-The expansion is a `#` comment because the correct Ruida speed command is not
-yet verified/supported in rpascript — the job's actual cut speed will NOT
-change. A staging warning (`GlueScript used
-cut_speed/move_speed/frequency/pwm - these expand to comments only; the job's
-speed/frequency will not change`) informs the user when any of the four
-comment-only actions are used; it fires once per stage (once per delta over
-RPC). `cut_speed()` is a **saved-job command** — it
+The layer index is emitted 0-based (matching the controller and the layer
+attributes), and the speed is emitted with an `=` separator and no unit. The
+staging warning (`GlueScript used move_speed/frequency/pwm - these expand to
+comments only; move speed/frequency will not change`) informs the user when
+any of the three remaining comment-only actions are used; it fires once per
+stage (once per delta over RPC). `cut_speed()` is a **saved-job command** — it
 is persisted to, and replayed from, `.cglu` files (unlike jog/home commands,
 which are live-only).
 
@@ -398,7 +397,7 @@ driver.move_speed(300.0)
 # Produces: # move_speed(300.0)
 ```
 
-As with `cut_speed`, the expansion is a `#` comment because the correct Ruida
+As with `move_speed`, the expansion is a `#` comment because the correct Ruida
 speed command is not yet verified/supported in rpascript — the job's actual
 move speed will NOT change, and the same staging warning applies (once per
 stage, i.e. once per delta over RPC).
@@ -413,7 +412,7 @@ driver.frequency(30.0)
 # Produces: # frequency(30.0)
 ```
 
-As with `cut_speed`, the expansion is a `#` comment because the correct Ruida
+As with `move_speed`, the expansion is a `#` comment because the correct Ruida
 frequency command is not yet verified/supported in rpascript — the job's
 actual frequency will NOT change, and the same staging warning applies
 (once per stage, i.e. once per delta over RPC).
@@ -432,7 +431,7 @@ driver.pwm(200.0)
 ```
 
 With a Ruida controller this setting requires a `SET_SETTING` command, which
-is not yet verified/supported in rpascript — so, as with `cut_speed`, the
+is not yet verified/supported in rpascript — so, as with `move_speed`, the
 expansion is a `#` comment placeholder and the job's actual pulse width will
 NOT change; the same staging warning applies (once per stage, i.e. once per
 delta over RPC).
@@ -440,7 +439,7 @@ delta over RPC).
 #### `select_laser(laser: int)`
 
 Select the laser head used by the following actions in the currently active
-layer. The argument is 1-based. Unlike the four comment-only methods above,
+layer. The argument is 1-based. Unlike the three comment-only methods above,
 this one has a real expansion: `select_laser(1)` emits `LASER_DEVICE_1` in the
 layer's action block:
 
@@ -1134,7 +1133,7 @@ JOB_COPIES Columns=1 Rows=1 XStep=0.000mm YStep=0.000mm
 # Layer 0: Outline
 LAYER_COLOR Layer:0 Color:\#0000FF
 OVERSCAN_OFF
-LAYER_SPEED_LASER_1 Layer:0 Speed:120.000mm/S
+CUT_SPEED_LASER_1 Layer:0 Speed:120.000mm/S
 LAYER_MIN_POWER_1 Layer:0 Power:20.0%
 LAYER_MAX_POWER_1 Layer:0 Power:80.0%
 LAYER_ATTRIBUTES Layer:0 0
