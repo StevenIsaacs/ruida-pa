@@ -9,8 +9,10 @@ round trips instead of one per command. It inherits from ``GlueScript``
 driver does (``class RdDriver(GlueScript)``), so the buffered authoring
 methods, validation, and live-command surface are shared with the direct
 driver; the RPC-specific batching, drift guard, and close semantics are
-layered on top via the ``_on_action_boundary`` and ``_emit_live_lines``
-hooks. The constructor opens its own TCP connection (via the module-level
+layered on top via the ``_on_action_boundary`` hook, while the
+job-control commands (``pause``, ``resume``, ``stop_job``, ``reset``)
+are overridden to forward directly to the server. The constructor opens
+its own TCP connection (via the module-level
 ``connect_rpc()`` helper) when no ``svc`` is supplied; a caller-provided
 connected root (``connect_stream(...).root``, as in
 tests/rpyc_poc/test_auth.py) is still accepted as the first positional
@@ -251,8 +253,10 @@ class RpcRdDriver(GlueScript):
     Inherits from ``GlueScript`` (as ``RdDriver`` does) so the buffered
     authoring methods, validation, and live-command surface are shared
     with the direct driver. The RPC-specific batching, drift guard, and
-    close semantics are layered on via the ``_on_action_boundary`` and
-    ``_emit_live_lines`` hooks; see the module docstring for details.
+    close semantics are layered on via the ``_on_action_boundary`` hook,
+    with the job-control commands (``pause``, ``resume``, ``stop_job``,
+    ``reset``) overridden to forward directly to the server; see the
+    module docstring for details.
     """
 
     _svc: Any
@@ -308,8 +312,8 @@ class RpcRdDriver(GlueScript):
             self._svc = conn.root
             self._owns_connection = True
         # Initialize the GlueScript base state AFTER _svc is assigned so
-        # the _build_command_registry assertion runs against the real
-        # subclass and any registry-bound method that touches _svc is safe.
+        # the command registry binds the real subclass methods and any
+        # registry-bound method that touches _svc is safe.
         super().__init__()
 
     def close(self) -> None:
@@ -884,7 +888,7 @@ class RpcRdDriver(GlueScript):
         return bool(self._svc.protect_enabled())
 
     # ------------------------------------------------------------------ #
-    #  GlueScript hooks — batching boundary and live-line forwarding
+    #  GlueScript hooks — batching boundary
     # ------------------------------------------------------------------ #
 
     def _on_action_boundary(self) -> None:
@@ -896,37 +900,6 @@ class RpcRdDriver(GlueScript):
         False on each layer boundary.
         """
         self._flush(require_complete=self._job_complete)
-
-    # Exact line tuples produced by the base job-control methods, mapped
-    # to the server method that performs the live action. The base
-    # pause/resume/stop_job/reset methods call ``_emit_live_lines`` with
-    # these exact lists; forwarding to the server's method (rather than
-    # queueing the lines) lets the server's RdDriver generate, send, and
-    # track the action consistently.
-    _LIVE_LINE_MAP: dict[tuple[str, ...], str] = {
-        ("PAUSE_JOB",): "pause",
-        ("RESUME_JOB",): "resume",
-        ("STOP_JOB",): "stop_job",
-        ("STOP_JOB", "HOME_XY"): "reset",
-    }
-
-    def _emit_live_lines(self, lines: list[str]) -> list[str] | None:
-        """Forward live (job-control) lines to the server.
-
-        Overrides the base hook so the inherited job-control methods
-        (``pause``/``resume``/``stop_job``/``reset``) reach the server.
-        Known line tuples are dispatched to the matching server method;
-        anything else falls back to queueing the lines as a script. The
-        fallback is effectively unreachable — the base only calls
-        ``_emit_live_lines`` with job-control/home lines, and
-        ``home``/``home_z``/``home_u`` are overridden to forward directly.
-        """
-        if self._closed:
-            raise RuntimeError("driver closed")
-        method_name = self._LIVE_LINE_MAP.get(tuple(lines))
-        if method_name is not None:
-            return getattr(self._svc, method_name)()
-        return self._svc.run(list(lines))
 
     # ------------------------------------------------------------------ #
     #  Live-only commands — jogs, homing, job control, config setters (forwarded)
@@ -1009,6 +982,22 @@ class RpcRdDriver(GlueScript):
     def home_u(self) -> list[str] | None:
         """Home U axis / rotary (forwarded immediately)."""
         return self._svc.home_u()
+
+    def pause(self) -> list[str] | None:
+        """Pause the current job (forwarded immediately)."""
+        return self._svc.pause()
+
+    def resume(self) -> list[str] | None:
+        """Resume the current job (forwarded immediately)."""
+        return self._svc.resume()
+
+    def stop_job(self) -> list[str] | None:
+        """Stop the current job (forwarded immediately)."""
+        return self._svc.stop_job()
+
+    def reset(self) -> list[str] | None:
+        """Reset the controller (forwarded immediately)."""
+        return self._svc.reset()
 
     # ------------------------------------------------------------------ #
     #  Format utilities — forwarded passthroughs

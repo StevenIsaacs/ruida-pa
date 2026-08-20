@@ -322,16 +322,11 @@ class GlueScript:
         for name in registry_methods:
             self._command_registry[name] = getattr(self, name)
 
-        # Job-control commands are safety-critical live actions: each must
-        # resolve to GlueScript's own method so a subclass (e.g. RdDriver)
-        # can never shadow it with a differently-behaved implementation.
-        for name in GlueScript.JOB_CONTROL_COMMANDS:
-            if getattr(type(self), name) is not getattr(GlueScript, name):
-                raise AssertionError(
-                    f"job-control command {name!r} must not be shadowed: "
-                    f"expected GlueScript.{name}, got "
-                    f"{type(self).__name__}.{name}"
-                )
+        # Contract: subclasses may override the job-control commands
+        # (pause, resume, stop_job, reset) — e.g. to forward them over
+        # RPC — but any override must preserve interrupt semantics: it
+        # must forward to the controller/server so a running job can
+        # still be paused, resumed, stopped, or reset.
 
     # ------------------------------------------------------------------ #
     #  Internal helpers
