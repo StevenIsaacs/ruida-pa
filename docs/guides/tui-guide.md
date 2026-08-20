@@ -63,7 +63,7 @@ enforced when `--rpc-host` is a non-local address.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.17.0               [Header]   │
+│  Ruida Script TUI v0.17.1               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │
