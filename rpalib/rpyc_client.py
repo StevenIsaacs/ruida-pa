@@ -4,11 +4,17 @@ mirroring the RdDriver surface.
 ``RpcRdDriver`` wraps an RPyC service root and exposes the same
 job-scripting and lifecycle-execution surface as the direct RdDriver,
 but with local batching so a whole job reaches the server in a few
-round trips instead of one per command. The constructor opens its own
-TCP connection (via the module-level ``connect_rpc()`` helper) when no
-``svc`` is supplied; a caller-provided connected root
-(``connect_stream(...).root``, as in tests/rpyc_poc/test_auth.py) is
-still accepted as the first positional argument, exactly as before.
+round trips instead of one per command. It inherits from ``GlueScript``
+(``class RpcRdDriver(GlueScript)``), exactly mirroring how the direct
+driver does (``class RdDriver(GlueScript)``), so the buffered authoring
+methods, validation, and live-command surface are shared with the direct
+driver; the RPC-specific batching, drift guard, and close semantics are
+layered on top via the ``_on_action_boundary`` and ``_emit_live_lines``
+hooks. The constructor opens its own TCP connection (via the module-level
+``connect_rpc()`` helper) when no ``svc`` is supplied; a caller-provided
+connected root (``connect_stream(...).root``, as in
+tests/rpyc_poc/test_auth.py) is still accepted as the first positional
+argument, exactly as before.
 
 Token handshake
 ---------------
@@ -64,9 +70,12 @@ Batching semantics
   new ``declare_job()`` restores the invariant).
 - ``add_layer_action``, ``update_position``, jogs, and homing stay
   forwarded-only as today.
-- Validation errors (bad ``declare_layer`` mode, etc.) surface at flush
-  time, wrapped in ``RuntimeError`` ("Error re-staging command ...")
-  rather than at call time.
+- Validation now happens at call time, exactly as on the direct driver:
+  ``declare_layer`` (mode/overscan/min_power) and ``power_range``
+  (layer/min>max/min<8%) raise ``ValueError`` immediately; ``power``
+  warns and drops on a wrong layer mode or a ``None`` percentage. The
+  ``_job_complete`` fail-fast guards on ``declare_layer`` and
+  ``power_range`` (post-``end_job``) are preserved.
 
 Drift guard
 -----------
@@ -98,17 +107,17 @@ or run the drift check.
 
 Getter semantics
 ----------------
-The ``gluescript``, ``rpascript`` and ``job_complete`` attributes report the
-server's LAST-FLUSHED state; the retained method aliases ``get_gluescript()``
-and ``get_rpascript()`` return the same values. Between flushes, buffered
-actions exist only in the client's ``_transcript`` and are invisible to the
-getters until the next boundary flush. ``sync()`` re-baselines the
-transcript, ``_flushed_count``, ``_current_mode`` and ``_job_complete`` from
-that last-flushed state.
-
-The ``gluescript`` and ``rpascript`` getters are read-only snapshots
-fetched over RPC: in-place mutation of the returned list is not
-reflected server-side, unlike the direct driver's live lists.
+``gluescript`` and ``job_complete`` are now LIVE LOCAL state, consistent
+with the direct driver: ``gluescript`` returns the client's buffered
+transcript (``_transcript``, including unflushed lines) and
+``job_complete`` reads the local ``_job_complete`` flag set by
+``end_job()``. ``rpascript`` remains a server snapshot of the last-flushed
+assembled rpascript. The retained method aliases ``get_gluescript()`` and
+``get_rpascript()`` return the server's last-flushed state (so the
+``gluescript`` property and ``get_gluescript()`` diverge: the property is
+live local, the method is the server snapshot). ``sync()`` re-baselines
+the transcript, ``_flushed_count``, ``_current_layer_mode`` and
+``_job_complete`` from that last-flushed state.
 
 The attribute forms (``gluescript``, ``rpascript``, ``job_complete``,
 ``machine_status``, ``protect_enabled``, ``is_connected``), the
@@ -140,8 +149,8 @@ from rpyc.utils.factory import connect_stream
 from rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
     gluescript_signature,
-    is_valid_time_value,
 )
+from ruidadriver.rd_gluescript import GlueScript
 
 logger = logging.getLogger(__name__)
 
@@ -235,9 +244,15 @@ class _ClosedService:
         raise RuntimeError("driver closed")
 
 
-class RpcRdDriver:
+class RpcRdDriver(GlueScript):
     """Client-side batching wrapper for the RPyC service root,
     mirroring the RdDriver surface.
+
+    Inherits from ``GlueScript`` (as ``RdDriver`` does) so the buffered
+    authoring methods, validation, and live-command surface are shared
+    with the direct driver. The RPC-specific batching, drift guard, and
+    close semantics are layered on via the ``_on_action_boundary`` and
+    ``_emit_live_lines`` hooks; see the module docstring for details.
     """
 
     _svc: Any
@@ -246,9 +261,7 @@ class RpcRdDriver:
     _closed: bool
     _transcript: list[str]
     _flushed_count: int
-    _current_mode: str
-    _job_complete: bool
-    _job_declared: bool
+    _rpascript_local: list[str]
 
     def __init__(
         self,
@@ -276,7 +289,7 @@ class RpcRdDriver:
             timeout: Connect timeout and rpyc ``sync_request_timeout``
                 for the self-connecting path.
         """
-        # Initialize the full attribute surface BEFORE any connect work
+        # Initialize the RPC attribute surface BEFORE any connect work
         # so a connect failure leaves close()/__del__ safe.
         self._svc: Any = None
         self._conn: Any = None
@@ -284,9 +297,6 @@ class RpcRdDriver:
         self._closed: bool = False
         self._transcript: list[str] = []
         self._flushed_count: int = 0
-        self._current_mode: str = "VECTOR"
-        self._job_complete: bool = False
-        self._job_declared: bool = False
         if svc is not None:
             self._svc = svc
         else:
@@ -297,6 +307,10 @@ class RpcRdDriver:
             self._conn = conn
             self._svc = conn.root
             self._owns_connection = True
+        # Initialize the GlueScript base state AFTER _svc is assigned so
+        # the _build_command_registry assertion runs against the real
+        # subclass and any registry-bound method that touches _svc is safe.
+        super().__init__()
 
     def close(self) -> None:
         """Close the owned connection and mark the driver closed.
@@ -341,35 +355,6 @@ class RpcRdDriver:
     # ------------------------------------------------------------------ #
     #  Internal helpers
     # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _derive_mode_from_transcript(transcript: list[str]) -> str:
-        """Return the mode of the LAST declare_layer line in a transcript.
-
-        Labels and colors are repr-quoted and may contain commas, so the
-        argument list is parsed with ``ast.literal_eval`` (the driver's
-        own gluescript parse boundary) rather than a naive split.
-        Defaults to "VECTOR" when no layer has been declared.
-        """
-        mode = "VECTOR"
-        for line in transcript:
-            stripped = line.strip()
-            if not stripped.startswith("declare_layer("):
-                continue
-            # Mirrors the driver's parse boundary (_parse_gluescript_line)
-            # and is safe for client-generated mirror lines.
-            args_str = stripped[len("declare_layer("):].rstrip(")")
-            try:
-                args = ast.literal_eval(f"({args_str})")
-            except (ValueError, SyntaxError):
-                continue
-            if len(args) >= 3:
-                mode = args[2]
-        return mode
-
-    def _append(self, line: str) -> None:
-        """Buffer one mirrored gluescript line on the client transcript."""
-        self._transcript.append(line)
 
     def _flush(self, require_complete: bool) -> None:
         """Stage the buffered transcript and verify server parity by signature.
@@ -442,19 +427,34 @@ class RpcRdDriver:
     def sync(self) -> None:
         """Re-baseline local state from the server's last-flushed state.
 
-        Re-baselines the transcript, ``_flushed_count``, ``_current_mode``
-        and ``_job_complete`` from server state. ``_current_mode`` is
-        derived from the last ``declare_layer(...)`` line in the
-        transcript (defaulting to "VECTOR" when no layer was declared).
-        ``_job_declared`` is NOT refreshed because it cannot be reliably
-        derived from the server transcript (and the buffered value is
-        client-authoritative for unflushed state).
+        Re-baselines the transcript, ``_flushed_count``,
+        ``_current_layer_mode`` and ``_job_complete`` from server state.
+        ``_current_layer_mode`` is derived from the last
+        ``declare_layer(...)`` line in the transcript (defaulting to
+        "VECTOR" when no layer was declared). ``_job_declared`` is NOT
+        refreshed because it cannot be reliably derived from the server
+        transcript (and the buffered value is client-authoritative for
+        unflushed state).
         """
         self._transcript = list(self._svc.get_gluescript())
         self._flushed_count = len(self._transcript)
-        self._current_mode = self._derive_mode_from_transcript(
-            self._transcript
-        )
+        # Derive the current layer mode from the LAST declare_layer line.
+        # Labels and colors are repr-quoted and may contain commas, so the
+        # argument list is parsed with ``ast.literal_eval`` (the driver's
+        # own gluescript parse boundary) rather than a naive split.
+        mode = "VECTOR"
+        for line in self._transcript:
+            stripped = line.strip()
+            if not stripped.startswith("declare_layer("):
+                continue
+            args_str = stripped[len("declare_layer("):].rstrip(")")
+            try:
+                args = ast.literal_eval(f"({args_str})")
+            except (ValueError, SyntaxError):
+                continue
+            if len(args) >= 3:
+                mode = args[2]
+        self._current_layer_mode = mode
         self._job_complete = bool(self._svc.job_complete())
 
     # ------------------------------------------------------------------ #
@@ -464,59 +464,51 @@ class RpcRdDriver:
     def new_gluescript(self) -> None:
         """Reset all script data for a new job (forwarded immediately).
 
-        Identical strictness to the driver's ``new_gluescript()``: both
-        this client and the driver reset ``_job_declared`` and
-        ``_job_complete``, so ``end_job()`` after a bare
-        ``new_gluescript()`` fails fast on either side. Also re-zeros
-        ``_flushed_count``: the forwarded server reset empties the server
-        transcript, restoring ``len(server) == _flushed_count == 0``.
+        Resets the local GlueScript state via ``super()`` (which clears
+        the transcript, ``_job_declared`` and ``_job_complete``), re-zeros
+        ``_flushed_count``, then forwards the reset to the server so its
+        transcript length returns to 0 (matching ``_flushed_count``).
+        Note the failure ordering: the local reset happens BEFORE the
+        forwarded server reset, so a server-side failure leaves the local
+        state already cleared (the previous job's lines are gone).
         """
-        self._svc.new_gluescript()
-        self._transcript = []
-        self._current_mode = "VECTOR"
-        self._job_complete = False
-        self._job_declared = False
+        super().new_gluescript()
         self._flushed_count = 0
+        self._svc.new_gluescript()
 
     def comment(self, comments: list[str]) -> None:
         """Append comment lines (mirrored; forwarded only after end_job).
 
         Before ``end_job()`` the line is mirrored into the local
-        transcript and reaches the server with the next boundary flush.
-        After ``end_job()`` no flush boundary exists, so the epilogue is
-        forwarded immediately — the only way post-``end_job`` lines reach
-        the server.
+        transcript (via the base method) and reaches the server with the
+        next boundary flush. After ``end_job()`` no flush boundary exists,
+        so the epilogue is forwarded immediately — the only way
+        post-``end_job`` lines reach the server.
 
         An empty list is a no-op, mirroring the driver.
         """
-        if self._closed:
-            raise RuntimeError("driver closed")
         if not comments:
             return
         if self._job_complete:
             self._svc.comment(comments)
-        for line in comments:
-            self._append(f"comment({[line]!r})")
+        super().comment(comments)
 
     def inline(self, commands: list[str]) -> None:
         """Append raw rpascript commands (mirrored; forwarded after end_job).
 
         Before ``end_job()`` each command is mirrored into the local
-        transcript and replayed on the server with the next boundary
-        flush. After ``end_job()`` no flush boundary exists, so the
-        epilogue is forwarded immediately — the only way post-``end_job``
-        lines reach the server.
+        transcript (via the base method) and replayed on the server with
+        the next boundary flush. After ``end_job()`` no flush boundary
+        exists, so the epilogue is forwarded immediately — the only way
+        post-``end_job`` lines reach the server.
 
         An empty list is a no-op, mirroring the driver.
         """
-        if self._closed:
-            raise RuntimeError("driver closed")
         if not commands:
             return
         if self._job_complete:
             self._svc.inline(commands)
-        for command in commands:
-            self._append(f"inline({[command]!r})")
+        super().inline(commands)
 
     def delay(self, time: str | int | float) -> None:
         """Append a runner-directive DELAY (mirrored; forwarded after end_job).
@@ -528,27 +520,19 @@ class RpcRdDriver:
         gluescript.
 
         Before ``end_job()`` the line is mirrored into the local
-        transcript and reaches the server with the next boundary flush.
-        After ``end_job()`` no flush boundary exists, so the epilogue is
-        forwarded immediately — the only way post-``end_job`` lines reach
-        the server.
+        transcript (via the base method) and reaches the server with the
+        next boundary flush. After ``end_job()`` no flush boundary exists,
+        so the epilogue is forwarded immediately — the only way
+        post-``end_job`` lines reach the server.
 
-        Invalid values are rejected locally via the shared
-        ``is_valid_time_value`` predicate (mirroring the driver's
-        warn-and-no-op) so the mirrored line stays byte-identical with
-        what the server appends; otherwise the SHA-256 drift check would
-        break.
+        Invalid values are rejected by the base method (via the shared
+        ``is_valid_time_value`` predicate) with a warn-and-no-op, so the
+        mirrored line stays byte-identical with what the server appends;
+        otherwise the SHA-256 drift check would break.
         """
-        if self._closed:
-            raise RuntimeError("driver closed")
-        if not is_valid_time_value(time):
-            logger.warning(
-                "delay() requires a time value (e.g. 5s, 500ms) — got %r", time
-            )
-            return
         if self._job_complete:
             self._svc.delay(time)
-        self._append(f"delay({time!r})")
+        super().delay(time)
 
     def wait(self, status: str, to: str | int | float | None = None) -> None:
         """Append a runner-directive WAIT (mirrored; forwarded after end_job).
@@ -566,73 +550,19 @@ class RpcRdDriver:
         unit-suffixed string.
 
         Before ``end_job()`` the line is mirrored into the local
-        transcript and reaches the server with the next boundary flush.
-        After ``end_job()`` no flush boundary exists, so the epilogue is
-        forwarded immediately — the only way post-``end_job`` lines reach
-        the server.
+        transcript (via the base method) and reaches the server with the
+        next boundary flush. After ``end_job()`` no flush boundary exists,
+        so the epilogue is forwarded immediately — the only way
+        post-``end_job`` lines reach the server.
 
-        Invalid values are rejected locally via the shared
-        ``is_valid_time_value`` predicate (mirroring the driver's
-        warn-and-no-op) so the mirrored line stays byte-identical with
-        what the server appends; otherwise the SHA-256 drift check would
-        break.
+        Invalid values are rejected by the base method (via the shared
+        ``is_valid_time_value`` predicate) with a warn-and-no-op, so the
+        mirrored line stays byte-identical with what the server appends;
+        otherwise the SHA-256 drift check would break.
         """
-        if self._closed:
-            raise RuntimeError("driver closed")
-        if not isinstance(status, str) or not status.strip():
-            logger.warning(
-                "wait() requires a MACHINE_STATUS_* name — got %r", status
-            )
-            return
-        if to is not None and not is_valid_time_value(to):
-            logger.warning(
-                "wait() to= requires a time value (e.g. 30s) — got %r", to
-            )
-            return
         if self._job_complete:
             self._svc.wait(status, to)
-        if to is None:
-            self._append(f"wait({status!r})")
-        else:
-            self._append(f"wait({status!r}, {to!r})")
-
-    def declare_job(
-        self,
-        label: str,
-        ref_point: str = "MACHINE",
-        abs_xy: list[float] | None = None,
-        columns: int = 1,
-        rows: int = 1,
-        xstep: float = 0.0,
-        ystep: float = 0.0,
-    ) -> None:
-        """Declare a new job (server reset; mirrored for the boundary flush).
-
-        Forwards ``new_gluescript()`` so the server resets to an empty
-        transcript (length 0 == the local ``_flushed_count``), then
-        mirrors the ``declare_job`` line locally; the line itself reaches
-        the server with the next boundary flush. Validation (e.g. an
-        invalid ``ref_point``) now surfaces at that flush, wrapped in
-        ``RuntimeError``, rather than at call time.
-
-        Mirrors the driver's 7-arg line, resolving ``abs_xy=None`` to
-        ``[0.0, 0.0]`` exactly as the driver does before formatting.
-
-        Local state is reset BEFORE the forwarded server reset so a
-        server-side failure cannot leave the previous job's lines in
-        ``_transcript``.
-        """
-        self._transcript = []
-        self._job_declared = True
-        self._job_complete = False
-        self._current_mode = "VECTOR"
-        self._flushed_count = 0
-        self._svc.new_gluescript()
-        resolved_abs_xy = [0.0, 0.0] if abs_xy is None else abs_xy
-        self._append(
-            f"declare_job({label!r}, {ref_point!r}, {resolved_abs_xy!r}, "
-            f"{columns!r}, {rows!r}, {xstep!r}, {ystep!r})"
-        )
+        super().wait(status, to)
 
     def declare_layer(
         self,
@@ -647,43 +577,23 @@ class RpcRdDriver:
     ) -> None:
         """Declare a new layer (mirrored; applied at the boundary flush).
 
-        Sets ``_current_mode`` from the declared layer mode, mirrors the
-        line locally, then stages the accumulated delta with
-        ``require_complete=False`` (the job may still be in progress). The
-        server applies the layer — including validation of mode, overscan
-        and power range — at that flush; validation errors surface
-        wrapped in ``RuntimeError`` ("Error re-staging command ...").
+        Delegates to the base method, which validates mode/overscan and
+        the power range at call time (``ValueError``), sets
+        ``_current_layer_mode``, mirrors the line into the local
+        transcript, then fires ``_on_action_boundary()`` — which flushes
+        the accumulated delta with ``require_complete=False`` (the job may
+        still be in progress).
 
         Raises:
             RuntimeError: If declare_layer() is called after end_job().
+            ValueError: If mode or overscan is invalid, or min_power_1 < 8.
         """
         if self._job_complete:
             raise RuntimeError("declare_layer() called after end_job()")
-        self._current_mode = mode
-        self._append(
-            f"declare_layer({label!r}, {color!r}, {mode!r}, "
-            f"{overscan!r}, {speed!r}, {frequency!r}, "
-            f"{min_power_1!r}, {max_power_1!r})"
+        super().declare_layer(
+            label, color, mode, overscan, speed, frequency,
+            min_power_1, max_power_1,
         )
-        self._flush(require_complete=False)
-
-    def end_job(self) -> None:
-        """End the job, flush the buffered transcript, and mark complete.
-
-        Raises:
-            RuntimeError: If end_job() is called twice or no job was declared.
-
-        Returns:
-            None: The staged rpascript can be retrieved via get_rpascript()
-            and the staged gluescript via get_gluescript().
-        """
-        if self._job_complete:
-            raise RuntimeError("end_job() called twice")
-        if not self._job_declared:
-            raise RuntimeError("declare_job() must be called before end_job()")
-        self._append("end_job()")
-        self._flush(require_complete=True)
-        self._job_complete = True
 
     # ------------------------------------------------------------------ #
     #  Forwarded only — the driver appends no gluescript line
@@ -705,102 +615,33 @@ class RpcRdDriver:
 
     # ------------------------------------------------------------------ #
     #  Buffered layer actions — flushed at declare_layer/end_job
+    #
+    #  The move/cut methods (move_xy_to/x_to/y_to, cut_xy_to/x_to/y_to),
+    #  power, air_assist_on/off, cut_speed, move_speed, frequency, pwm and
+    #  select_laser are INHERITED from GlueScript: they append the plain
+    #  absolute-form transcript line via the ``gluescript`` property (the
+    #  client mirror) and are flushed at the next boundary. The z/u stubs
+    #  (move_z_to/move_u_to/cut_z_to/cut_u_to) inherit NotImplementedError.
     # ------------------------------------------------------------------ #
-
-    def move_xy_to(self, x: float, y: float) -> None:
-        """Buffer a move to absolute XY (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"move_xy_to({x!r}, {y!r})")
-
-    def move_x_to(self, x: float) -> None:
-        """Buffer a move to absolute X (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"move_x_to({x!r})")
-
-    def move_y_to(self, y: float) -> None:
-        """Buffer a move to absolute Y (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"move_y_to({y!r})")
-
-    def move_z_to(self, z: float) -> None:
-        """Z-axis moves are not implemented in the initial release."""
-        raise NotImplementedError("Z-axis moves not yet implemented")
-
-    def move_u_to(self, u: float) -> None:
-        """U-axis moves are not implemented in the initial release."""
-        raise NotImplementedError("U-axis moves not yet implemented")
-
-    def cut_xy_to(self, x: float, y: float) -> None:
-        """Buffer a cut to absolute XY (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"cut_xy_to({x!r}, {y!r})")
-
-    def cut_x_to(self, x: float) -> None:
-        """Buffer a cut to absolute X (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"cut_x_to({x!r})")
-
-    def cut_y_to(self, y: float) -> None:
-        """Buffer a cut to absolute Y (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"cut_y_to({y!r})")
-
-    def cut_z_to(self, z: float) -> None:
-        """Z-axis cuts are not implemented in the initial release."""
-        raise NotImplementedError("Z-axis cuts not yet implemented")
-
-    def cut_u_to(self, u: float) -> None:
-        """U-axis cuts are not implemented in the initial release."""
-        raise NotImplementedError("U-axis cuts not yet implemented")
-
-    def power(self, percent: float | None = None) -> None:
-        """Set laser power for IMAGE/DEPTHMAP layers.
-
-        Buffered when valid for the current layer mode; otherwise the
-        call is dropped entirely and the driver's guard warning is
-        emitted locally — nothing reaches the server and no line is
-        mirrored, mirroring the driver's behavior for invalid power
-        calls. This includes ``power(None)`` in an IMAGE/DEPTHMAP layer,
-        which warns and drops.
-        """
-        if self._closed:
-            raise RuntimeError("driver closed")
-        if self._current_mode not in ("IMAGE", "DEPTHMAP"):
-            logger.warning(
-                "power() called in %s mode layer — only valid for "
-                "IMAGE/DEPTHMAP layers",
-                self._current_mode,
-            )
-            return
-        if percent is None:
-            logger.warning("power() called without a percentage value")
-            return
-        self._append(f"power({percent!r})")
 
     def power_range(
         self, min: float | None = None, max: float | None = None
     ) -> None:
         """Buffer a min/max power ramp range (flushed at next boundary).
 
-        Preserves ``None`` defaults verbatim in the mirrored line; the
-        server resolves them from the layer's declared powers when the
-        delta is staged. Constraint violations (no declared layer,
-        min > max, min < 8%) surface at the next flush wrapped in
-        RuntimeError, like the other buffered actions.
+        Delegates to the base method, which validates at call time
+        (``ValueError`` for no declared layer, min > max, or min < 8%;
+        a warning for max > 70%) and mirrors the line into the local
+        transcript, preserving ``None`` defaults verbatim (the server
+        resolves them from the layer's declared powers when the delta is
+        staged).
 
         Raises:
-            RuntimeError: If the driver is closed, or the job is complete
-                — after end_job() no flush boundary remains, so fail fast
-                instead of silently dropping the action.
+            RuntimeError: If the job is complete — after end_job() no
+                flush boundary remains, so fail fast instead of silently
+                dropping the action.
+            ValueError: If no layer is declared, min > max, or min < 8%.
         """
-        if self._closed:
-            raise RuntimeError("driver closed")
         # Deliberate fail-fast asymmetry: the sibling buffered actions
         # (move_xy_to / cut_xy_to / air_assist_on) silently buffer forever
         # after end_job() with no flush boundary left to deliver them.
@@ -811,75 +652,7 @@ class RpcRdDriver:
                 "power_range() called after end_job() — no flush boundary "
                 "remains to stage it"
             )
-        self._append(f"power_range({min!r}, {max!r})")
-
-    def air_assist_on(self) -> None:
-        """Buffer air assist enable (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append("air_assist_on()")
-
-    def air_assist_off(self) -> None:
-        """Buffer air assist disable (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append("air_assist_off()")
-
-    def cut_speed(self, speed: float) -> None:
-        """Buffer a cut speed setting (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"cut_speed({speed!r})")
-
-    def move_speed(self, speed: float) -> None:
-        """Buffer a move speed setting (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"move_speed({speed!r})")
-
-    def frequency(self, frequency: float) -> None:
-        """Buffer a laser frequency setting (flushed at the next boundary)."""
-        if self._closed:
-            raise RuntimeError("driver closed")
-        self._append(f"frequency({frequency!r})")
-
-    def pwm(self, duration: float) -> None:
-        """Buffer a laser pulse width setting (flushed at next boundary).
-
-        Mirrors the driver's warning when the duration exceeds the 1000us
-        (1mS) maximum laser pulse width; the mirrored transcript line is
-        still appended so the SHA-256 drift check stays in sync. Over RPC
-        the warning fires twice (once locally, once when the server
-        re-warns as the delta replays), which is intentional and
-        consistent with select_laser.
-        """
-        if self._closed:
-            raise RuntimeError("driver closed")
-        if duration > 1000:
-            logger.warning(
-                "pwm(%s) duration exceeds the 1000us (1mS) maximum laser pulse width",
-                duration,
-            )
-        self._append(f"pwm({duration!r})")
-
-    def select_laser(self, laser: int) -> None:
-        """Buffer a laser head selection (flushed at the next boundary).
-
-        The line is always appended — even for ``laser != 1`` — to keep
-        the client transcript byte-identical to the driver's for the
-        SHA-256 drift check in ``_flush()``. The driver warns and drops
-        the rpascript line for heads other than 1; over RPC the warning
-        fires twice (once locally, once on the server), which is
-        intentional.
-        """
-        if self._closed:
-            raise RuntimeError("driver closed")
-        if laser != 1:
-            logger.warning(
-                "select_laser(%s) ignored - only laser head 1 is currently wired in rpascript",
-                laser,
-            )
-        self._append(f"select_laser({laser!r})")
+        super().power_range(min, max)
 
     # ------------------------------------------------------------------ #
     #  Staging passthrough and getters — last-flushed server state only
@@ -923,42 +696,55 @@ class RpcRdDriver:
     def get_gluescript(self) -> list[str]:
         """Return the server's gluescript transcript (last-flushed state).
 
-        Method alias for the ``gluescript`` property; both mirror the
-        direct driver's ``gluescript`` attribute.
+        Unlike the ``gluescript`` property (which is the client's live
+        local transcript), this method returns the server's last-flushed
+        snapshot. Mirrors the direct driver's ``gluescript`` attribute.
         """
         return list(self._svc.get_gluescript())
 
     def get_rpascript(self) -> list[str]:
         """Return the server's assembled rpascript (last-flushed state).
 
-        Method alias for the ``rpascript`` property; both mirror the
-        direct driver's ``rpascript`` attribute.
+        Method alias for the ``rpascript`` property; both return the
+        server's last-flushed snapshot. Mirrors the direct driver's
+        ``rpascript`` attribute.
         """
         return list(self._svc.get_rpascript())
 
     @property
     def gluescript(self) -> list[str]:
-        """Server-side gluescript transcript (last-flushed state).
+        """The client's live local gluescript transcript.
 
-        Mirrors the direct driver's ``gluescript`` attribute.
+        Returns ``_transcript`` — the buffered transcript including
+        unflushed lines — consistent with the direct driver's live list.
+        Raises ``RuntimeError("driver closed")`` once the driver is
+        closed; this is the single chokepoint that guards every buffered
+        authoring method inherited from ``GlueScript`` (they append via
+        this property). The setter absorbs the base class's
+        ``self.gluescript = []`` reassignment in ``new_gluescript()``.
         """
-        return list(self.get_gluescript())
+        if self._closed:
+            raise RuntimeError("driver closed")
+        return self._transcript
+
+    @gluescript.setter
+    def gluescript(self, value: list[str]) -> None:
+        self._transcript = value
 
     @property
     def rpascript(self) -> list[str]:
         """Server-side assembled rpascript (last-flushed state).
 
-        Mirrors the direct driver's ``rpascript`` attribute.
+        Returns a snapshot of the server's assembled rpascript. The
+        setter stores to an unused backing field so the base class's
+        ``self.rpascript = []`` reassignment in ``new_gluescript()`` is
+        absorbed without touching the server.
         """
-        return list(self.get_rpascript())
+        return list(self._svc.get_rpascript())
 
-    @property
-    def job_complete(self) -> bool:
-        """True once the server-side job has been finalized (last-flushed).
-
-        Mirrors the direct driver's ``job_complete`` attribute.
-        """
-        return bool(self._svc.job_complete())
+    @rpascript.setter
+    def rpascript(self, value: list[str]) -> None:
+        self._rpascript_local = value
 
     @property
     def machine_status(self) -> dict[int, Any]:
@@ -1098,6 +884,51 @@ class RpcRdDriver:
         return bool(self._svc.protect_enabled())
 
     # ------------------------------------------------------------------ #
+    #  GlueScript hooks — batching boundary and live-line forwarding
+    # ------------------------------------------------------------------ #
+
+    def _on_action_boundary(self) -> None:
+        """Flush the buffered transcript at a declare_layer/end_job boundary.
+
+        Called by the base ``declare_layer()`` and ``end_job()`` at the
+        end of each. ``end_job()`` sets ``_job_complete`` True BEFORE this
+        callback, so ``require_complete`` is True on the final flush and
+        False on each layer boundary.
+        """
+        self._flush(require_complete=self._job_complete)
+
+    # Exact line tuples produced by the base job-control methods, mapped
+    # to the server method that performs the live action. The base
+    # pause/resume/stop_job/reset methods call ``_emit_live_lines`` with
+    # these exact lists; forwarding to the server's method (rather than
+    # queueing the lines) lets the server's RdDriver generate, send, and
+    # track the action consistently.
+    _LIVE_LINE_MAP: dict[tuple[str, ...], str] = {
+        ("PAUSE_JOB",): "pause",
+        ("RESUME_JOB",): "resume",
+        ("STOP_JOB",): "stop_job",
+        ("STOP_JOB", "HOME_XY"): "reset",
+    }
+
+    def _emit_live_lines(self, lines: list[str]) -> list[str] | None:
+        """Forward live (job-control) lines to the server.
+
+        Overrides the base hook so the inherited job-control methods
+        (``pause``/``resume``/``stop_job``/``reset``) reach the server.
+        Known line tuples are dispatched to the matching server method;
+        anything else falls back to queueing the lines as a script. The
+        fallback is effectively unreachable — the base only calls
+        ``_emit_live_lines`` with job-control/home lines, and
+        ``home``/``home_z``/``home_u`` are overridden to forward directly.
+        """
+        if self._closed:
+            raise RuntimeError("driver closed")
+        method_name = self._LIVE_LINE_MAP.get(tuple(lines))
+        if method_name is not None:
+            return getattr(self._svc, method_name)()
+        return self._svc.run(list(lines))
+
+    # ------------------------------------------------------------------ #
     #  Live-only commands — jogs, homing, job control, config setters (forwarded)
     # ------------------------------------------------------------------ #
 
@@ -1168,7 +999,7 @@ class RpcRdDriver:
         return self._svc.jog_u_rel(u)
 
     def home(self) -> list[str] | None:
-        """Home X and Y axes (forwarded immediately)."""
+        """Jog X and Y axes to the origin reference (forwarded immediately)."""
         return self._svc.home()
 
     def home_z(self) -> list[str] | None:
@@ -1178,22 +1009,6 @@ class RpcRdDriver:
     def home_u(self) -> list[str] | None:
         """Home U axis / rotary (forwarded immediately)."""
         return self._svc.home_u()
-
-    def pause(self) -> list[str] | None:
-        """Pause the live job (forwarded immediately)."""
-        return self._svc.pause()
-
-    def resume(self) -> list[str] | None:
-        """Resume the paused live job (forwarded immediately)."""
-        return self._svc.resume()
-
-    def stop_job(self) -> list[str] | None:
-        """Stop the live job (forwarded immediately)."""
-        return self._svc.stop_job()
-
-    def reset(self) -> list[str] | None:
-        """Reset the live session (forwarded immediately)."""
-        return self._svc.reset()
 
     # ------------------------------------------------------------------ #
     #  Format utilities — forwarded passthroughs

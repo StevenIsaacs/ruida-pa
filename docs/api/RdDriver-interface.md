@@ -235,10 +235,14 @@ RpcRdDriver(svc=None, *, host="127.0.0.1", port=18812,
   synchronous HANDLE_CLOSE sent by `close()` is bounded by
   `sync_request_timeout`, so budget the same `timeout` for close-handshake
   latency.
-- Getters diverge from the direct driver: `gluescript`, `rpascript`, and
-  `job_complete` are snapshot properties fetched over RPC — in-place
-  mutation of the returned list is NOT reflected server-side, unlike the
-  direct driver's live lists.
+- Getters: `gluescript` and `job_complete` are now LIVE LOCAL state,
+  consistent with the direct driver — `gluescript` returns the client's
+  buffered transcript (including unflushed lines) and `job_complete`
+  reads the local flag set by `end_job()`. `rpascript` remains a server
+  snapshot of the last-flushed assembled rpascript. The method aliases
+  `get_gluescript()`/`get_rpascript()` return the server's last-flushed
+  state (so `gluescript` and `get_gluescript()` diverge: the property is
+  live local, the method is the server snapshot).
 
 See the self-connect example in the integration guide §3.2 (Connecting)
 (`docs/guides/integration-guide.md`).

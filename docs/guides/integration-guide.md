@@ -691,9 +691,12 @@ inherited by the driver itself — there is no separate `GlueScript` object; the
 copies of the driver's gluescript/rpascript state. The same state is also
 available as attributes: `driver.gluescript`, `driver.rpascript`, and
 `driver.job_complete` on the direct driver, and `rpc_driver.gluescript`,
-`rpc_driver.rpascript`, and `rpc_driver.job_complete` on the RPC wrapper (the RPC forms
-report the server's last-flushed state; `get_gluescript()`/`get_rpascript()`
-remain as method aliases on the wrapper). Developers call these methods
+`rpc_driver.rpascript`, and `rpc_driver.job_complete` on the RPC wrapper
+(`gluescript` and `job_complete` are live local state on the wrapper,
+consistent with the direct driver; `rpascript` reports the server's
+last-flushed state; `get_gluescript()`/`get_rpascript()` remain as method
+aliases on the wrapper returning the server's last-flushed state).
+Developers call these methods
 directly on the `RdDriver` instance, which inherits them from `GlueScript`, and
 the RPC service exposes them through the same **unprefixed** names on that
 instance: `rpc_driver.declare_job(...)`, `rpc_driver.jog_xy_to(...)`,
@@ -902,14 +905,15 @@ current layer mode is `IMAGE`/`DEPTHMAP` and `percent` is not `None`;
 otherwise the call is dropped locally with the driver's guard warning — it
 never reaches the server.
 
-**Flush-time validation:** because structural calls are buffered, their
-validation now surfaces at the boundary flush rather than at call time.
-Driver `ValueError`s (invalid `declare_layer` mode/overscan, invalid
-`ref_point`, or `min_power_1 < 8` — the raising power check inside
-`declare_layer`; `power()` itself only warns (on a wrong layer mode or a
-`None` percentage)) and parse failures surface wrapped in
-`RuntimeError` — e.g. `"Error re-staging command 'declare_layer' with args
-[...]: Invalid layer mode: 'BOGUS'"` — raised by the server's replay loop.
+**Call-time validation:** because `RpcRdDriver` inherits the authoring
+methods from `GlueScript` (as the direct driver does), validation now
+happens at call time, exactly as on the direct driver. `declare_layer`
+raises `ValueError` for an invalid mode/overscan or `min_power_1 < 8`;
+`power_range` raises `ValueError` for no declared layer, `min > max`, or
+`min < 8%`; `power()` itself only warns (on a wrong layer mode or a
+`None` percentage). `declare_layer` and `power_range` also keep their
+`_job_complete` fail-fast guards, raising `RuntimeError` when called
+after `end_job()`.
 
 **Drift guard:** after each flush the wrapper compares the SHA-256 signature
 returned by the staging call with a locally computed signature of its
@@ -927,12 +931,14 @@ re-stage loses it. Clients that inject `add_layer_action` lines should
 re-inject them after any fallback (detected by the client when the delta
 guard rejects the suffix).
 
-**Getters report the last-flushed server state:** the `gluescript`,
-`rpascript`, and `job_complete` attributes reflect the server's state after
-the most recent flush (`get_gluescript()`/`get_rpascript()` remain as method
-aliases on the wrapper). Between flushes, buffered actions exist only in the
-client's local transcript and are invisible to the getters until the next
-boundary flush.
+**Getters:** `gluescript` and `job_complete` are live local state,
+consistent with the direct driver: `gluescript` returns the client's
+buffered transcript (including unflushed lines) and `job_complete` reads
+the local flag set by `end_job()`. `rpascript` remains a server snapshot
+of the last-flushed assembled rpascript. The method aliases
+`get_gluescript()`/`get_rpascript()` return the server's last-flushed
+state (so `gluescript` and `get_gluescript()` diverge: the property is
+live local, the method is the server snapshot).
 
 **Public `stage_gluescript()` passthrough:** `RpcRdDriver.stage_gluescript()`
 forwards the call unchanged (including `gluescript=None`), returns the
@@ -998,7 +1004,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Lifecycle & execution | `start`, `stop`, `run`, `run_job`, `cancel_script` | `start` returns bool |
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |
 | Listeners | `register_status_listener`, `register_error_listener`, `register_reply_listener`, and the `unregister_*` counterparts | Over RPC matched by equality, not identity (see §3.5) |
-| Properties | `gluescript`, `rpascript`, `job_complete`, `is_connected`, `machine_status`, `protect_enabled` | RPC forms are server-side snapshots (see §4.3) |
+| Properties | `gluescript`, `rpascript`, `job_complete`, `is_connected`, `machine_status`, `protect_enabled` | `gluescript`/`job_complete` are live local on both; `rpascript` is a server snapshot over RPC (see §4.3) |
 | Protection | `set_protect` | Blocks settings writes when enabled |
 | Format utilities | `format_reply_value`, `format_reply`, `format_reply_list`, `decode_status_value` | Static on direct driver, instance methods over RPC |
 | Jog & home | `jog_set_xy_speed`, `jog_set_z_speed`, `jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`, `jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to`, `jog_xy_rel`, `jog_x_rel`, `jog_y_rel`, `jog_z_rel`, `jog_u_rel`, `home`, `home_z`, `home_u` | Live-only commands, forwarded immediately |
@@ -1019,18 +1025,18 @@ before switching.
 | ------ | --------------- | ----------- |
 | Connection model | Constructor opens nothing; `start()` opens the controller session later | Constructor opens an RPyC TCP connection to a running server immediately; requires the TUI process to be hosting it (see §3.1) |
 | Constructor | `RdDriver()` — no required arguments | `RpcRdDriver()` — no required arguments; optional `host`/`port`/`token`/`config`/`timeout`; `RpcRdDriver(svc)` accepts a pre-connected root (backward-compat, see §3.2) |
-| `gluescript` / `rpascript` visibility | Live mutable list attributes; the adapter can read them at any time | Read-only snapshot properties of the server's last-flushed state; in-place mutation of the returned list is NOT reflected server-side |
-| `job_complete` | Local property | Server-side snapshot (last-flushed state) |
+| `gluescript` / `rpascript` visibility | Live mutable list attributes; the adapter can read them at any time | `gluescript` is the client's live local transcript (including unflushed lines); `rpascript` is a read-only snapshot of the server's last-flushed state |
+| `job_complete` | Local property | Local property (set by `end_job()`), consistent with the direct driver |
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
-| Error timing | Authoring errors raise at call time | Buffered authoring validates at flush time (see §3.8); errors surface wrapped in `RuntimeError` ("Error re-staging command ...") |
+| Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan/min_power and `power_range` constraints, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard |
 | `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
 `power_range` constraint violations (no declared layer, `min > max`,
-`min < 8%`, etc.) are **flush-time-only** over RPC: because the client mirror
-buffers `power_range` locally without validating it, the constraint errors do
-not raise at call time — they surface wrapped in `RuntimeError` at the NEXT
-flush.
+`min < 8%`, etc.) raise `ValueError` at call time over RPC, exactly as on
+the direct driver. `power_range` also keeps its `_job_complete` fail-fast
+guard: a post-`end_job()` call raises `RuntimeError` immediately rather
+than silently dropping the action.
 
 RpcRdDriver buffers structural calls and flushes deltas at
 `declare_layer`/`end_job` boundaries — see §3.8 — reducing round trips;
