@@ -330,6 +330,15 @@ class RdDriver(GlueScript):
             except ValueError:
                 pass
 
+    def list_listeners(self) -> dict[str, list[Callable]]:
+        """Return a snapshot of all registered listeners. Thread-safe."""
+        with self._lock:
+            return {
+                "status": list(self._status_listeners),
+                "error": list(self._error_listeners),
+                "reply": list(self._reply_listeners),
+            }
+
     # ---- Internal Callbacks ----
 
     def _on_status_event(self, event: RdStatusEvent | StatusDict) -> None:

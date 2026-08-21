@@ -472,6 +472,7 @@ class TuiAdapter(App):
         "gluescript",
         "monitor",
         "scan_mem",
+        "listeners",
     )
     # Only _cmd_descriptions and the /help block (usage text) stay
     # hand-maintained for live-only commands; recognition
@@ -634,6 +635,7 @@ class TuiAdapter(App):
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
             "gluescript": "GlueScript high-level scripting. Subcommands: new, show, stage, run, save, load, edit, list",
+            "listeners": "List listeners registered with the RdDriver (/listeners [full])",
             "home": "home: Jog X and Y axes to the origin reference",
             "home_z": "home_z: Home Z axis",
             "home_u": "home_u: Home U axis (rotary)",
@@ -1393,6 +1395,8 @@ class TuiAdapter(App):
                 self._cmd_scan_mem()
             elif cmd == "gluescript":
                 self._cmd_gluescript(args)
+            elif cmd == "listeners":
+                self._cmd_listeners(args)
         except Exception as e:
             self._log_error(f"Command /{cmd} failed: {e}")
 
@@ -3028,6 +3032,21 @@ class TuiAdapter(App):
                 "GlueScript: staged rpascript unexpectedly empty — "
                 "loaded-script slot left unchanged."
             )
+
+    def _cmd_listeners(self, args: str = "") -> None:
+        """List listeners registered with the RdDriver."""
+        args = args.strip().lower()
+        if self._ruida_driver is None:
+            self._log_error("No driver. Start a session first.")
+            return
+        if args and args != "full":
+            self._log_error("Usage: /listeners [full]")
+            return
+        for kind, lst in self._ruida_driver.list_listeners().items():
+            self._log_info(f"{kind} listeners ({len(lst)}):")
+            if args == "full":
+                for listener in lst:
+                    self._log_info(f"  {listener!r}")
 
     def _cmd_gluescript(self, args: str) -> None:
         """Handle /gluescript subcommands for high-level scripting."""
