@@ -470,6 +470,7 @@ class TuiAdapter(App):
         "protect",
         "rpclog",
         "gluescript",
+        "autosave",
         "monitor",
         "scan_mem",
         "listeners",
@@ -598,6 +599,7 @@ class TuiAdapter(App):
         self._plot_source: str | None = None  # source label for /plot title (filename or "[RPC]")
         self._loaded_script_path: str | None = None  # Full path of last /load-ed file, for /save preselect
         self._gluescript_cglu_path: str | None = None  # Full path of last saved/loaded .cglu file, for /gluescript preselect
+        self._autosave_path: str | None = None  # Base path for RPC gluescript autosave (None = disabled)
         self._preserved_gluescript: list[str] | None = None  # Transcript preserved across session teardown, re-staged on next driver creation
         self._bokeh_apps: list[BokehApp] = []  # running Bokeh servers for /clear shutdown
         self._gluescript_was_run: bool = False  # Tracks if staged gluescript has been executed
@@ -635,6 +637,7 @@ class TuiAdapter(App):
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
             "gluescript": "GlueScript high-level scripting. Subcommands: new, show, stage, run, save, load, edit, list",
+            "autosave": "Set RPC gluescript autosave path (/autosave <path> | /autosave off | /autosave to show)",
             "listeners": "List listeners registered with the RdDriver (/listeners [full])",
             "home": "home: Jog X and Y axes to the origin reference",
             "home_z": "home_z: Home Z axis",
@@ -1335,6 +1338,9 @@ class TuiAdapter(App):
             "  /gluescript load <path>                         Load a .cglu gluescript file and stage it\n"
             "  /gluescript edit                            Edit the gluescript in a full-screen editor\n"
             "  /gluescript list                             Display high-level gluescript commands\n"
+            "  /autosave <path>                          Set RPC gluescript autosave base path (saves .cglu/.rds/.rd on RPC stage)\n"
+            "  /autosave off                             Disable autosave\n"
+            "  /autosave                                 Show current autosave setting\n"
         )
 
     async def _handle_slash_command(self, raw: str) -> None:
@@ -1395,6 +1401,8 @@ class TuiAdapter(App):
                 self._cmd_scan_mem()
             elif cmd == "gluescript":
                 self._cmd_gluescript(args)
+            elif cmd == "autosave":
+                self._cmd_autosave(args)
             elif cmd == "listeners":
                 self._cmd_listeners(args)
         except Exception as e:
@@ -1757,6 +1765,51 @@ class TuiAdapter(App):
             result.append("# (empty)")
         return result
 
+    def _encode_rd_bytes(self, script_lines: list[str], magic: int = 0x88) -> bytes | None:
+        """Encode rpascript lines into a swizzled .rd binary payload.
+
+        Parses the script, encodes each command to raw bytes (continuous
+        USB stream, no packet boundaries), swizzles, and prepends the
+        10-byte RDWORKV header. Returns None (after logging) when nothing
+        can be encoded.
+        """
+        parsed = self._parser.parse_lines(script_lines)
+        if not parsed:
+            self._log_error("No commands found in script.")
+            return None
+
+        enc = RdEncoder()
+        raw = bytearray()
+        for cmd in parsed:
+            cmd_type = cmd.get("type")
+            if cmd_type in ("new_packet", "SESSION_START", "SESSION_END", "DELAY", "WAIT"):
+                continue
+            mnemonic = cmd.get("mnemonic")
+            if not mnemonic:
+                continue
+            # Skip read-only query commands (GET_SETTING, GET_UNKNOWN) — they
+            # have no place in a write-only .rd binary export.
+            if mnemonic.startswith("GET_"):
+                continue
+            try:
+                cmd_bytes = encode_command(
+                    cmd, self._parser.mnemonic_map, self._parser._mt_map, enc
+                )
+            except (ValueError, TypeError) as e:
+                self._log_error(
+                    f"Encoding failed for command '{mnemonic}' "
+                    f"(params={cmd.get('params', [])!r}): {e}"
+                )
+                return None
+            raw.extend(cmd_bytes)
+
+        if not raw:
+            self._log_error("No encodable commands in script.")
+            return None
+
+        swizzled = RpaSwizzler(magic=magic).swizzle(raw)
+        return b"RDWORKV" + b"\x00" * 3 + swizzled
+
     def _cmd_export(self, args: str) -> None:
         """Export the loaded script as an .rd binary file.
 
@@ -1806,56 +1859,13 @@ class TuiAdapter(App):
             )
             return
 
-        # Parse the loaded script into command dicts
-        parsed = self._parser.parse_lines(self._loaded_script)
-        if not parsed:
-            self._log_error("No commands found in script.")
+        payload = self._encode_rd_bytes(self._loaded_script, magic)
+        if payload is None:
             return
-
-        # Encode commands to raw bytes (continuous USB stream, no packet boundaries)
-        enc = RdEncoder()
-        raw = bytearray()
-        for cmd in parsed:
-            cmd_type = cmd.get("type")
-            if cmd_type in ("new_packet", "SESSION_START", "SESSION_END", "DELAY", "WAIT"):
-                continue
-            mnemonic = cmd.get("mnemonic")
-            if not mnemonic:
-                continue
-            # Skip read-only query commands (GET_SETTING, GET_UNKNOWN) — they
-            # have no place in a write-only .rd binary export.
-            if mnemonic.startswith("GET_"):
-                continue
-            try:
-                cmd_bytes = encode_command(
-                    cmd, self._parser.mnemonic_map, self._parser._mt_map, enc
-                )
-            except (ValueError, TypeError) as e:
-                self._log_error(
-                    f"Encoding failed for command '{mnemonic}' "
-                    f"(params={cmd.get('params', [])!r}): {e}"
-                )
-                return
-            raw.extend(cmd_bytes)
-
-        if not raw:
-            self._log_error("No encodable commands in script.")
-            return
-
-        # Swizzle and write .rd file
-        swizzler = RpaSwizzler(magic=magic)
-        swizzled = swizzler.swizzle(raw)
-
-        # - 10-byte RDWORKV header (7 magic bytes + 3 wildcard bytes)
-        # - Followed by swizzled payload bytes
         try:
             with open(export_path, "wb") as f:
-                f.write(b"RDWORKV" + b"\x00" * 3)
-                f.write(swizzled)
-            self._log_info(
-                f"Exported {len(raw)} bytes to {export_path}"
-                f" ({len(swizzled)} swizzled)"
-            )
+                f.write(payload)
+            self._log_info(f"Exported {len(payload) - 10} raw bytes to {export_path}")
         except OSError as e:
             self._log_error(f"Error writing {export_path}: {e}")
 
@@ -2818,6 +2828,7 @@ class TuiAdapter(App):
                 gluescript, require_complete
             )
             self._copy_staged_rpascript_to_loaded()
+            self._autosave_gluescript()
             return sig
 
         return self._gluescript_bridge(_stage)
@@ -3033,6 +3044,40 @@ class TuiAdapter(App):
                 "loaded-script slot left unchanged."
             )
 
+    def _autosave_gluescript(self) -> None:
+        """Save gluescript, rpascript, and .rd files after an RPC full stage."""
+        if self._autosave_path is None:
+            return
+        driver = self._ruida_driver
+        if driver is None:
+            return
+        base = f"{self._autosave_path}-{__version__}"
+        if driver.gluescript:
+            cglu_path = base + ".cglu"
+            try:
+                with open(cglu_path, "w") as f:
+                    f.write("\n".join(driver.gluescript) + "\n")
+                self._log_info(f"Autosave: wrote {cglu_path} ({len(driver.gluescript)} lines)")
+            except OSError as e:
+                self._log_error(f"Autosave: error writing {cglu_path}: {e}")
+        if driver.rpascript:
+            rds_path = base + ".rds"
+            try:
+                with open(rds_path, "w") as f:
+                    f.write("\n".join(driver.rpascript) + "\n")
+                self._log_info(f"Autosave: wrote {rds_path} ({len(driver.rpascript)} lines)")
+            except OSError as e:
+                self._log_error(f"Autosave: error writing {rds_path}: {e}")
+            rd_path = base + ".rd"
+            payload = self._encode_rd_bytes(driver.rpascript)
+            if payload is not None:
+                try:
+                    with open(rd_path, "wb") as f:
+                        f.write(payload)
+                    self._log_info(f"Autosave: wrote {rd_path} ({len(payload) - 10} bytes)")
+                except OSError as e:
+                    self._log_error(f"Autosave: error writing {rd_path}: {e}")
+
     def _cmd_listeners(self, args: str = "") -> None:
         """List listeners registered with the RdDriver."""
         args = args.strip().lower()
@@ -3047,6 +3092,26 @@ class TuiAdapter(App):
             if args == "full":
                 for listener in lst:
                     self._log_info(f"  {listener!r}")
+
+    def _cmd_autosave(self, args: str) -> None:
+        """Set, show, or disable the RPC gluescript autosave path."""
+        if self._rpyc_server is None:
+            self._log_error("RPC server not running. Start it with 'server start' first.")
+            return
+        args = args.strip()
+        if not args:
+            if self._autosave_path:
+                self._log_info(f"Autosave: {self._autosave_path}-<version>.<ext>")
+            else:
+                self._log_info("Autosave: not set")
+            return
+        if args.lower() == "off":
+            self._autosave_path = None
+            self._log_info("Autosave disabled.")
+            return
+        path = os.path.expanduser(args)
+        self._autosave_path = path
+        self._log_info(f"Autosave set: {path}-<version>.<ext> (saves .cglu/.rds/.rd on RPC stage)")
 
     def _cmd_gluescript(self, args: str) -> None:
         """Handle /gluescript subcommands for high-level scripting."""
@@ -3378,6 +3443,8 @@ class TuiAdapter(App):
             return {".log", ".txt", ".rd"}
         if cmd in ("/save", "/save job", "/save script", "/save as"):
             return None  # All files
+        if cmd == "/autosave":
+            return None  # All files
         if cmd == "/export":
             return {".rd"}
         if cmd in ("/gluescript save", "/gluescript load"):
@@ -3450,6 +3517,9 @@ class TuiAdapter(App):
                 if not path_part:
                     path_part = self._gluescript_cglu_path or ""
                 return ("/gluescript load", path_part)
+
+        if cmd == "/autosave":
+            return ("/autosave", rest)
 
         return (None, "")
 
