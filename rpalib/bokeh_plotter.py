@@ -313,10 +313,19 @@ class BokehPlotter:
 
         Coordinates are negated because Ruida home is far-right.
 
+        The negated columns (start_x, start_y, end_x, end_y) drive plot
+        geometry.  The command_* columns (command_start_x, command_start_y,
+        command_end_x, command_end_y) hold the original un-negated command
+        coordinates for display (axis ticks, hover, summaries).  Invariant:
+        command_start_x[i] == -start_x[i] (and likewise for y/end) — keep
+        the dual-column relationship intact when editing.
+
         Returns:
             A dict with keys suitable for Bokeh ColumnDataSource:
               cmd_id, command, index, start_x, start_y, end_x, end_y,
-              length, speed, power, width, style, color, annotation.
+              command_start_x, command_start_y, command_end_x,
+              command_end_y, length, speed, power, width, style, color,
+              annotation.
         """
         # Guard clause: return empty structure when no lines stored.
         if not self.rpa_lines:
@@ -328,6 +337,10 @@ class BokehPlotter:
                 "start_y": [],
                 "end_x": [],
                 "end_y": [],
+                "command_start_x": [],
+                "command_start_y": [],
+                "command_end_x": [],
+                "command_end_y": [],
                 "length": [],
                 "speed": [],
                 "power": [],
@@ -347,6 +360,10 @@ class BokehPlotter:
                 "start_y",
                 "end_x",
                 "end_y",
+                "command_start_x",
+                "command_start_y",
+                "command_end_x",
+                "command_end_y",
                 "length",
                 "speed",
                 "power",
@@ -368,6 +385,11 @@ class BokehPlotter:
             _data["start_y"].append(-_l.start[1])
             _data["end_x"].append(-_l.end[0])
             _data["end_y"].append(-_l.end[1])
+            # Keep original command coordinates for display consumers.
+            _data["command_start_x"].append(_l.start[0])
+            _data["command_start_y"].append(_l.start[1])
+            _data["command_end_x"].append(_l.end[0])
+            _data["command_end_y"].append(_l.end[1])
             _data["length"].append(_l.length)
             _data["speed"].append(_l.speed)
             _data["power"].append(_l.power)

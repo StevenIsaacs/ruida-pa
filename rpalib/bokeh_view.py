@@ -20,6 +20,7 @@ try:
         CustomJS,
         Div,
         Dropdown,  # noqa: F401
+        CustomJSTickFormatter,
         HoverTool,
         PanTool,
         Paragraph,
@@ -120,6 +121,11 @@ class BokehView:
         self.xy_plot.xaxis.axis_label = "Bed X (mm)"
         self.xy_plot.yaxis.axis_label = "Bed Y (mm)"
 
+        # Axis ticks: data is negated for geometry, so negate the tick
+        # values to display the original positive command coordinates.
+        self.xy_plot.xaxis.formatter = CustomJSTickFormatter(code="return -tick")
+        self.xy_plot.yaxis.formatter = CustomJSTickFormatter(code="return -tick")
+
         # Grid
         self.xy_plot.grid.grid_line_alpha = self._grid_line_alpha
 
@@ -167,8 +173,8 @@ class BokehView:
             tooltips="""
 @{cmd_id}:@{command}
 
-start=(@{start_x}mm, @{start_y}mm)
-end=(@{end_x}mm, @{end_y}mm)
+start=(@{command_start_x}mm, @{command_start_y}mm)
+end=(@{command_end_x}mm, @{command_end_y}mm)
 Length=@{length}mm
 Power=@{power}{f.1}%
 Speed=@{speed}{f.03}mm/S
@@ -562,10 +568,10 @@ Speed=@{speed}{f.03}mm/S
                     };
                     hl_source.change.emit();
 
-                    const sx = Number(data.start_x[i]).toFixed(3);
-                    const sy = Number(data.start_y[i]).toFixed(3);
-                    const ex = Number(data.end_x[i]).toFixed(3);
-                    const ey = Number(data.end_y[i]).toFixed(3);
+                    const sx = Number(data.command_start_x[i]).toFixed(3);
+                    const sy = Number(data.command_start_y[i]).toFixed(3);
+                    const ex = Number(data.command_end_x[i]).toFixed(3);
+                    const ey = Number(data.command_end_y[i]).toFixed(3);
                     const len = Number(data.length[i]).toFixed(3);
                     const pwr = Number(data.power[i]).toFixed(1);
                     const spd = Number(data.speed[i]).toFixed(1);
@@ -618,10 +624,10 @@ Speed=@{speed}{f.03}mm/S
             };
             hl_source.change.emit();
 
-            const sx = Number(data.start_x[i]).toFixed(3);
-            const sy = Number(data.start_y[i]).toFixed(3);
-            const ex = Number(data.end_x[i]).toFixed(3);
-            const ey = Number(data.end_y[i]).toFixed(3);
+            const sx = Number(data.command_start_x[i]).toFixed(3);
+            const sy = Number(data.command_start_y[i]).toFixed(3);
+            const ex = Number(data.command_end_x[i]).toFixed(3);
+            const ey = Number(data.command_end_y[i]).toFixed(3);
             const len = Number(data.length[i]).toFixed(3);
             const pwr = Number(data.power[i]).toFixed(1);
             const spd = Number(data.speed[i]).toFixed(1);
@@ -1210,10 +1216,10 @@ Speed=@{speed}{f.03}mm/S
         _data = self.source.data
         _cmd_id = _data["cmd_id"][idx]
         _cmd_name = _data["command"][idx]
-        _start_x = _data["start_x"][idx]
-        _start_y = _data["start_y"][idx]
-        _end_x = _data["end_x"][idx]
-        _end_y = _data["end_y"][idx]
+        _start_x = _data["command_start_x"][idx]
+        _start_y = _data["command_start_y"][idx]
+        _end_x = _data["command_end_x"][idx]
+        _end_y = _data["command_end_y"][idx]
         _len = _data["length"][idx]
         _power = _data["power"][idx]
         _speed = _data["speed"][idx]

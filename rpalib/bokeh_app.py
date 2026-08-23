@@ -178,8 +178,9 @@ class BokehApp:
         Parameters:
             source_data  A ColumnDataSource-compatible dict with keys
                          cmd_id, command, index, start_x, start_y,
-                         end_x, end_y, length, speed, power, width,
-                         style, color, annotation.
+                         end_x, end_y, command_start_x, command_start_y,
+                         command_end_x, command_end_y, length, speed,
+                         power, width, style, color, annotation.
             title        The tab title string.
 
         Returns:
@@ -288,7 +289,9 @@ class BokehApp:
         Parameters:
             data  A dict with keys matching ColumnDataSource columns
                   (cmd_id, command, start_x, start_y, end_x, end_y,
-                   length, speed, power, width, style, color, annotation).
+                   command_start_x, command_start_y, command_end_x,
+                   command_end_y, length, speed, power, width, style,
+                   color, annotation).
         """
         # Guard clause: silently drop data if the server is not running.
         if not self._running:
