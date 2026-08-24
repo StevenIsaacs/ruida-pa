@@ -52,6 +52,7 @@ class RpaPlotter:
             "RAPID_MOVE_Y": "speed_axis_move",
             "RAPID_MOVE_XY": "speed_axis_move",
             "MOVE_FAR_XY": "speed_axis_move",
+            "MOVE_NEAR_XY": "speed_axis",
             "MOVE_NEAR_X": "speed_axis",
             "MOVE_NEAR_Y": "speed_axis",
             "CUT_FAR_XY": "speed_laser_1",
@@ -150,15 +151,21 @@ class RpaPlotter:
     # ++++ Moves
     def cmd_speed_laser_1(self, values: list[float]):
         """Used for cuts?"""
+        # Both slots represent cut speed; captures/scripts may emit either command.
         self.plot.s["speed_laser_1"] = values[0]
+        self.plot.s["speed_laser_1_part"] = values[0]
 
     def cmd_speed_axis(self, values: list[float]):
         """Unknown."""
+        # Both slots represent move speed; captures/scripts may emit either command.
         self.plot.s["speed_axis"] = values[0]
+        self.plot.s["speed_axis_move"] = values[0]
 
     def cmd_speed_laser_1_part(self, values: list[float]):
         """Unknown."""
+        # Both slots represent cut speed; captures/scripts may emit either command.
         self.plot.s["speed_laser_1_part"] = values[0]
+        self.plot.s["speed_laser_1"] = values[0]
 
     def cmd_force_eng_speed(self, values: list[float]):
         """Unknown."""
@@ -166,7 +173,9 @@ class RpaPlotter:
 
     def cmd_speed_axis_move(self, values: list[float]):
         """Used for moves?"""
+        # Both slots represent move speed; captures/scripts may emit either command.
         self.plot.s["speed_axis_move"] = values[0]
+        self.plot.s["speed_axis"] = values[0]
 
     def cmd_move_far_xy(self, values: list[float]):
         """This effectively a move with the laser off.

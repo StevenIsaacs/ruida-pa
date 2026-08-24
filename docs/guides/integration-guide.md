@@ -318,7 +318,7 @@ below shows which section each GlueScript call produces:
 | Layer Settings (§10.5) | Yes | `declare_layer()` (+ `LAST_LAYER` from `stage_gluescript`) |
 | Offset Settings (§10.6) | No | `set_head_script` raw rpascript if needed |
 | Array Settings (§10.7) | No | `set_head_script` raw rpascript if needed |
-| Layer Actions (§10.8) | Yes | `move_xy_to()`/`cut_xy_to()`/`power()`/`power_range()`/`air_assist_on()`/`air_assist_off()`/`cut_speed()`/`move_speed()`/`frequency()`/`pwm()`/`select_laser()` |
+| Layer Actions (§10.8) | Yes | `move_xy_to()`/`move_x_to()`/`move_y_to()`/`cut_xy_to()`/`cut_x_to()`/`cut_y_to()`/`power()`/`power_range()`/`air_assist_on()`/`air_assist_off()`/`cut_speed()`/`move_speed()`/`frequency()`/`pwm()`/`select_laser()` |
 | Tail (§10.9) | Yes | `stage_gluescript()` emits `END_JOB`/`EOF` (extra tail via `set_tail_script`) |
 
 The staged output is structured as: job header (Section 1) → inline prelude →
@@ -908,9 +908,11 @@ never reaches the server.
 **Call-time validation:** because `RpcRdDriver` inherits the authoring
 methods from `GlueScript` (as the direct driver does), validation now
 happens at call time, exactly as on the direct driver. `declare_layer`
-raises `ValueError` for an invalid mode/overscan or `min_power_1 < 8`;
-`power_range` raises `ValueError` for no declared layer, `min > max`, or
-`min < 8%`; `power()` itself only warns (on a wrong layer mode or a
+raises `ValueError` for an invalid mode/overscan only — out-of-range power
+(`min_power_1 < 8`, `max_power_1 > 70`) emits a `# warning:` comment into
+the emitted rpascript instead of raising; `power_range` raises `ValueError`
+only for no declared layer — `min > max` or `min < 8%` emit `# warning:`
+comments instead; `power()` itself only warns (on a wrong layer mode or a
 `None` percentage). `declare_layer` and `power_range` also keep their
 `_job_complete` fail-fast guards, raising `RuntimeError` when called
 after `end_job()`.
@@ -1028,13 +1030,14 @@ before switching.
 | `gluescript` / `rpascript` visibility | Live mutable list attributes; the adapter can read them at any time | `gluescript` is the client's live local transcript (including unflushed lines); `rpascript` is a read-only snapshot of the server's last-flushed state |
 | `job_complete` | Local property | Local property (set by `end_job()`), consistent with the direct driver |
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
-| Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan/min_power and `power_range` constraints, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard |
+| Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min > max`, `min < 8%`) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard |
 | `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
-`power_range` constraint violations (no declared layer, `min > max`,
-`min < 8%`, etc.) raise `ValueError` at call time over RPC, exactly as on
-the direct driver. `power_range` also keeps its `_job_complete` fail-fast
+`power_range` constraint violations (no declared layer) raise `ValueError`
+at call time over RPC, exactly as on the direct driver; `min > max` and
+`min < 8%` emit `# warning:` comments into the emitted rpascript instead of
+raising. `power_range` also keeps its `_job_complete` fail-fast
 guard: a post-`end_job()` call raises `RuntimeError` immediately rather
 than silently dropping the action.
 

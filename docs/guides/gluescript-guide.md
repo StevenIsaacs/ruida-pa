@@ -239,9 +239,11 @@ configuration rpascript commands.
 
 **Power validation:**
 
-- `min_power_1` below 8% raises `ValueError` — CO2 lasers will not reliably
+- `min_power_1` below 8% emits a `# warning:` comment into the layer's
+  rpascript attributes (and logs a warning) — CO2 lasers will not reliably
   fire below this threshold.
-- `max_power_1` above 70% logs a warning — CO2 laser tube life is reduced
+- `max_power_1` above 70% emits a `# warning:` comment into the layer's
+  rpascript attributes (and logs a warning) — CO2 laser tube life is reduced
   at higher power settings.
 
 **Raises:** `ValueError` if mode or overscan is invalid.
@@ -333,13 +335,17 @@ Omitted arguments fall back to the current layer's declared
 from, `.cglu` files (unlike jog/home commands, which are live-only). It may
 be used in `IMAGE`/`DEPTHMAP` layers as well.
 
-**Constraints** (each violation raises `ValueError` on the direct path; it
-surfaces as `RuntimeError` when re-staging a persisted transcript):
+**Constraints** (a layer must be declared first — that raises `ValueError`
+on the direct path, surfacing as `RuntimeError` when re-staging a persisted
+transcript; the power constraints below emit `# warning:` comments instead
+of raising):
 
 - A layer must be declared first.
-- `min` must not exceed `max`.
-- `min` must be at least 8% (CO2 laser threshold) — raising below 8 mirrors
-  `declare_layer`; `max` above 70% logs a warning.
+- `min` exceeding `max` emits a `# warning:` comment into the layer's action
+  block.
+- `min` below 8% emits a `# warning:` comment into the layer's action block
+  (mirroring `declare_layer`); `max` above 70% logs a warning and emits a
+  `# warning:` comment.
 
 `power_range()` may be called **multiple times per layer**, including between
 `jog_*`/`move_*`/`cut_*` actions: each call emits `MIN_POWER_1`/`MAX_POWER_1`
@@ -478,6 +484,11 @@ GlueScript also provides single-axis variants for each operation:
 | `cut_y_to(y)` | Cut on Y axis only |
 | `jog_x_to(x)` | Jog on X axis only |
 | `jog_y_to(y)` | Jog on Y axis only |
+
+`move_x_to`, `move_y_to`, `cut_x_to`, and `cut_y_to` are **layer actions**:
+each emitted command is recorded in the current layer's action list (like
+`move_xy_to`/`cut_xy_to`). The `jog_*` variants are live-only actions and are
+never persisted.
 
 ### 4.5 Jog Configuration
 
@@ -1090,13 +1101,17 @@ only meaningful when processing raster image data between moves.
 
 ### Power Range Warnings
 
-- Minimum power below 8% raises `ValueError` — CO2 lasers will not reliably
-  fire below this threshold.
-- Maximum power above 70% logs a warning — operating above 70% reduces CO2
-  laser tube life.
+- Minimum power below 8% emits a `# warning:` comment into the emitted
+  rpascript (and logs a warning) — CO2 lasers will not reliably fire below
+  this threshold.
+- Maximum power above 70% emits a `# warning:` comment into the emitted
+  rpascript (and logs a warning) — operating above 70% reduces CO2 laser
+  tube life.
 
-The same rules apply to `power_range()`: a `min` below 8% raises `ValueError`
-and a `max` above 70% logs a warning.
+The same rules apply to `power_range()`: a `min` below 8% or a `min` that
+exceeds `max` emits a `# warning:` comment, and a `max` above 70% logs a
+warning and emits a `# warning:` comment. Out-of-range power settings never
+raise — they are surfaced as warnings in the output.
 
 ---
 

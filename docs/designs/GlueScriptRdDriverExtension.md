@@ -28,8 +28,8 @@ The final `rpascript` is comprised of the following sections:
 # Limitations
 - Ruida controllers are capable of supporting multiple laser heads. This version supports only one head.
 - Per pixel power settings are handled the same for both `IMAGE` and `DEPTHMAP` layer modes.
-- Power settings below 8% are not allowed for a CO2 laser because the laser will not reliably fire at lower power settings.
-- Power settings above 70% for a CO2 laser will issue a warning because CO2 laser tube life is reduced at higher power settings.
+- Power settings below 8% are not allowed for a CO2 laser because the laser will not reliably fire at lower power settings. Out-of-range power settings do not raise; they emit a `# warning:` comment into the emitted rpascript (and log a warning).
+- Power settings above 70% for a CO2 laser will issue a warning because CO2 laser tube life is reduced at higher power settings. This warning is emitted as a `# warning:` comment into the emitted rpascript (and logged).
 # The GlueScript Methods
  These methods support simultaneous on-the-fly generation of an `gluescript` and the low level `rpascript`. Properties and methods are provided which allow the application to retrieve and re-stage either of these forms.
 
@@ -606,7 +606,7 @@ self._layer_modes = {
 	"RASTER": "",
 	"DITHER": "",
 	"IMAGE": "",
-	"DEPTHMAP": "NONE",
+	"DEPTHMAP": "",
 }
 ```
 
@@ -770,13 +770,17 @@ Omitted arguments fall back to the current layer's declared
 from, `.cglu` files (unlike jog/home commands, which are live-only). It may
 be used in `IMAGE`/`DEPTHMAP` layers as well.
 
-**Constraints** (each violation raises `ValueError` on the direct path; it
-surfaces as `RuntimeError` when re-staging a persisted transcript):
+**Constraints** (a layer must be declared first — that raises `ValueError`
+on the direct path, surfacing as `RuntimeError` when re-staging a persisted
+transcript; the power constraints below emit `# warning:` comments instead
+of raising):
 
 - A layer must be declared first.
-- `min` must not exceed `max`.
-- `min` must be at least 8% (CO2 laser threshold) — raising below 8 mirrors
-  `declare_layer`; `max` above 70% logs a warning.
+- `min` exceeding `max` emits a `# warning:` comment into the layer's action
+  block.
+- `min` below 8% emits a `# warning:` comment into the layer's action block
+  (mirroring `declare_layer`); `max` above 70% logs a warning and emits a
+  `# warning:` comment.
 
 `power_range()` may be called **multiple times per layer**, including between
 `jog_*`/`move_*`/`cut_*` actions: each call emits `MIN_POWER_1`/`MAX_POWER_1`
@@ -859,6 +863,8 @@ MOVE_NEAR_XY nearX={dx:.3f}mm nearY={dy:.3f}mm
 #### move_x_to(...)
 Move the laser head to an absolute X coordinate relative to the job reference point.
 
+This is a layer action: the emitted command is recorded in the current layer's action list.
+
 Prototype:
 ```
 move_x_to(x: float)
@@ -876,6 +882,8 @@ MOVE_NEAR_X nearX={dx:.3f}mm
 ```
 #### move_y_to(...)
 Move the laser head to an absolute Y coordinate relative to the job reference point.
+
+This is a layer action: the emitted command is recorded in the current layer's action list.
 
 Prototype:
 ```
@@ -936,6 +944,8 @@ CUT_NEAR_XY nearX={dx:.3f}mm nearY={dy:.3f}mm
 #### cut_x_to(...)
 With the laser turned on move the laser head to an absolute X coordinate relative to the job reference point.
 
+This is a layer action: the emitted command is recorded in the current layer's action list.
+
 Prototype:
 ```
 cut_x_to(x: float)
@@ -954,6 +964,8 @@ CUT_NEAR_X nearX={dx:.3f}mm
 ```
 #### cut_y_to(...)
 With the laser turned on move the laser head to an absolute Y coordinate relative to the job reference point.
+
+This is a layer action: the emitted command is recorded in the current layer's action list.
 
 Prototype:
 ```

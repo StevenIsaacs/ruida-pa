@@ -242,7 +242,7 @@ class GlueScript:
             "RASTER": "",
             "DITHER": "",
             "IMAGE": "",
-            "DEPTHMAP": "NONE",
+            "DEPTHMAP": "",
         }
         
         self._overscan_modes: dict[str, list[str]] = {
@@ -772,6 +772,9 @@ class GlueScript:
         
         Raises:
             ValueError: If mode or overscan is invalid.
+
+        Out-of-range power settings do not raise; they emit a ``# warning:``
+        comment into the layer's rpascript attributes (and log a warning).
         """
         if mode not in self._layer_modes:
             raise ValueError(
@@ -784,16 +787,26 @@ class GlueScript:
                 f"Valid options: {', '.join(self._overscan_modes)}"
             )
 
-        # Validate power range
+        # Validate power range — out-of-range values emit warning comments
+        # into the rpascript output rather than raising.
+        power_warnings: list[str] = []
         if min_power_1 < 8.0:
-            raise ValueError(
-                f"Minimum power {min_power_1}% is below 8% — CO2 laser "
-                f"will not reliably fire below this threshold"
+            logger.warning(
+                "Minimum power %s%% is below 8%% — CO2 laser will not "
+                "reliably fire below this threshold", min_power_1
+            )
+            power_warnings.append(
+                f"# warning: min_power_1 {min_power_1}% is below the "
+                f"recommended minimum of 8%"
             )
         if max_power_1 > 70.0:
             logger.warning(
                 "Maximum power %s%% exceeds 70%% — CO2 laser tube life "
                 "is reduced at higher power settings", max_power_1
+            )
+            power_warnings.append(
+                f"# warning: max_power_1 {max_power_1}% exceeds the "
+                f"recommended maximum of 70%"
             )
 
         # Resolve overscan from mode override
@@ -854,6 +867,7 @@ class GlueScript:
         attrs.append(
             f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{max_power_1}%"
         )
+        attrs.extend(power_warnings)
         attrs.append(f"LAYER_ATTRIBUTES Layer:{self._layer - 1} 0")
         self._layer_attributes[self._layer] = attrs
 
@@ -1310,12 +1324,14 @@ class GlueScript:
             max: Maximum power percentage, or None to use the layer's
                 declared max_power_1 (default 70.0).
 
-        Constraints (each violation raises ValueError):
-            - A layer must be declared first.
-            - min must not exceed max (also guards a no-arg call on a
-              layer whose declared powers are inverted).
-            - min must be at least 8% (CO2 laser threshold).
-        A max above 70% logs a warning, mirroring declare_layer().
+        Constraints:
+            - A layer must be declared first (raises ValueError).
+            - min exceeding max emits a ``# warning:`` comment into the
+              layer's action block (no longer raises).
+            - min below 8% emits a ``# warning:`` comment into the layer's
+              action block (no longer raises).
+            - max above 70% logs a warning and emits a ``# warning:``
+              comment, mirroring declare_layer().
 
         May be called multiple times per layer, including between jog,
         move, or cut actions: each call emits MIN_POWER_1/MAX_POWER_1 into
@@ -1323,10 +1339,10 @@ class GlueScript:
         range from that point onward. Omitted args always resolve from the
         layer's declared powers (not the previous power_range() call).
 
-        Error surfaces: this method raises ValueError on the direct path;
-        when re-staging wraps a replay of a persisted transcript, the same
-        violation surfaces as RuntimeError ("Error re-staging command ...")
-        wrapping the ValueError.
+        Error surfaces: this method raises ValueError only when no layer
+        has been declared; when re-staging wraps a replay of a persisted
+        transcript, that violation surfaces as RuntimeError ("Error
+        re-staging command ...") wrapping the ValueError.
         """
         if self._layer < 1:
             raise ValueError(
@@ -1339,25 +1355,41 @@ class GlueScript:
         orig_min, orig_max = min, max
         resolved_min = self._current_layer_min_power if min is None else min
         resolved_max = self._current_layer_max_power if max is None else max
+        # Out-of-range values emit warning comments into the rpascript
+        # output rather than raising.
+        power_warnings: list[str] = []
         if resolved_min > resolved_max:
-            raise ValueError(
-                f"Minimum power {resolved_min}% exceeds maximum power "
-                f"{resolved_max}%"
+            logger.warning(
+                "Minimum power %s%% exceeds maximum power %s%%",
+                resolved_min, resolved_max,
+            )
+            power_warnings.append(
+                f"# warning: min_power_1 {resolved_min}% exceeds "
+                f"max_power_1 {resolved_max}%"
             )
         if resolved_min < 8.0:
-            raise ValueError(
-                f"Minimum power {resolved_min}% is below 8% — CO2 laser "
-                f"will not reliably fire below this threshold"
+            logger.warning(
+                "Minimum power %s%% is below 8%% — CO2 laser will not "
+                "reliably fire below this threshold", resolved_min
+            )
+            power_warnings.append(
+                f"# warning: min_power_1 {resolved_min}% is below the "
+                f"recommended minimum of 8%"
             )
         if resolved_max > 70.0:
             logger.warning(
                 "Maximum power %s%% exceeds 70%% — CO2 laser tube life "
                 "is reduced at higher power settings", resolved_max
             )
+            power_warnings.append(
+                f"# warning: max_power_1 {resolved_max}% exceeds the "
+                f"recommended maximum of 70%"
+            )
         self.gluescript.append(f"power_range({orig_min!r}, {orig_max!r})")
         self._layer_actions.setdefault(self._layer, []).extend([
             f"MIN_POWER_1 Power:{resolved_min:.1f}%",
             f"MAX_POWER_1 Power:{resolved_max:.1f}%",
+            *power_warnings,
         ])
 
     def air_assist_on(self) -> None:
@@ -1459,7 +1491,11 @@ class GlueScript:
         self._expand_bounding_boxes(x, y)
 
     def move_x_to(self, x: float) -> None:
-        """Move to absolute X coordinate relative to job reference point."""
+        """Move to absolute X coordinate relative to job reference point.
+
+        This is a layer action: the emitted command is recorded in the
+        current layer's action list.
+        """
         delta_x = x - self._current_x
         form = self._choose_move_form(delta_x)
         self.gluescript.append(f"move_x_to({x!r})")
@@ -1470,7 +1506,11 @@ class GlueScript:
         self._expand_bounding_boxes(x, self._current_y)
 
     def move_y_to(self, y: float) -> None:
-        """Move to absolute Y coordinate relative to job reference point."""
+        """Move to absolute Y coordinate relative to job reference point.
+
+        This is a layer action: the emitted command is recorded in the
+        current layer's action list.
+        """
         delta_y = y - self._current_y
         form = self._choose_move_form(delta_y)
         self.gluescript.append(f"move_y_to({y!r})")
@@ -1505,7 +1545,11 @@ class GlueScript:
         self._expand_bounding_boxes(x, y)
 
     def cut_x_to(self, x: float) -> None:
-        """Cut to absolute X coordinate relative to job reference point."""
+        """Cut to absolute X coordinate relative to job reference point.
+
+        This is a layer action: the emitted command is recorded in the
+        current layer's action list.
+        """
         delta_x = x - self._current_x
         form = self._choose_move_form(delta_x)
         self.gluescript.append(f"cut_x_to({x!r})")
@@ -1520,7 +1564,11 @@ class GlueScript:
         self._expand_bounding_boxes(x, self._current_y)
 
     def cut_y_to(self, y: float) -> None:
-        """Cut to absolute Y coordinate relative to job reference point."""
+        """Cut to absolute Y coordinate relative to job reference point.
+
+        This is a layer action: the emitted command is recorded in the
+        current layer's action list.
+        """
         delta_y = y - self._current_y
         form = self._choose_move_form(delta_y)
         self.gluescript.append(f"cut_y_to({y!r})")
