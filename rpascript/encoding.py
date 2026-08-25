@@ -292,10 +292,15 @@ def parse_value(
             raw = after.strip()
 
     # --- Boolean ---
-    if raw.upper() in ("ON", "TRUE", "1"):
+    if raw.upper() in ("ON", "TRUE"):
         return True
-    if raw.upper() in ("OFF", "FALSE", "0"):
+    if raw.upper() in ("OFF", "FALSE"):
         return False
+    if decoder_fn in ("bool", "on_off"):
+        if raw.upper() == "1":
+            return True
+        if raw.upper() == "0":
+            return False
 
     # --- Typed suffix parsing ---
     if decoder_fn == "dim":

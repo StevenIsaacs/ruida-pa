@@ -164,8 +164,9 @@ class RpaPlotter:
     def cmd_speed_laser_1_part(self, values: list[float]):
         """Unknown."""
         # Both slots represent cut speed; captures/scripts may emit either command.
-        self.plot.s["speed_laser_1_part"] = values[0]
-        self.plot.s["speed_laser_1"] = values[0]
+        # CUT_SPEED_LASER_1 is (LAYER, SPEED) — SPEED is always the last param.
+        self.plot.s["speed_laser_1_part"] = values[-1]
+        self.plot.s["speed_laser_1"] = values[-1]
 
     def cmd_force_eng_speed(self, values: list[float]):
         """Unknown."""
