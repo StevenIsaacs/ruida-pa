@@ -706,7 +706,7 @@ A Textual-based terminal user interface that implements (duck-types) the `AppAda
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.17.2            [Header]   │
+│  Ruida Script TUI v0.18.0            [Header]   │
 ├──────────────────────────┬──────────────────────┤
 │                          │  [STATUS] CONNECTED   │
 │  Log Area                │  [STATUS] PING_SENT   │

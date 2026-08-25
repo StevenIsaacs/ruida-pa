@@ -149,6 +149,7 @@ class GlueScript:
         self._job_header: list[str] = []    # Lines from declare_job()
         self._layer_attributes: dict[int, list[str]] = {}  # Attributes per layer
         self._layer_actions: dict[int, list[str]] = {}     # Actions per layer
+        self._layer_overscan: dict[int, list[str]] = {}   # Overscan lines per layer (emitted after SELECT_LAYER)
         self._job_declared: bool = False
         # True while a job is being assembled or re-staged — position sync
         # from controller replies is suspended.
@@ -438,6 +439,7 @@ class GlueScript:
         self._job_header = []
         self._layer_attributes = {}
         self._layer_actions = {}
+        self._layer_overscan = {}
         self._job_complete = False
         self._job_declared = False
         self._assembling = False
@@ -849,15 +851,15 @@ class GlueScript:
         )
 
         # rpascript — store in _layer_attributes (assembled later by
-        # stage_gluescript). The controller is 0-based, so the emitted layer
-        # numbers are self._layer - 1; internal gluescript numbering stays
-        # 1-based (layer routing and _route_command rely on it).
+        # stage_gluescript); overscan lines go in _layer_overscan (emitted
+        # after SELECT_LAYER). The controller is 0-based, so the emitted
+        # layer numbers are self._layer - 1; internal gluescript numbering
+        # stays 1-based (layer routing and _route_command rely on it).
         attrs: list[str] = []
         attrs.append(f"# Layer {self._layer - 1}: {label}")
         # Escape '#' so the rpascript interpreter's inline-comment stripping
         # does not eat the color value (matches rpascript/generator.py).
         attrs.append(f"LAYER_COLOR Layer:{self._layer - 1} Color:{color.replace('#', '\\#')}")
-        attrs.extend(self._overscan_modes[resolved_overscan])
         attrs.append(
             f"CUT_SPEED_LASER_1 Layer:{self._layer - 1} Speed:{speed}mm/S"
         )
@@ -870,7 +872,7 @@ class GlueScript:
         attrs.extend(power_warnings)
         attrs.append(f"LAYER_ATTRIBUTES Layer:{self._layer - 1} 0")
         self._layer_attributes[self._layer] = attrs
-
+        self._layer_overscan[self._layer] = list(self._overscan_modes[resolved_overscan])
 
         # Action boundary signal (for RPC batch sending)
         self._on_action_boundary()
@@ -1689,10 +1691,13 @@ class GlueScript:
             )
 
         # Section 3: All layer actions with SELECT_LAYER prefix
-        # (SELECT_LAYER carries the same 0-based layer index as the attrs)
-        for layer_num in sorted(self._layer_actions):
+        # (SELECT_LAYER carries the same 0-based layer index as the attrs).
+        # Overscan lines are emitted immediately after each SELECT_LAYER,
+        # before the layer's actions.
+        for layer_num in sorted(set(self._layer_actions) | set(self._layer_overscan)):
             self.rpascript.append(f"SELECT_LAYER Layer:{layer_num - 1}")
-            self.rpascript.extend(self._layer_actions[layer_num])
+            self.rpascript.extend(self._layer_overscan.get(layer_num, []))
+            self.rpascript.extend(self._layer_actions.get(layer_num, []))
 
         # Section 4: End of job
         # Inline commands issued after end_job() land just before END_JOB.
@@ -1747,6 +1752,7 @@ class GlueScript:
             self._job_header = []
             self._layer_attributes = {}
             self._layer_actions = {}
+            self._layer_overscan = {}
             self._job_complete = False
             self._job_declared = False
             self._layer = 0

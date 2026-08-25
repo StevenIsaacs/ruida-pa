@@ -639,7 +639,6 @@ Expands to:
 ```
 # Layer {self._layer - 1}: {label}
 LAYER_COLOR Layer:{self._layer - 1} Color:{color}
-{self._overscan_modes[overscan]}
 CUT_SPEED_LASER_1 Layer:{self._layer - 1} Speed:{speed}mm/S
 LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{min_power_1}%
 LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{max_power_1}%
@@ -653,7 +652,10 @@ Note: The '#' in the color value is escaped to '\\#' on emission (e.g. Color:\\#
 Note: These lines form the **layer attributes** for one layer, stored in
 `_layer_attributes`. All layers' attribute blocks are emitted together
 in the second section of the final rpascript (before any `SELECT_LAYER`
-commands), sorted by layer number.
+commands), sorted by layer number. The overscan line(s) for a layer are
+no longer part of the layer attributes; they are stored separately in
+`_layer_overscan` and emitted immediately after that layer's
+`SELECT_LAYER` command in the layer-actions section.
 
 ### end_job(...)
 Ends the job and prepares the job to be staged using `stage_gluescript`. After this method has been called all accumulated layer actions are sent and the job is ready to be staged using `stage_gluescript` which MUST be called in order to run the job.
@@ -676,7 +678,8 @@ structure:
    DOCUMENT_TOP_RIGHT/DOCUMENT_BOTTOM_LEFT, JOB_COPIES
 2. **Layer attributes** — all layers' LAYER_COLOR, CUT_SPEED, LAYER_POWER,
    LAYER_ATTRIBUTES, and bounding box lines, sorted by layer number
-3. **Layer actions** — each layer's actions preceded by `SELECT_LAYER Layer:{n}`,
+3. **Layer actions** — each layer's block is `SELECT_LAYER Layer:{n}` followed
+   immediately by that layer's overscan line(s), then the layer's actions,
    sorted by layer number
 4. **END_JOB** — job terminator
 
@@ -705,10 +708,12 @@ rpascript with `SELECT_LAYER Layer:{n}` prefixing each layer's action block:
 
 ```
 SELECT_LAYER Layer:1
+OVERSCAN_OFF
 MOVE_FAR_XY X=50.000mm Y=50.000mm
 CUT_FAR_XY X=150.000mm Y=50.000mm
 ...
 SELECT_LAYER Layer:2
+OVERSCAN_OFF
 MOVE_NEAR_XY nearX=1.000mm nearY=1.000mm
 ...
 ```

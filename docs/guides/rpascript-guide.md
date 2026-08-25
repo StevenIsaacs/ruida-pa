@@ -820,8 +820,8 @@ Variables:
 - `<max_power>` = The maximum power to use.
 
 ```
-OVERSCAN_<mode>
 SELECT_LAYER Layer:<layer>
+OVERSCAN_<mode>
 EN_LASER_2_OFFSET_0
 LASER_DEVICE_0
 AIR_ASSIST_<assist>
@@ -840,6 +840,10 @@ EN_EX_IO 0
 ```
 
 NOTES:
+- The overscan command is emitted immediately after `SELECT_LAYER`; this order
+  is verified to work on hardware. Some host applications (LightBurn, RDWorks,
+  MeerK40t) emit overscan before `SELECT_LAYER`, but the controller accepts
+  either order.
 - Multiple laser heads are supported by the Ruida controller but only one is
   currently supported in rpascript.
 - A valid min and max power is actually in the range of 8% to 70%. Values outside
@@ -929,8 +933,8 @@ ARRAY_EVEN_DISTANCE XStep=0.000mm YStep=0.000mm
 ARRAY_COPIES Columns=1 Rows=1 XStep=0.000mm YStep=0.000mm
 
 # ── Layer Actions (Layer 0) ──
-OVERSCAN_OFF
 SELECT_LAYER Layer:0
+OVERSCAN_OFF
 EN_LASER_2_OFFSET_0
 LASER_DEVICE_0
 AIR_ASSIST_ON

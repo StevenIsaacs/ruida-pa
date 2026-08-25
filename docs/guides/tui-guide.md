@@ -63,7 +63,7 @@ enforced when `--rpc-host` is a non-local address.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.17.2               [Header]   │
+│  Ruida Script TUI v0.18.0               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │
@@ -343,7 +343,8 @@ after the command:
   - `.log`, `.txt`, `.rd` for `/import`
   - All files for `/save job`
 - **Tab** toggles focus between the command input and the file tree
-- **Enter** on a selected file backfills the command with the full path
+- **Enter** uses the path you've typed as-is when you haven't navigated the
+  tree; otherwise it backfills the command with the selected file
 - **Escape** dismisses the tree
 - The tree follows partial paths (e.g., typing `/load /tmp/` starts
   browsing at `/tmp`)

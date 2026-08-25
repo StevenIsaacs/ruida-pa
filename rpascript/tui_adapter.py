@@ -1124,6 +1124,26 @@ class TuiAdapter(App):
                 selected = self._suggest_matches[self._suggest_selected]
 
                 if self._suggest_mode == "file":
+                    # If the user typed a path without navigating the popup,
+                    # use the typed path directly instead of replacing it with
+                    # a completion match.
+                    _, typed_path = self._check_file_browse_trigger(inp.value)
+                    if (
+                        typed_path
+                        and not typed_path.endswith("/")
+                        and not os.path.isdir(os.path.expanduser(typed_path))
+                        and self._suggest_selected == 0
+                    ):
+                        completed_val = self._file_completion_cmd + " " + typed_path
+                        self._suppress_popup = True
+                        inp.focus()
+                        inp.value = completed_val
+                        self.post_message(Key("end", None))
+                        self._clear_file_completion_state()
+                        if self._suggest_popup.is_attached:
+                            self._suggest_popup.remove()
+                        return
+
                     # File completion: build path relative to cwd
                     cwd = str(Path.cwd())
                     display_dir = self._file_completion_dir
