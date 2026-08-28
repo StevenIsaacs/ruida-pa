@@ -1,8 +1,8 @@
 """Bokeh view/tab visualization for laser head movements.
 
-A single tab containing XY plot, power histogram, and speed histogram
-with interactive tools (zoom, pan, box select, hover), menu bar,
-and right-click context menu."""
+A single tab containing XY plot, power histogram, cut speed histogram,
+and move speed histogram with interactive tools (zoom, pan, box select,
+hover), menu bar, and right-click context menu."""
 
 import json
 import time
@@ -40,12 +40,14 @@ except ImportError:
 
 
 class BokehView:
-    """A single tab view with XY plot, power histogram, and speed histogram.
+    """A single tab view with XY plot, power histogram, and speed histograms.
 
     Each BokehView represents one tab containing:
-    - XY scatter/line plot (top, large) with interactive tools
-    - Power histogram (bottom-left)
-    - Speed histogram (bottom-right)
+    - XY scatter/line plot (center, large) with interactive tools
+    - Power histogram (left column, top)
+    - Cut speed histogram (left column, middle)
+    - Move speed histogram (left column, bottom)
+    - Command summary (right of the XY plot)
     """
 
     def __init__(
@@ -214,24 +216,37 @@ Speed=@{speed}{f.03}mm/S
             output_backend="svg",
         )
         self.power_hist.xaxis.axis_label = "Power %"
-        self.power_hist.yaxis.axis_label = "Frequency"
+        self.power_hist.yaxis.axis_label = "Cuts"
         self.power_hist.grid.grid_line_alpha = self._grid_line_alpha
 
-        # ---- Speed Histogram ----
-        self.speed_hist = figure(
-            title="Speed Distribution",
+        # ---- Cut Speed Histogram ----
+        self.cut_speed_hist = figure(
+            title="Cut Speed Distribution",
             width=400,
             height=250,
             tools="",
             output_backend="svg",
         )
-        self.speed_hist.xaxis.axis_label = "Speed (mm/S)"
-        self.speed_hist.yaxis.axis_label = "Frequency"
-        self.speed_hist.grid.grid_line_alpha = self._grid_line_alpha
+        self.cut_speed_hist.xaxis.axis_label = "Speed (mm/S)"
+        self.cut_speed_hist.yaxis.axis_label = "Cuts"
+        self.cut_speed_hist.grid.grid_line_alpha = self._grid_line_alpha
+
+        # ---- Move Speed Histogram ----
+        self.move_speed_hist = figure(
+            title="Move Speed Distribution",
+            width=400,
+            height=250,
+            tools="",
+            output_backend="svg",
+        )
+        self.move_speed_hist.xaxis.axis_label = "Speed (mm/S)"
+        self.move_speed_hist.yaxis.axis_label = "Moves"
+        self.move_speed_hist.grid.grid_line_alpha = self._grid_line_alpha
 
         # ---- Persistent Histogram Sources (Phase 5e) ----
         # Persistent ColumnDataSources prevent UnknownReferenceError by avoiding
         # destruction/recreation of renderer models.  Data is updated in-place.
+        # One source per histogram: power (with color), cut speed, and move speed.
         self._power_hist_source = ColumnDataSource(
             data={
                 "top": [],
@@ -249,19 +264,35 @@ Speed=@{speed}{f.03}mm/S
             alpha=0.7,
         )
 
-        self._speed_hist_source = ColumnDataSource(
+        self._cut_speed_hist_source = ColumnDataSource(
             data={
                 "top": [],
                 "center": [],
                 "width": [],
             }
         )
-        self.speed_hist.vbar(
+        self.cut_speed_hist.vbar(
             x="center",
             top="top",
             width="width",
-            source=self._speed_hist_source,
+            source=self._cut_speed_hist_source,
             fill_color="green",
+            alpha=0.7,
+        )
+
+        self._move_speed_hist_source = ColumnDataSource(
+            data={
+                "top": [],
+                "center": [],
+                "width": [],
+            }
+        )
+        self.move_speed_hist.vbar(
+            x="center",
+            top="top",
+            width="width",
+            source=self._move_speed_hist_source,
+            fill_color="gray",
             alpha=0.7,
         )
 
@@ -882,10 +913,11 @@ Speed=@{speed}{f.03}mm/S
         self._plots = row(
             column(
                 self.power_hist,
-                self.speed_hist,
-                self._cmd_summary,
+                self.cut_speed_hist,
+                self.move_speed_hist,
             ),
             self.xy_plot,
+            self._cmd_summary,
         )
 
         self.layout = column(
@@ -931,8 +963,50 @@ Speed=@{speed}{f.03}mm/S
         _edges = [range_min + i * _bin_width for i in range(bins + 1)]
         return _hist, _edges
 
+    def _update_auto_bin_hist(self, hist_source, values):
+        """Update a persistent histogram source with min/max auto-binned data.
+
+        Bins `values` into 20 bins spanning [min, max] and writes the
+        result into `hist_source` in-place.  All-identical values render a
+        single bar.  Falls back to empty data when there are no values.
+
+        Parameters:
+            hist_source  The persistent ColumnDataSource to update.
+            values       Iterable of numeric values to histogram.
+        """
+        if values:
+            _min = min(values)
+            _max = max(values)
+            if _max == _min:
+                # All values identical — show a single bar at that value.
+                hist_source.data = {
+                    "top": [len(values)],
+                    "center": [_min],
+                    "width": [max(1.0, abs(_min) * 0.05)],
+                }
+                return
+            if _max > _min:
+                # range_max is nudged above the true max so the maximum value
+                # falls inside the last bin instead of being excluded by the
+                # `v >= range_max` guard in _compute_histogram.
+                _hist, _edges = self._compute_histogram(
+                    values, bins=20, range_min=_min, range_max=_max + 1e-9
+                )
+                if _hist:
+                    _centers = [
+                        (_edges[i] + _edges[i + 1]) / 2
+                        for i in range(len(_edges) - 1)
+                    ]
+                    hist_source.data = {
+                        "top": _hist,
+                        "center": _centers,
+                        "width": [_edges[1] - _edges[0]] * len(_hist),
+                    }
+                    return
+        hist_source.data = {"top": [], "center": [], "width": []}
+
     def update_histograms(self, source: ColumnDataSource = None):
-        """Rebuild power and speed histograms from source data.
+        """Rebuild power (cut-only), cut speed, and move speed histograms from source data.
 
         Uses persistent ColumnDataSources to avoid destroying and recreating
         renderer models, which causes UnknownReferenceError on the server.
@@ -943,10 +1017,18 @@ Speed=@{speed}{f.03}mm/S
         if source is None:
             source = self.source
 
-        # Power histogram — update persistent source data in-place.
-        if len(source.data.get("power", [])) > 0:
+        # Power histogram — cut lines only (style == "solid").
+        _powers = [
+            p
+            for p, st in zip(
+                source.data.get("power", []),
+                source.data.get("style", []),
+            )
+            if st == "solid"
+        ]
+        if _powers:
             _p_hist, _p_edges = self._compute_histogram(
-                source.data["power"], bins=20, range_min=0, range_max=100
+                _powers, bins=20, range_min=0, range_max=100
             )
             _p_centers = [
                 (_p_edges[i] + _p_edges[i + 1]) / 2 for i in range(len(_p_edges) - 1)
@@ -973,37 +1055,15 @@ Speed=@{speed}{f.03}mm/S
                 "color": [],
             }
 
-        # Speed histogram — update persistent source data in-place.
-        if len(source.data.get("speed", [])) > 0:
-            _s_vals = source.data["speed"]
-            _s_min = min(_s_vals)
-            _s_max = max(_s_vals)
-            if _s_max > _s_min:
-                _s_hist, _s_edges = self._compute_histogram(
-                    _s_vals, bins=20, range_min=_s_min, range_max=_s_max
-                )
-                if _s_hist:
-                    _s_centers = [
-                        (_s_edges[i] + _s_edges[i + 1]) / 2
-                        for i in range(len(_s_edges) - 1)
-                    ]
-                    self._speed_hist_source.data = {
-                        "top": _s_hist,
-                        "center": _s_centers,
-                        "width": [_s_edges[1] - _s_edges[0]] * len(_s_hist),
-                    }
-            else:
-                self._speed_hist_source.data = {
-                    "top": [],
-                    "center": [],
-                    "width": [],
-                }
-        else:
-            self._speed_hist_source.data = {
-                "top": [],
-                "center": [],
-                "width": [],
-            }
+        # Cut speed histogram — cut lines only (style == "solid").
+        _speeds = source.data.get("speed", [])
+        _styles = source.data.get("style", [])
+        _cut_speeds = [s for s, st in zip(_speeds, _styles) if st == "solid"]
+        self._update_auto_bin_hist(self._cut_speed_hist_source, _cut_speeds)
+
+        # Move speed histogram — move lines only (style == "dashed").
+        _move_speeds = [s for s, st in zip(_speeds, _styles) if st == "dashed"]
+        self._update_auto_bin_hist(self._move_speed_hist_source, _move_speeds)
 
     # ---- App Integration ----
 
