@@ -879,7 +879,8 @@ Parameters:
 
 Far form expands to:
 ```
-MOVE_FAR_X X={x:.3f}mm
+# MOVE_FAR_X does not function as expected — work-around holds Y at its current position
+MOVE_FAR_XY X={x:.3f}mm Y={current_y:.3f}mm
 ```
 Near form expands to:
 ```
@@ -899,7 +900,8 @@ Parameters:
 
 Far form expands to:
 ```
-MOVE_FAR_Y Y={y:.3f}mm
+# MOVE_FAR_Y does not function as expected — work-around holds X at its current position
+MOVE_FAR_XY X={current_x:.3f}mm Y={y:.3f}mm
 ```
 Near form expands to:
 ```

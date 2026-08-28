@@ -1501,9 +1501,13 @@ class GlueScript:
         delta_x = x - self._current_x
         form = self._choose_move_form(delta_x)
         self.gluescript.append(f"move_x_to({x!r})")
-        self._layer_actions.setdefault(self._layer, []).append(
-            f"MOVE_{form}_X {self._format_coord(form, 'X', x, delta_x)}"
-        )
+        if form == "NEAR":
+            line = f"MOVE_NEAR_X {self._format_coord(form, 'X', x, delta_x)}"
+        else:
+            # MOVE_FAR_X does not function as expected — move along X using
+            # the two-axis FAR form, holding Y at its current position.
+            line = f"MOVE_FAR_XY X={x:.3f}mm Y={self._current_y:.3f}mm"
+        self._layer_actions.setdefault(self._layer, []).append(line)
         self._current_x = x
         self._expand_bounding_boxes(x, self._current_y)
 
@@ -1516,9 +1520,13 @@ class GlueScript:
         delta_y = y - self._current_y
         form = self._choose_move_form(delta_y)
         self.gluescript.append(f"move_y_to({y!r})")
-        self._layer_actions.setdefault(self._layer, []).append(
-            f"MOVE_{form}_Y {self._format_coord(form, 'Y', y, delta_y)}"
-        )
+        if form == "NEAR":
+            line = f"MOVE_NEAR_Y {self._format_coord(form, 'Y', y, delta_y)}"
+        else:
+            # MOVE_FAR_Y does not function as expected — move along Y using
+            # the two-axis FAR form, holding X at its current position.
+            line = f"MOVE_FAR_XY X={self._current_x:.3f}mm Y={y:.3f}mm"
+        self._layer_actions.setdefault(self._layer, []).append(line)
         self._current_y = y
         self._expand_bounding_boxes(self._current_x, y)
 
