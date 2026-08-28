@@ -33,6 +33,18 @@ try:
     from rpalib.bokeh_app import BokehApp
 except ImportError:
     BokehApp = None
+
+# Additional Bokeh imports for plot autosave
+try:
+    from bokeh.embed import file_html
+    from bokeh.models import ColumnDataSource
+    from bokeh.resources import CDN
+    from rpalib.bokeh_view import BokehView
+except ImportError:
+    file_html = None
+    ColumnDataSource = None
+    CDN = None
+    BokehView = None
 from protocols.ruida.ruida_analyzer import RuidaProtocolAnalyzer
 from protocols.ruida.ruida_parser import RdParser
 from rpalib.rd_binary_reader import RdBinaryStream
@@ -1358,7 +1370,7 @@ class TuiAdapter(App):
             "  /gluescript load <path>                         Load a .cglu gluescript file and stage it\n"
             "  /gluescript edit                            Edit the gluescript in a full-screen editor\n"
             "  /gluescript list                             Display high-level gluescript commands\n"
-            "  /autosave <path>                          Set RPC gluescript autosave base path (saves .cglu/.rds/.rd on RPC stage)\n"
+            "  /autosave <path>                          Set RPC gluescript autosave base path (saves .cglu/.rds/.rd/-plot.html on RPC stage)\n"
             "  /autosave off                             Disable autosave\n"
             "  /autosave                                 Show current autosave setting\n"
         )
@@ -3097,6 +3109,121 @@ class TuiAdapter(App):
                     self._log_info(f"Autosave: wrote {rd_path} ({len(payload) - 10} bytes)")
                 except OSError as e:
                     self._log_error(f"Autosave: error writing {rd_path}: {e}")
+        self._autosave_plot(base)
+
+    def _autosave_plot(self, base: str) -> None:
+        """Save an interactive plot HTML alongside the autosaved script files."""
+        if BokehView is None:
+            self._log_info("Bokeh not installed, skipping plot autosave")
+            return
+        driver = self._ruida_driver
+        if driver is None:
+            return
+        if not driver.rpascript:
+            return
+
+        try:
+            parsed = self._parser.parse_lines(driver.rpascript)
+        except Exception as e:
+            self._log_error(f"Plot autosave failed: {e}")
+            return
+        if not parsed:
+            return
+
+        try:
+            from protocols.ruida.rpa_plotter import RpaPlotter
+
+            ns = argparse.Namespace(
+                input_file="[RPC]",
+                output_file=None,
+                bokeh_port=5006,
+                quiet=True,
+                stop_on_error=False,
+                verbose=False,
+                raw=False,
+                unswizzled=False,
+                magic=0x88,
+                input_encoding="utf-8",
+                plot_moves=False,
+            )
+
+            out = RpaEmitter(ns)
+            plotter = RpaPlotter(out, "Script Plot")
+            plotter.plot.enable()
+
+            cmd_id = 0
+            for cmd in parsed:
+                cmd_type = cmd.get("type")
+                if cmd_type in ("SESSION_START", "SESSION_END", "DELAY", "WAIT", "new_packet"):
+                    continue
+
+                mnemonic = cmd.get("mnemonic")
+                if not mnemonic:
+                    continue
+
+                info = self._parser.mnemonic_map.get(mnemonic)
+                if info is None:
+                    continue
+
+                prefix_byte = info[0]
+
+                if len(info) == 4:
+                    sub_cmd = info[2]
+                    cmd_entry = info[3]
+                else:
+                    sub_cmd = info[1] if len(info) >= 2 else None
+                    cmd_entry = info[2] if len(info) > 2 else None
+
+                param_specs = cmd_entry[1:] if cmd_entry and len(cmd_entry) > 1 else ()
+                param_values = cmd.get("params", [])
+
+                values = []
+                for i, spec in enumerate(param_specs):
+                    if i >= len(param_values):
+                        break
+                    if not isinstance(spec, tuple) or len(spec) < 2:
+                        continue
+                    decoder_fn = spec[1]
+                    rd_type = spec[2] if len(spec) >= 3 else None
+                    token = param_values[i].strip()
+                    if "=" in token:
+                        _, token = token.split("=", 1)
+                    try:
+                        values.append(parse_value(token, decoder_fn, rd_type))
+                    except Exception:
+                        continue
+
+                cmd_id += 1
+                try:
+                    plotter.cmd_update(cmd_id, mnemonic, prefix_byte, sub_cmd, values)
+                except Exception:
+                    continue
+
+            if cmd_id == 0:
+                self._log_info(
+                    "No plot-relevant commands found in script, skipping plot autosave"
+                )
+                return
+        except Exception as e:
+            self._log_error(f"Plot autosave failed: {e}")
+            return
+
+        try:
+            cds = ColumnDataSource(data=plotter.plot.to_column_data())
+            view = BokehView(
+                ns,
+                source=cds,
+                title="All Vectors",
+                color_lut=plotter.plot.color_lut,
+                out_stem=self._autosave_path,
+            )
+            view.update_histograms()
+            html = file_html(view.layout, CDN, title=view.title)
+            plot_path = Path(base + "-plot.html")
+            plot_path.write_text(html, encoding="utf-8")
+            self._log_info(f"Plot autosaved: {plot_path}")
+        except Exception as e:
+            self._log_error(f"Autosave: error writing plot HTML: {e}")
 
     def _cmd_listeners(self, args: str = "") -> None:
         """List listeners registered with the RdDriver."""
@@ -3121,7 +3248,10 @@ class TuiAdapter(App):
         args = args.strip()
         if not args:
             if self._autosave_path:
-                self._log_info(f"Autosave: {self._autosave_path}-<version>.<ext>")
+                self._log_info(
+                    f"Autosave: {self._autosave_path}-<version>.<ext> "
+                    "(saves .cglu/.rds/.rd/-plot.html on RPC stage)"
+                )
             else:
                 self._log_info("Autosave: not set")
             return
@@ -3131,7 +3261,10 @@ class TuiAdapter(App):
             return
         path = os.path.expanduser(args)
         self._autosave_path = path
-        self._log_info(f"Autosave set: {path}-<version>.<ext> (saves .cglu/.rds/.rd on RPC stage)")
+        self._log_info(
+            f"Autosave set: {path}-<version>.<ext> "
+            "(saves .cglu/.rds/.rd/-plot.html on RPC stage)"
+        )
 
     def _cmd_gluescript(self, args: str) -> None:
         """Handle /gluescript subcommands for high-level scripting."""
