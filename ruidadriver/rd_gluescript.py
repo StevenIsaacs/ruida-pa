@@ -71,11 +71,11 @@ def _format_time_token(value: str | int | float) -> str:
 
 class GlueScript:
     """High-level job scripting methods for Ruida laser controllers.
-    
-    Generates gluescript (high-level) and rpascript (low-level) 
+
+    Generates gluescript (high-level) and rpascript (low-level)
     representations simultaneously. The rpascript can be passed to
     RdDriver.run_job() for encoding and execution.
-    
+
     Attributes:
         gluescript: list[str] — The generated high-level script commands.
         rpascript: list[str] — The generated low-level rpascript commands.
@@ -143,7 +143,7 @@ class GlueScript:
         """Initialize GlueScript with empty scripts and default state."""
         # Script storage
         self.gluescript: list[str] = []
-        
+
         # Job management state
         self._job_complete: bool = False
         self._job_header: list[str] = []    # Lines from declare_job()
@@ -154,24 +154,24 @@ class GlueScript:
         # True while a job is being assembled or re-staged — position sync
         # from controller replies is suspended.
         self._assembling: bool = False
-        
+
         # Bounding boxes (doc-level)
         self.doc_tr_x: float = float('inf')
         self.doc_tr_y: float = float('inf')
         self.doc_bl_x: float = -float('inf')
         self.doc_bl_y: float = -float('inf')
-        
+
         # Current position tracking
         self._current_x: float = 0.0
         self._current_y: float = 0.0
         self._current_z: float = 0.0
         self._current_u: float = 0.0
         self._abs_xy: list[float] = [0.0, 0.0]
-        
+
         # Layer counter and current mode
         self._layer: int = 0
         self._current_layer_mode: str = "VECTOR"
-        
+
         # Per-layer bounding box (reset each declare_layer)
         self._layer_trx: float = float('inf')
         self._layer_try: float = float('inf')
@@ -208,18 +208,18 @@ class GlueScript:
         self._inline_prelude: list[str] = []    # inline() before first layer
         self._inline_epilogue: list[str] = []   # inline() after end_job()
         self._stage_complete: bool = False
-        
+
         # Jog speed defaults (mm/s)
         self.jog_xy_speed: float = 100.0
         self.jog_z_speed: float = 100.0
         self.jog_u_speed: float = 100.0
-        
+
         # Relative jog distance defaults (mm)
         self.x_rel: float = 10.0
         self.y_rel: float = 10.0
         self.z_rel: float = 10.0
         self.u_rel: float = 10.0
-        
+
         # Reference point and overscan dictionaries
         self._ref_points: dict[str, list[str]] = {
             "MACHINE": [
@@ -237,7 +237,7 @@ class GlueScript:
                 "REF_POINT_ORIGIN",
             ],
         }
-        
+
         self._layer_modes: dict[str, str] = {
             "VECTOR": "NONE",
             "RASTER": "",
@@ -245,7 +245,7 @@ class GlueScript:
             "IMAGE": "",
             "DEPTHMAP": "",
         }
-        
+
         self._overscan_modes: dict[str, list[str]] = {
             "NONE": ["OVERSCAN_OFF"],
             "X": ["OVERSCAN_H_UNI"],
@@ -257,7 +257,7 @@ class GlueScript:
                 "OVERSCAN_OFF",
             ],
         }
-        
+
         # Command registry for re-staging
         self._command_registry: dict[str, Callable[..., None]] = {}
         self._build_command_registry()
@@ -268,7 +268,7 @@ class GlueScript:
 
     def _build_command_registry(self) -> None:
         """Build the command registry mapping method names to bound methods.
-        
+
         This registry is used during re-staging to call the appropriate
         method for each gluescript command line.
         """
@@ -365,7 +365,7 @@ class GlueScript:
 
     def _parse_gluescript_line(self, line: str) -> tuple[str, list[Any]]:
         """Parse a gluescript line into method name and positional args.
-        
+
         Format: method_name(arg1, arg2, ...)
         Each arg is a Python literal (via repr) parsed by ast.literal_eval.
         """
@@ -467,7 +467,7 @@ class GlueScript:
 
     def comment(self, comments: list[str]) -> None:
         """Append comment lines to the generated rpascript.
-        
+
         Args:
             comments: List of comment lines to append.
         """
@@ -650,10 +650,10 @@ class GlueScript:
         ystep: float = 0.0,
     ) -> None:
         """Declare a new job.
-        
+
         Resets all script data, validates the reference point, and appends
         job header rpascript lines.
-        
+
         Args:
             label: Label to identify the job.
             ref_point: Reference point type (MACHINE, ABSOLUTE, CURRENT, SET_POINT).
@@ -662,7 +662,7 @@ class GlueScript:
             rows: Number of rows for job copies.
             xstep: X step distance in mm between job copies.
             ystep: Y step distance in mm between job copies.
-        
+
         Raises:
             ValueError: If ref_point is invalid.
         """
@@ -716,7 +716,7 @@ class GlueScript:
 
     def end_job(self) -> None:
         """End the job and prepare it for staging.
-        
+
         Raises:
             RuntimeError: If end_job() is called twice.
         """
@@ -761,7 +761,7 @@ class GlueScript:
         max_power_1: float = 70.0,
     ) -> None:
         """Declare a new layer.
-        
+
         Args:
             label: Label for the layer.
             color: Color formatted as #rrggbb.
@@ -771,7 +771,7 @@ class GlueScript:
             frequency: Laser PWM frequency in KHz.
             min_power_1: Minimum layer power percent for head 1.
             max_power_1: Maximum layer power percent for head 1.
-        
+
         Raises:
             ValueError: If mode or overscan is invalid.
 
@@ -1255,7 +1255,7 @@ class GlueScript:
 
     def _choose_move_form(self, delta: float) -> str:
         """Choose near or far form based on delta distance.
-        
+
         Near form: fits in signed 14-bit / 1000 (range -8.192mm to 8.191mm).
         Far form: delta exceeds near range.
         """
@@ -1294,7 +1294,7 @@ class GlueScript:
 
     def power(self, percent: float | None = None) -> None:
         """Set laser power percentage. Valid only for IMAGE/DEPTHMAP layers.
-        
+
         Args:
             percent: Power percentage.
         """
@@ -1309,6 +1309,7 @@ class GlueScript:
             return
         self.gluescript.append(f"power({percent!r})")
         self._layer_actions.setdefault(self._layer, []).append(f"IMD_POWER_1 Power:{percent:.1f}%")
+        self._layer_actions.setdefault(self._layer, []).append(f"IMD_POWER_3 Power:{percent:.1f}%")
 
     def power_range(
         self, min: float | None = None, max: float | None = None
@@ -1606,7 +1607,7 @@ class GlueScript:
 
     def _on_action_boundary(self) -> None:
         """Callback for RPC batch sending optimization.
-        
+
         Called when declare_layer or end_job signals a boundary.
         Subclasses can override to send accumulated actions to a
         connected RPC client.
@@ -1615,7 +1616,7 @@ class GlueScript:
 
     def add_layer_action(self, layer: int, lines: list[str]) -> None:
         """Add raw rpascript lines to a specific layer's action list.
-        
+
         Used by external callers (e.g., TUI) to add jog commands or
         other actions to a layer. The lines will be assembled into
         the final rpascript by stage_gluescript(). `layer` is the internal
