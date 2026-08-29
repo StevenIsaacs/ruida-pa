@@ -325,11 +325,12 @@ class RpaPlotter:
 
     # ++++ Power
     def cmd_imd_power_1(self, values: list[float]):
-        """Set min power.
+        """Set immediate power for the current pixel (greyscale image).
 
-        TODO: Currently it is unknown what effect min and max power have.
+        IMD_POWER commands set per-pixel power; the value is applied to
+        subsequent cut lines via plot.set_power().
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_end_power_1(self, values: list[float]):
         """Set max power.
@@ -353,11 +354,12 @@ class RpaPlotter:
         pass  # TBD
 
     def cmd_imd_power_3(self, values: list[float]):
-        """Set min power.
+        """Set immediate power for the current pixel (greyscale image).
 
-        TODO: Currently it is unknown what effect min and max power have.
+        IMD_POWER commands set per-pixel power; the value is applied to
+        subsequent cut lines via plot.set_power().
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_end_power_3(self, values: list[float]):
         """Set max power.

@@ -565,6 +565,8 @@ The analyzer uses a finite state machine with the following states:
 
 - **Incomplete protocol coverage**: Much of the Ruida protocol is unknown. Unknown commands, addresses, and parameter formats are marked `TBD` in the output and require further investigation (see [Unknown Data Output](#unknown-data-output)). Examples of open questions: the meaning of the 35-bit `FEED_INFO` value, and the effect of min/max power settings on plotting.
 
+- **Move Speed Distribution histogram does not display speed:** Intra-layer travel speed commands are not well understood. Currently, the Ruida controller default is used but that too is currently unknown. Because of this the histogram is a gray block.
+
 - **TUI unresponsiveness when listing large scripts**: In the interactive TUI, `/list script` (and the related `/list` subcommands) writes each line to the log widget in a synchronous loop, which can freeze the interface for a noticeable period when a script has thousands of lines. A related handshake-thread blocking issue that caused random status disconnects has been fixed; the event-loop saturation from per-line writes remains. This is why the TUI is intended for discovery and diagnostic use only and not for production workloads (see the [Interactive TUI](#interactive-tui-terminal-user-interface) section).
 
 ## Future Plans
