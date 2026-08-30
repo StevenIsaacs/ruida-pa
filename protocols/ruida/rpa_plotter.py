@@ -333,25 +333,25 @@ class RpaPlotter:
         self.plot.set_power(values[0])
 
     def cmd_end_power_1(self, values: list[float]):
-        """Set max power.
+        """Set end power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_imd_power_2(self, values: list[float]):
-        """Set min power.
+        """Set immediate power for the current pixel (greyscale image).
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_end_power_2(self, values: list[float]):
-        """Set max power.
+        """Set end power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_imd_power_3(self, values: list[float]):
         """Set immediate power for the current pixel (greyscale image).
@@ -362,137 +362,145 @@ class RpaPlotter:
         self.plot.set_power(values[0])
 
     def cmd_end_power_3(self, values: list[float]):
-        """Set max power.
+        """Set end power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_imd_power_4(self, values: list[float]):
-        """Set min power.
+        """Set immediate power for the current pixel (greyscale image).
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_end_power_4(self, values: list[float]):
-        """Set max power.
+        """Set end power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_min_power_1(self, values: list[float]):
         """Set min power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
         self.plot.set_power(values[0])
 
     def cmd_max_power_1(self, values: list[float]):
         """Set max power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
         self.plot.set_power(values[0])
 
     def cmd_min_power_2(self, values: list[float]):
         """Set min power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_max_power_2(self, values: list[float]):
         """Set max power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_min_power_3(self, values: list[float]):
         """Set min power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_max_power_3(self, values: list[float]):
         """Set max power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_min_power_4(self, values: list[float]):
         """Set min power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_max_power_4(self, values: list[float]):
         """Set max power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        self.plot.set_power(values[0])
 
     def cmd_min_power_1_part(self, values: list[float]):
         """Set min power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        # LAYER_MIN_POWER_1 is (LAYER, POWER) — POWER is always the last param.
+        self.plot.set_power(values[-1])
 
     def cmd_max_power_1_part(self, values: list[float]):
         """Set max power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        # LAYER_MAX_POWER_1 is (LAYER, POWER) — POWER is always the last param.
+        self.plot.set_power(values[-1])
 
     def cmd_min_power_2_part(self, values: list[float]):
         """Set min power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        # LAYER_MIN_POWER_2 is (LAYER, POWER) — POWER is always the last param.
+        self.plot.set_power(values[-1])
 
     def cmd_max_power_2_part(self, values: list[float]):
         """Set max power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        # LAYER_MAX_POWER_2 is (LAYER, POWER) — POWER is always the last param.
+        self.plot.set_power(values[-1])
 
     def cmd_min_power_3_part(self, values: list[float]):
         """Set min power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        # LAYER_MIN_POWER_3 is (LAYER, POWER) — POWER is always the last param.
+        self.plot.set_power(values[-1])
 
     def cmd_max_power_3_part(self, values: list[float]):
         """Set max power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        # LAYER_MAX_POWER_3 is (LAYER, POWER) — POWER is always the last param.
+        self.plot.set_power(values[-1])
 
     def cmd_min_power_4_part(self, values: list[float]):
         """Set min power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        # LAYER_MIN_POWER_4 is (LAYER, POWER) — POWER is always the last param.
+        self.plot.set_power(values[-1])
 
     def cmd_max_power_4_part(self, values: list[float]):
         """Set max power.
 
-        TODO: Currently it is unknown what effect min and max power have.
+        Sets the power for subsequent cut lines.
         """
-        pass  # TBD
+        # LAYER_MAX_POWER_4 is (LAYER, POWER) — POWER is always the last param.
+        self.plot.set_power(values[-1])
 
     # ++++ Areas
     process_area = RpaArea((0.3, 0.3, 0.3), 0.1, "")

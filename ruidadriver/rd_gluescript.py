@@ -1390,8 +1390,8 @@ class GlueScript:
             )
         self.gluescript.append(f"power_range({orig_min!r}, {orig_max!r})")
         self._layer_actions.setdefault(self._layer, []).extend([
-            f"MIN_POWER_1 Power:{resolved_min:.1f}%",
-            f"MAX_POWER_1 Power:{resolved_max:.1f}%",
+            f"LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{resolved_min}%",
+            f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{resolved_max}%",
             *power_warnings,
         ])
 
