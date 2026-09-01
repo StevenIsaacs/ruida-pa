@@ -62,6 +62,20 @@
     ],
     "description": "Set the min/max power ramp range for the layer (accel/decel)"
   },
+  "set_mode": {
+    "prefix": "set_mode",
+    "body": [
+      "set_mode('${1:VECTOR}')"
+    ],
+    "description": "Switch the current layer to another layer mode mid-stream"
+  },
+  "set_overscan": {
+    "prefix": "set_overscan",
+    "body": [
+      "set_overscan('${1:NONE}')"
+    ],
+    "description": "Set the overscan mode for the current layer at the call position"
+  },
   "air_assist_on": {
     "prefix": "air_assist_on",
     "body": [

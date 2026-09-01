@@ -58,7 +58,8 @@ Batching semantics
 - Structural calls are buffered locally and mirrored into ``_transcript``:
   ``declare_job``, ``declare_layer``, ``comment``, ``inline``, ``delay``,
   ``wait`` (until ``end_job()``), and the layer actions (``move_*_to``,
-  ``cut_*_to``, ``power``, ``air_assist_*``). Each flush — at
+  ``cut_*_to``, ``power``, ``power_range``, ``set_mode``, ``set_overscan``,
+  ``air_assist_*``). Each flush — at
   ``declare_layer`` or ``end_job`` — sends ONLY the newly appended lines
   (the delta) to ``stage_gluescript_delta()``, which replays the suffix
   onto the server's existing state WITHOUT reset (O(Δ) per flush instead
@@ -139,7 +140,6 @@ exactly as the direct driver does.
 
 from __future__ import annotations
 
-import ast
 import logging
 import socket
 import struct
@@ -432,33 +432,42 @@ class RpcRdDriver(GlueScript):
         """Re-baseline local state from the server's last-flushed state.
 
         Re-baselines the transcript, ``_flushed_count``,
-        ``_current_layer_mode`` and ``_job_complete`` from server state.
-        ``_current_layer_mode`` is derived from the last
-        ``declare_layer(...)`` line in the transcript (defaulting to
-        "VECTOR" when no layer was declared). ``_job_declared`` is NOT
-        refreshed because it cannot be reliably derived from the server
-        transcript (and the buffered value is client-authoritative for
-        unflushed state).
+        ``_current_layer_mode``, ``_current_layer_overscan`` and
+        ``_job_complete`` from server state. The layer mode and effective
+        overscan are derived by replaying the transcript's
+        ``declare_layer``/``set_mode``/``set_overscan`` lines through the
+        same argument parser the driver uses (``_parse_gluescript_line``),
+        applying exactly the state transitions the authoring methods
+        perform (mode override resolution on declare_layer, change-gated
+        overscan forcing on set_mode, verbatim overscan on set_overscan).
+        ``_job_declared`` is NOT refreshed because it cannot be reliably
+        derived from the server transcript (and the buffered value is
+        client-authoritative for unflushed state).
         """
         self._transcript = list(self._svc.get_gluescript())
         self._flushed_count = len(self._transcript)
-        # Derive the current layer mode from the LAST declare_layer line.
-        # Labels and colors are repr-quoted and may contain commas, so the
-        # argument list is parsed with ``ast.literal_eval`` (the driver's
-        # own gluescript parse boundary) rather than a naive split.
         mode = "VECTOR"
+        overscan = "NONE"
         for line in self._transcript:
-            stripped = line.strip()
-            if not stripped.startswith("declare_layer("):
-                continue
-            args_str = stripped[len("declare_layer("):].rstrip(")")
             try:
-                args = ast.literal_eval(f"({args_str})")
+                name, args = self._parse_gluescript_line(line)
             except (ValueError, SyntaxError):
                 continue
-            if len(args) >= 3:
+            if name == "declare_layer" and len(args) >= 4:
                 mode = args[2]
+                requested = args[3]
+                overscan = self._layer_modes[mode] or requested
+            elif name == "set_mode" and len(args) >= 1:
+                if args[0] != mode:
+                    mode = args[0]
+                    ovr = self._layer_modes[args[0]]
+                    if ovr and overscan != ovr:
+                        overscan = ovr
+            elif name == "set_overscan" and len(args) >= 1:
+                if args[0] != overscan:
+                    overscan = args[0]
         self._current_layer_mode = mode
+        self._current_layer_overscan = overscan
         self._job_complete = bool(self._svc.job_complete())
 
     # ------------------------------------------------------------------ #
@@ -657,6 +666,50 @@ class RpcRdDriver(GlueScript):
                 "remains to stage it"
             )
         super().power_range(min, max)
+
+    def set_mode(self, mode: str) -> None:
+        """Buffer a layer mode switch (flushed at next boundary).
+
+        Delegates to the base method, which validates at call time
+        (``ValueError`` for no declared layer or invalid mode) and mirrors
+        the line into the local transcript. The rpascript is change-gated:
+        only an actual mode change (with overscan forcing) reaches the
+        server.
+
+        Raises:
+            RuntimeError: If the job is complete — after end_job() no
+                flush boundary remains, so fail fast instead of silently
+                dropping the action.
+            ValueError: If no layer is declared or the mode is invalid.
+        """
+        if self._job_complete:
+            raise RuntimeError(
+                "set_mode() called after end_job() — no flush boundary "
+                "remains to stage it"
+            )
+        super().set_mode(mode)
+
+    def set_overscan(self, overscan: str) -> None:
+        """Buffer an overscan mode change (flushed at next boundary).
+
+        Delegates to the base method, which validates at call time
+        (``ValueError`` for no declared layer or invalid overscan) and
+        mirrors the line into the local transcript. The rpascript is
+        change-gated: only an actual overscan change reaches the server.
+
+        Raises:
+            RuntimeError: If the job is complete — after end_job() no
+                flush boundary remains, so fail fast instead of silently
+                dropping the action.
+            ValueError: If no layer is declared or the overscan mode is
+                invalid.
+        """
+        if self._job_complete:
+            raise RuntimeError(
+                "set_overscan() called after end_job() — no flush boundary "
+                "remains to stage it"
+            )
+        super().set_overscan(overscan)
 
     # ------------------------------------------------------------------ #
     #  Staging passthrough and getters — last-flushed server state only

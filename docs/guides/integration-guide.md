@@ -318,7 +318,7 @@ below shows which section each GlueScript call produces:
 | Layer Settings (§10.5) | Yes | `declare_layer()` (+ `LAST_LAYER` from `stage_gluescript`) |
 | Offset Settings (§10.6) | No | `set_head_script` raw rpascript if needed |
 | Array Settings (§10.7) | No | `set_head_script` raw rpascript if needed |
-| Layer Actions (§10.8) | Yes | `move_xy_to()`/`move_x_to()`/`move_y_to()`/`cut_xy_to()`/`cut_x_to()`/`cut_y_to()`/`power()`/`power_range()`/`air_assist_on()`/`air_assist_off()`/`cut_speed()`/`move_speed()`/`frequency()`/`pwm()`/`select_laser()` |
+| Layer Actions (§10.8) | Yes | `move_xy_to()`/`move_x_to()`/`move_y_to()`/`cut_xy_to()`/`cut_x_to()`/`cut_y_to()`/`power()`/`power_range()`/`set_mode()`/`set_overscan()`/`air_assist_on()`/`air_assist_off()`/`cut_speed()`/`move_speed()`/`frequency()`/`pwm()`/`select_laser()` |
 | Tail (§10.9) | Yes | `stage_gluescript()` emits `END_JOB`/`EOF` (extra tail via `set_tail_script`) |
 
 The staged output is structured as: job header (Section 1) → inline prelude →
@@ -731,6 +731,9 @@ session is required.
 | `cut_x_to` | `(x)` | `None` | No |
 | `cut_y_to` | `(y)` | `None` | No |
 | `power` | `(percent=None)` | `None` | No |
+| `power_range` | `(min=None, max=None)` | `None` | No |
+| `set_mode` | `(mode)` | `None` | No |
+| `set_overscan` | `(overscan)` | `None` | No |
 | `air_assist_on` | `()` | `None` | No |
 | `air_assist_off` | `()` | `None` | No |
 | `cut_speed` | `(speed)` | `None` | No |
@@ -839,7 +842,8 @@ Calling the service root directly sends one RPC per command: every
 on the wire. `rpalib/rpyc_client.RpcRdDriver` is a thin client-side wrapper
 around the same service root that buffers the high-volume layer actions —
 `move_xy_to`/`move_x_to`/`move_y_to`, `cut_xy_to`/`cut_x_to`/`cut_y_to`,
-`power`, `air_assist_on`/`air_assist_off`, `cut_speed`, `move_speed`,
+`power`, `power_range`, `set_mode`, `set_overscan`,
+`air_assist_on`/`air_assist_off`, `cut_speed`, `move_speed`,
 `frequency`, `pwm`, `select_laser` — locally and flushes them to the
 server at each `declare_layer`/`end_job` boundary. A job with thousands of
 moves and cuts reaches the server in a handful of round trips instead of one
@@ -1001,7 +1005,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Surface area | Methods | Notes |
 | ------------ | ------- | ----- |
 | Job authoring | `new_gluescript`, `comment`, `inline`, `delay`, `wait`, `declare_job`, `declare_layer`, `end_job` | Buffered locally over RPC; flushed at layer/job boundaries (see §3.8) |
-| Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `air_assist_on`, `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`, `select_laser` | Same buffering note; `power_range` sets the min/max power ramp range for the layer (accel/decel), expanding to `MIN_POWER_1`/`MAX_POWER_1`; `cut_speed` expands to `CUT_SPEED_LASER_1`; `move_speed`/`frequency`/`pwm` expand to comments only; `select_laser(1)` emits `LASER_DEVICE_1` |
+| Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `set_mode`, `set_overscan`, `air_assist_on`, `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`, `select_laser` | Same buffering note; `power_range` sets the min/max power ramp range for the layer (accel/decel), expanding to `MIN_POWER_1`/`MAX_POWER_1`; `set_mode`/`set_overscan` switch the layer mode / overscan mid-stream (change-gated); `cut_speed` expands to `CUT_SPEED_LASER_1`; `move_speed`/`frequency`/`pwm` expand to comments only; `select_laser(1)` emits `LASER_DEVICE_1` |
 | Staging & getters | `stage_gluescript`, `stage_gluescript_delta`, `gluescript`/`rpascript` attributes — plus RPC-only getters `get_gluescript()`/`get_rpascript()` on the wrapper | `stage_gluescript` returns a SHA-256 signature; the direct driver exposes the attributes directly |
 | Lifecycle & execution | `start`, `stop`, `run`, `run_job`, `cancel_script` | `start` returns bool |
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |

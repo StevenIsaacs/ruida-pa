@@ -480,6 +480,14 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info(f"[RPC] gluescript power_range({min}, {max})")
         return self._exposed_gluescript("power_range", min, max)
 
+    def exposed_set_mode(self, mode: str) -> None:
+        self._rpc_info(f"[RPC] gluescript set_mode({mode!r})")
+        return self._exposed_gluescript("set_mode", mode)
+
+    def exposed_set_overscan(self, overscan: str) -> None:
+        self._rpc_info(f"[RPC] gluescript set_overscan({overscan!r})")
+        return self._exposed_gluescript("set_overscan", overscan)
+
     def exposed_air_assist_on(self) -> None:
         self._rpc_info("[RPC] gluescript air_assist_on()")
         return self._exposed_gluescript("air_assist_on")

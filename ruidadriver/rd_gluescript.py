@@ -82,6 +82,8 @@ class GlueScript:
         jog_xy_speed: float — Jog speed for XY axes in mm/s.
         jog_z_speed: float — Jog speed for Z axis in mm/s.
         jog_u_speed: float — Jog speed for U axis in mm/s.
+        _current_layer_overscan: str — Effective overscan of the current
+            layer; updated by declare_layer()/set_mode()/set_overscan().
     """
 
     _version = __version__
@@ -171,6 +173,9 @@ class GlueScript:
         # Layer counter and current mode
         self._layer: int = 0
         self._current_layer_mode: str = "VECTOR"
+        # Effective overscan of the current layer (mirrors the overscan
+        # lines emitted for the current layer; reset per declare_layer).
+        self._current_layer_overscan: str = "NONE"
 
         # Per-layer bounding box (reset each declare_layer)
         self._layer_trx: float = float('inf')
@@ -289,6 +294,8 @@ class GlueScript:
             "cut_y_to",
             "power",
             "power_range",
+            "set_mode",
+            "set_overscan",
             "air_assist_on",
             "air_assist_off",
             "cut_speed",
@@ -454,6 +461,7 @@ class GlueScript:
         self.doc_bl_y = -float('inf')
         self._layer = 0
         self._current_layer_mode = "VECTOR"
+        self._current_layer_overscan = "NONE"
         self._layer_trx = float('inf')
         self._layer_try = float('inf')
         self._layer_blx = -float('inf')
@@ -831,6 +839,7 @@ class GlueScript:
         # Increment layer counter and set mode
         self._layer += 1
         self._current_layer_mode = mode
+        self._current_layer_overscan = resolved_overscan
 
         # Reset per-layer bounding box
         self._layer_trx = float('inf')
@@ -1394,6 +1403,86 @@ class GlueScript:
             f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{resolved_max}%",
             *power_warnings,
         ])
+
+    def set_mode(self, mode: str) -> None:
+        """Switch the current layer to another layer mode mid-stream.
+
+        Changes the mode used by downstream gating (e.g. ``power()`` only
+        fires in IMAGE/DEPTHMAP layers) and forces the mode's overscan
+        override when the effective overscan differs. The rpascript is
+        change-gated: a switch to the layer's current mode emits only the
+        transcript line and emits no rpascript at all.
+
+        A mid-stream mode switch has NO direct rpascript line beyond the
+        overscan-forcing: switching to VECTOR re-emits OVERSCAN_OFF (when
+        the effective overscan differs), and switching to a non-override
+        mode emits nothing — an explicitly set overscan persists across
+        the switch and must be cancelled with ``set_overscan("NONE")``.
+        A declared overscan is not restored when returning to a
+        non-override mode; the caller restores it via ``set_overscan``.
+
+        Args:
+            mode: Layer mode (VECTOR, RASTER, DITHER, IMAGE, DEPTHMAP).
+
+        Raises:
+            ValueError: If no layer is declared, or mode is invalid.
+        """
+        if self._layer < 1:
+            raise ValueError(
+                "set_mode() requires a declared layer — call "
+                "declare_layer() first"
+            )
+        if mode not in self._layer_modes:
+            raise ValueError(
+                f"Invalid layer mode: {mode!r}. "
+                f"Valid options: {', '.join(self._layer_modes)}"
+            )
+        self.gluescript.append(f"set_mode({mode!r})")
+        if mode == self._current_layer_mode:
+            return
+        self._current_layer_mode = mode
+        override = self._layer_modes[mode]
+        if override and self._current_layer_overscan != override:
+            self._layer_actions.setdefault(self._layer, []).extend(
+                list(self._overscan_modes[override])
+            )
+            self._current_layer_overscan = override
+
+    def set_overscan(self, overscan: str) -> None:
+        """Set the overscan mode for the current layer at the call position.
+
+        Unlike ``declare_layer()``, this method does NOT consult the
+        VECTOR mode override: the caller has opted into explicit
+        per-section overscan, so the requested mode is emitted verbatim
+        into the current layer's action block at the call position. This
+        allows per-section overscan within a single layer.
+
+        The rpascript is change-gated: setting the effective overscan to
+        its current value emits only the transcript line.
+
+        Args:
+            overscan: Overscan mode (NONE, X, X_BI, Y, Y_BI, XY).
+
+        Raises:
+            ValueError: If no layer is declared, or overscan is invalid.
+        """
+        if self._layer < 1:
+            raise ValueError(
+                "set_overscan() requires a declared layer — call "
+                "declare_layer() first"
+            )
+        if overscan not in self._overscan_modes:
+            raise ValueError(
+                f"Invalid overscan mode: {overscan!r}. "
+                f"Valid options: {', '.join(self._overscan_modes)}"
+            )
+        self.gluescript.append(f"set_overscan({overscan!r})")
+        if overscan == self._current_layer_overscan:
+            return
+        self._layer_actions.setdefault(self._layer, []).extend(
+            list(self._overscan_modes[overscan])
+        )
+        self._current_layer_overscan = overscan
 
     def air_assist_on(self) -> None:
         """Enable air assist for the current layer.

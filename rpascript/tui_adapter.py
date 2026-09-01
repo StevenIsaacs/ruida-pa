@@ -2777,6 +2777,22 @@ class TuiAdapter(App):
             lambda: self._ensure_gluescript_driver().power_range(min, max)
         )
 
+    def gluescript_set_mode(self, mode: str) -> None:
+        """Switch the current layer to another layer mode mid-stream
+        (session-less).
+        """
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().set_mode(mode)
+        )
+
+    def gluescript_set_overscan(self, overscan: str) -> None:
+        """Set the overscan mode for the current layer at the call position
+        (session-less).
+        """
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().set_overscan(overscan)
+        )
+
     def gluescript_air_assist_on(self) -> None:
         """Enable air assist for the current layer (session-less)."""
         return self._gluescript_bridge(
