@@ -357,7 +357,7 @@ Mnemonics resolve to 2-byte memory addresses (MSB, LSB).
 
 | Mnemonic                    | Address   | Value Type      | Description                    |
 | --------------------------- | --------- | --------------- | ------------------------------ |
-| `MEM_MACHINE_STATUS`        | `0x0400` | `int` (bitmask) | bit 0=Moving, bit 1=Part End, bit 2=Job Running |
+| `MEM_MACHINE_STATUS`        | `0x0400` | `int` (bitmask) | bit 24=Moving, bit 1=Paused, bit 0=Job Running |
 | `MEM_CURRENT_POSITION_X`    | `0x0421` | `float`/`int`   | Current X position             |
 | `MEM_CURRENT_POSITION_Y`    | `0x0431` | `float`/`int`   | Current Y position             |
 | `MEM_CURRENT_POSITION_Z`    | `0x0441` | `float`/`int`   | Current Z position             |

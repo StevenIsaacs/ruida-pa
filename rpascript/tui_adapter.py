@@ -708,7 +708,7 @@ class TuiAdapter(App):
         self._connection_logging_enabled: bool = False
         self._status_bits: dict[str, bool] = {
             "MACHINE_STATUS_MOVING": False,
-            "MACHINE_STATUS_LAYER_END": False,
+            "MACHINE_STATUS_PAUSED": False,
             "MACHINE_STATUS_JOB_RUNNING": False,
         }
         # Memory monitor state
@@ -1357,7 +1357,7 @@ class TuiAdapter(App):
             "  delay <time>              Pause execution (e.g. 5s, 100ms)\n"
             "  wait <status> \\[to=...]    Wait for MACHINE_STATUS_* bit\n"
             "  wait !<status> \\[to=...]   Wait for lifecycle (active then inactive)\n"
-            "  Statuses: MACHINE_STATUS_MOVING, MACHINE_STATUS_LAYER_END,\n"
+            "  Statuses: MACHINE_STATUS_MOVING, MACHINE_STATUS_PAUSED,\n"
             "            MACHINE_STATUS_JOB_RUNNING\n"
             "  to=   Optional timeout (e.g. to=30s). Default: forever\n"
             "\n"
@@ -4126,7 +4126,7 @@ class TuiAdapter(App):
                     self._machine_status_formatted = formatted
                 elif key in (
                     "MACHINE_STATUS_MOVING",
-                    "MACHINE_STATUS_LAYER_END",
+                    "MACHINE_STATUS_PAUSED",
                     "MACHINE_STATUS_JOB_RUNNING",
                 ):
                     self._status_bits[key] = bool(value)
@@ -4597,10 +4597,10 @@ class TuiAdapter(App):
             status_parts.append("[bold green]MOVE[/bold green]")
         else:
             status_parts.append("MOVE")
-        if self._status_bits["MACHINE_STATUS_LAYER_END"]:
-            status_parts.append("[bold green]LAYER[/bold green]")
+        if self._status_bits["MACHINE_STATUS_PAUSED"]:
+            status_parts.append("[bold green]PAUSE[/bold green]")
         else:
-            status_parts.append("LAYER")
+            status_parts.append("PAUSE")
         if self._status_bits["MACHINE_STATUS_JOB_RUNNING"]:
             status_parts.append("[bold green]JOB[/bold green]")
         else:

@@ -332,7 +332,7 @@ class RdStatusEvent(Enum):
     QUERY_SENT               # Query command list transmitted
     QUERY_RECEIVED           # Query replies received
     MACHINE_STATUS_MOVING    # Machine is moving (bit 0)
-    MACHINE_STATUS_LAYER_END  # Part end detected (bit 1)
+    MACHINE_STATUS_PAUSED  # Job paused (bit 1)
     MACHINE_STATUS_JOB_RUNNING  # Job is running (bit 2)
 ```
 
@@ -637,7 +637,7 @@ Called from the handshake thread for each batch of unpacked replies:
    - Decode address via `RdDecoder.decode_address()`.
    - Decode value via `RdDecoder.decode_value()`.
    - Store in `_machine_status[address]`.
-   - If address is `0x0400` (machine status): parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_LAYER_END`, `MACHINE_STATUS_JOB_RUNNING` events and fire them.
+   - If address is `0x0400` (machine status): parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, `MACHINE_STATUS_JOB_RUNNING` events and fire them.
    - If address is `0x057E` (card ID): queue `_BED_SIZE_SCRIPT` via `self.run()`, wrapped in `try/except JobRunningError: pass` — the bed-size query is skipped while a job runs and retried on the next card-ID reply (see §5.1.10).
 2. Forward raw replies to all registered reply listeners.
 
@@ -649,7 +649,7 @@ def _parse_machine_status(value: int) -> list[RdStatusEvent]
 
 Reads bit flags from the protocol's `MACHINE_STATUS_*` constants:
 - Bit 0 → `MACHINE_STATUS_MOVING`
-- Bit 1 → `MACHINE_STATUS_LAYER_END`
+- Bit 1 → `MACHINE_STATUS_PAUSED`
 - Bit 2 → `MACHINE_STATUS_JOB_RUNNING`
 
 #### 5.1.8 Listener Registration
@@ -767,7 +767,7 @@ A Textual-based terminal user interface that implements (duck-types) the `AppAda
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.20.1            [Header]   │
+│  Ruida Script TUI v0.20.2            [Header]   │
 ├──────────────────────────┬──────────────────────┤
 │                          │  [STATUS] CONNECTED   │
 │  Log Area                │  [STATUS] PING_SENT   │

@@ -344,7 +344,7 @@ thread). UI applications must use thread-safe dispatch mechanisms
 
 | Address | Mnemonic | Value Type | Description |
 |---------|----------|------------|-------------|
-| `0x0400` | `MEM_MACHINE_STATUS` | `int` | Bitmask: bit 0=Moving, bit 1=Part end, bit 2=Job running |
+| `0x0400` | `MEM_MACHINE_STATUS` | `int` | Bitmask: bit 24=Moving, bit 1=Paused, bit 0=Job running |
 | `0x0421` | `MEM_CURRENT_POSITION_X` | `int` | Current X (raw) |
 | `0x0431` | `MEM_CURRENT_POSITION_Y` | `int` | Current Y (raw) |
 | `0x0441` | `MEM_CURRENT_POSITION_Z` | `int` | Current Z (raw) |
@@ -411,7 +411,7 @@ changed since the last update are present. Non-bool values are
 `(raw_value, formatted_string)` tuples.
 
 `MACHINE_STATUS` carries the raw status bitfield (`tuple[int, str]`); its
-decoded bool flags `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_LAYER_END`, and
+decoded bool flags `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, and
 `MACHINE_STATUS_JOB_RUNNING` appear as separate keys when their bits change.
 Dimension values (`POSITION_*`, `BED_SIZE_*`) are `tuple[float, str]` with
 the float in millimeters.
@@ -427,7 +427,7 @@ class StatusDict(TypedDict, total=False):
     Non-bool values are (raw_value, formatted_string) tuples.
 
     MACHINE_STATUS carries the raw status bitfield (tuple[int, str]);
-    its decoded bool flags MACHINE_STATUS_MOVING / _LAYER_END /
+    its decoded bool flags MACHINE_STATUS_MOVING / _PAUSED /
     _JOB_RUNNING appear as separate keys when their bits change.
     Dimension values (POSITION_*, BED_SIZE_*) are tuple[float, str]
     with the float in mm.
@@ -442,7 +442,7 @@ class StatusDict(TypedDict, total=False):
     BED_SIZE_Y: tuple[float, str]
     MACHINE_STATUS: tuple[int, str]
     MACHINE_STATUS_MOVING: bool
-    MACHINE_STATUS_LAYER_END: bool
+    MACHINE_STATUS_PAUSED: bool
     MACHINE_STATUS_JOB_RUNNING: bool
 ```
 

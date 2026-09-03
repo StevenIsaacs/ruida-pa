@@ -39,7 +39,7 @@ class StatusDict(TypedDict, total=False):
     Non-bool values are (decoded_value, formatted_string) tuples.
 
     MACHINE_STATUS carries the raw status bitfield (tuple[int, str]);
-    its decoded bool flags MACHINE_STATUS_MOVING / _LAYER_END /
+    its decoded bool flags MACHINE_STATUS_MOVING / _PAUSED /
     _JOB_RUNNING appear as separate keys when their bits change.
     Dimension values (POSITION_*, BED_SIZE_*) are tuple[float, str]
     with the float in mm.
@@ -54,7 +54,7 @@ class StatusDict(TypedDict, total=False):
     BED_SIZE_Y: tuple[float, str]
     MACHINE_STATUS: tuple[int, str]
     MACHINE_STATUS_MOVING: bool
-    MACHINE_STATUS_LAYER_END: bool
+    MACHINE_STATUS_PAUSED: bool
     MACHINE_STATUS_JOB_RUNNING: bool
 
 
@@ -110,7 +110,7 @@ class RdDriver(GlueScript):
     # Machine status bit name → mask mapping (used by _handle_wait)
     _STATUS_NAME_TO_BIT = {
         "MACHINE_STATUS_MOVING": rdap.MACHINE_STATUS_MOVING[0],
-        "MACHINE_STATUS_LAYER_END": rdap.MACHINE_STATUS_LAYER_END[0],
+        "MACHINE_STATUS_PAUSED": rdap.MACHINE_STATUS_PAUSED[0],
         "MACHINE_STATUS_JOB_RUNNING": rdap.MACHINE_STATUS_JOB_RUNNING[0],
     }
 
@@ -160,7 +160,7 @@ class RdDriver(GlueScript):
         self._address_to_bit_keys: dict[int, list[tuple[str, int]]] = {}
         self._address_to_bit_keys[0x0400] = [
             ("MACHINE_STATUS_MOVING", rdap.MACHINE_STATUS_MOVING[0]),
-            ("MACHINE_STATUS_LAYER_END", rdap.MACHINE_STATUS_LAYER_END[0]),
+            ("MACHINE_STATUS_PAUSED", rdap.MACHINE_STATUS_PAUSED[0]),
             ("MACHINE_STATUS_JOB_RUNNING", rdap.MACHINE_STATUS_JOB_RUNNING[0]),
         ]
         self._address_to_spec: dict[int, tuple[str, str, str]] = {}
@@ -352,29 +352,27 @@ class RdDriver(GlueScript):
                 pass  # Isolate bad callbacks
 
     @staticmethod
-    def _diff_machine_status_bits(
+    def _machine_status_bits(
         address: int,
         prev: object,
         new_value: int,
         address_to_bit_keys: dict[int, list[tuple[str, int]]],
     ) -> dict[str, bool]:
-        """Compare old and new machine status values and return changed bits as bool dict.
+        """Extract machine status booleans from *new_value* when address is 0x0400.
 
-        Returns dict with changed bit names → bool value. Empty dict if address is not 0x0400.
+        Returns a dict with all three status booleans computed directly from
+        *new_value*.  The *prev* parameter is accepted for backward
+        compatibility but ignored — callers always receive the full current
+        state, not just transitions.  Returns an empty dict when *address*
+        is not 0x0400.
         """
-        bit_changes: dict[str, bool] = {}
         if address != 0x0400:
-            return bit_changes
-        bit_keys = address_to_bit_keys.get(0x0400, [])
-        for bit_name, bit_mask in bit_keys:
-            if prev is not _UNSET:
-                prev_set = bool(prev & bit_mask)
-                new_set = bool(new_value & bit_mask)
-                if prev_set != new_set:
-                    bit_changes[bit_name] = new_set
-            else:
-                bit_changes[bit_name] = bool(new_value & bit_mask)
-        return bit_changes
+            return {}
+        return {
+            "MACHINE_STATUS_MOVING": bool(new_value & 0x01000000),
+            "MACHINE_STATUS_PAUSED": bool(new_value & 0x00000002),
+            "MACHINE_STATUS_JOB_RUNNING": bool(new_value & 0x00000001),
+        }
 
     @staticmethod
     def _format_status_value(address: int, raw_reply: bytearray) -> str:
@@ -529,7 +527,7 @@ class RdDriver(GlueScript):
                     changes[status_key] = (event_value, formatted)
 
                     changes.update(
-                        self._diff_machine_status_bits(
+                        self._machine_status_bits(
                             address, prev, new_value, self._address_to_bit_keys
                         )
                     )
@@ -929,7 +927,7 @@ class RdDriver(GlueScript):
         if bit_mask is None:
             self._notify_script_error(
                 f"Unknown machine status: '{status_name}'. "
-                f"Use MACHINE_STATUS_MOVING, MACHINE_STATUS_LAYER_END, "
+                f"Use MACHINE_STATUS_MOVING, MACHINE_STATUS_PAUSED, "
                 f"or MACHINE_STATUS_JOB_RUNNING"
             )
             return

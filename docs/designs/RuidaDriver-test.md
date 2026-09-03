@@ -324,10 +324,10 @@ These tests require no controller. They verify the core wire-format logic using 
 
 | Field | Value |
 |-------|-------|
-| **Objective** | Verify that `MEM_MACHINE_STATUS` reply is decoded into status events (`MOVING`, `LAYER_END`, `JOB_RUNNING`). |
+| **Objective** | Verify that `MEM_MACHINE_STATUS` reply is decoded into status events (`MOVING`, `PAUSED`, `JOB_RUNNING`). |
 | **Prerequisites** | Active session. |
 | **Steps** | 1. With active TUI session, type `GET_SETTING MEM_MACHINE_STATUS` and press Enter.<br>2. Observe the status log and side panel. |
-| **Expected result** | Status log shows events for `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_LAYER_END`, and/or `MACHINE_STATUS_JOB_RUNNING` reflecting the current machine state. Reply panel shows `0x0400: <decoded_value>`. |
+| **Expected result** | Status log shows events for `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, and/or `MACHINE_STATUS_JOB_RUNNING` reflecting the current machine state. Reply panel shows `0x0400: <decoded_value>`. |
 
 #### Test 4.2.3: Simple Move (Jog) Command
 - [x] Test 4.2.3

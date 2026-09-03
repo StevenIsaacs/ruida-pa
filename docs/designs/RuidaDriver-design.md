@@ -171,7 +171,7 @@ GET_SETTING MEM_CURRENT_POSITION_U
 `RdDriver` parses the `MEM_MACHINE_STATUS` reply into three separate events which are recorded and forwarded individually. These are (see protocols/ruida/ruida_protocol.py):
 ```
 MACHINE_STATUS_MOVING
-MACHINE_STATUS_LAYER_END
+MACHINE_STATUS_PAUSED
 MACHINE_STATUS_JOB_RUNNING
 ```
 ## Session (L5)

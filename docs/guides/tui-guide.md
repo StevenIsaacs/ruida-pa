@@ -63,7 +63,7 @@ enforced when `--rpc-host` is a non-local address.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.20.1               [Header]   │
+│  Ruida Script TUI v0.20.2               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │
@@ -241,7 +241,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 - `DELAY` — blocks the script runner for the specified duration (interruptible).
 - `WAIT` — polls a status bit until it matches. Prefix `!` means "wait for
   active, then wait for inactive" (full lifecycle). Optional `to=` timeout.
-- Available status bits: `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_LAYER_END`,
+- Available status bits: `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`,
   `MACHINE_STATUS_JOB_RUNNING`.
 
 ---
