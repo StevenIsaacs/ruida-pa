@@ -60,8 +60,9 @@ class RpycTuiService(rpyc.Service):
         self._callback_thread = threading.Thread(target=self._callback_loop, daemon=True)
         self._callback_thread.start()
 
-        # Initialize logging state (disabled by default - Early Exit pattern)
-        self._logging_enabled = False
+        # Initialize logging state (enabled by default)
+        self._logging_enabled = True
+        self._last_is_connected: bool | None = None
 
     @property
     def _adapter(self) -> TuiAdapter:
@@ -96,7 +97,7 @@ class RpycTuiService(rpyc.Service):
         self._adapter._log_info("[RPC] Logging enabled")
 
     def disable_logging(self) -> None:
-        """Disable verbose RPC logging (default state)."""
+        """Disable verbose RPC logging."""
         self._logging_enabled = False
         # Log this change since it's a configuration change we want to track
         self._adapter._log_info("[RPC] Logging disabled")
@@ -807,7 +808,11 @@ class RpycTuiService(rpyc.Service):
 
     def exposed_is_connected(self) -> bool:
         result = self._adapter.is_connected
-        self._rpc_info(f"[RPC] RPC is_connected -> {result}")
+        # State-change logging. Note: TuiAdapter.is_connected also logs on
+        # transition (tui_adapter.py:4884); both fire with distinct prefixes.
+        if self._last_is_connected != result:
+            self._rpc_info(f"[RPC] RPC is_connected -> {result}")
+            self._last_is_connected = result
         return result
 
     def exposed_machine_status(self) -> dict[int, Any]:
