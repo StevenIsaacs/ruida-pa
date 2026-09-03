@@ -65,7 +65,7 @@ def stop(self) -> None
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue rpascript-formatted lines for background execution. Raises `RuntimeError` if runner not started. Empty scripts are silent no-op. |
+| `run` | `(script: list[str], auto_checksum: bool = False)` | `None` | Queue rpascript-formatted lines for background execution. Raises `RuntimeError` if runner not started. Raises `JobRunningError` if the controller is running a job (see §3.8). Empty scripts are silent no-op. |
 | `run_job` | `(job: list[str] \| None = None, auto_checksum: bool = False)` | `None` | Compose head + job + tail under the driver lock and queue via `run()`. `job=None` runs the rpascript most recently staged by `stage_gluescript()`. Raises `RuntimeError` if `job` is `None` and nothing has been staged. |
 | `stage_gluescript` | `(gluescript: list[str] \| None = None, require_complete: bool = True)` | `str` | Finalize the rpascript from GlueScript state, or re-stage a transcript. Returns the SHA-256 signature of the staged transcript; failures raise `RuntimeError`. |
 | `stage_gluescript_delta` | `(flushed_count: int, delta_lines: list[str], require_complete: bool = True)` | `str` | Incrementally replay only the newly appended transcript lines onto the existing staged state (no reset). Raises `GlueScriptDeltaMismatchError` when `flushed_count` does not equal the current transcript length. Returns the SHA-256 signature of the staged transcript. |
@@ -271,6 +271,44 @@ ENABLE_BLOCK_CUTTING State:OFF
 
 The default tail script is empty.
 
+### 3.8 Job-Running Guard
+
+While the controller is running a job, every GlueScript command except the
+job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
+`JobRunningError` — a `RuntimeError` subclass — instead of executing.
+
+**Guarded commands (48).** `GlueScript._GUARDED_COMMANDS` is every registry
+command except `JOB_CONTROL_COMMANDS`, plus the staging/run entry points:
+
+- All authoring commands: `new_gluescript`, `comment`, `inline`, `delay`,
+  `wait`, `declare_job`, `end_job`, `declare_layer`, `move_*_to`,
+  `cut_*_to`, `power`, `power_range`, `set_mode`, `set_overscan`,
+  `air_assist_on`/`air_assist_off`, `cut_speed`, `move_speed`, `frequency`,
+  `pwm`, `select_laser`.
+- All jog and home commands: `jog_*` (including the `jog_set_*` config
+  setters), `home`, `home_z`, `home_u`.
+- The staging/run entry points: `stage_gluescript`,
+  `stage_gluescript_delta`, `run`, `run_job`.
+
+The `move_z_to`/`move_u_to`/`cut_z_to`/`cut_u_to` stubs are unguarded but
+moot — they raise `NotImplementedError` before any guard could matter.
+
+**`_job_running()` hook.** The base `GlueScript._job_running()` returns
+`False` (session-less authoring drivers have no status). `RdDriver`
+overrides it to read the `MACHINE_STATUS_JOB_RUNNING` bit of the decoded
+`0x0400` machine-status value under `self._lock`; `RpcRdDriver` overrides it
+to read a status-event cache updated by an internal status listener
+registered lazily on the server (reset on `DISCONNECTED`/`TERMINATED`).
+Detection is bounded by the status monitor's poll interval (0.5s), so a job
+that starts between polls is not seen immediately.
+
+**`_queue_script()` internal method.** `run()` delegates to the unguarded
+`_queue_script()`; the guard is applied to `run` itself via
+`GlueScript.__init_subclass__`, which wraps every guarded method on each
+subclass. `_emit_live_lines()` — used by the job-control commands and by
+jogs/homing — calls `_queue_script()` directly, so job-control commands
+reach the controller while a job runs.
+
 ---
 
 ## 4. Listener Registration
@@ -463,6 +501,7 @@ class StatusDict(TypedDict, total=False):
 | `END_JOB` mismatch + `auto_checksum=False` | Raises `ValueError` with expected/actual values |
 | `END_JOB` mismatch + `auto_checksum=True` | Auto-recalculates checksum; logs warning; continues |
 | Duplicate `END_JOB` | Raises `ValueError("Duplicate END_JOB")` |
+| Guarded gluescript command while a job runs | Raises `JobRunningError` (a `RuntimeError` subclass) — see §3.8 |
 | Listener callback raises exception | Caught by `except Exception: pass`; other listeners unaffected |
 
 ---

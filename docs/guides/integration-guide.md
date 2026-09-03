@@ -231,6 +231,7 @@ Key threading rules:
 | `END_JOB` mismatch + `auto_checksum=False` | Raises `ValueError` with expected/actual values |
 | `END_JOB` mismatch + `auto_checksum=True` | Auto-recalculates checksum; logs warning; continues |
 | Duplicate `END_JOB` | Raises `ValueError("Duplicate END_JOB")` |
+| Guarded gluescript command while a job runs | Raises `JobRunningError` (a `RuntimeError` subclass) — see §2.12 |
 | Listener callback raises exception | Caught by `except Exception: pass`; other listeners unaffected |
 
 ### 2.9 Head/Tail Script Management
@@ -460,6 +461,28 @@ active session, script runner not started, or the command produced no lines
 The `jog_set_*` config setters return `None` and configure the live jog
 session without a session. These commands are live-only and never persisted
 to `.cglu`.
+
+### 2.12 Job-Running Guard
+
+While the controller is running a job, every GlueScript command except the
+job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
+`JobRunningError` — a `RuntimeError` subclass — instead of executing. The
+guarded set (48 commands) covers authoring (`declare_job`, `declare_layer`,
+move/cut, `power`, ...), staging (`stage_gluescript`,
+`stage_gluescript_delta`), execution (`run`, `run_job`), jogs, and homing.
+
+Adapters should catch `JobRunningError` around guarded calls and either
+surface it to the user or retry after the job finishes. Letting it propagate
+is also safe — it is a `RuntimeError`, so existing `except RuntimeError`
+handlers already cover it (fail loud). The job-control commands always work
+and are the sanctioned way to interrupt a running job.
+
+Detection is not instantaneous: the direct driver reads the last status
+query reply, so a job that starts between polls is not seen until the next
+poll (up to 0.5s later). Over RPC the same poll-driven freshness applies via
+the server-side status events. A guarded call issued in that window is
+accepted and queued; the guard only rejects calls made after the running
+state is observed.
 
 ---
 

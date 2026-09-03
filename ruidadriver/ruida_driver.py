@@ -26,7 +26,7 @@ from rpascript.encoding import (
 )
 from rpascript.interpreter import ScriptParser
 from ruidadriver.rd_session import RdSession
-from ruidadriver.rd_gluescript import GlueScript
+from ruidadriver.rd_gluescript import GlueScript, JobRunningError
 from ruidadriver.rd_status import RdStatusEvent
 
 _UNSET = object()  # Sentinel for "never seen before" in status change detection
@@ -541,7 +541,11 @@ class RdDriver(GlueScript):
                     self.update_position(**{axis: event_value})
 
                 if status_key == "CARD_ID":
-                    self.run(self._BED_SIZE_SCRIPT)
+                    try:
+                        self.run(self._BED_SIZE_SCRIPT)
+                    except JobRunningError:
+                        logging.debug("Skipping bed-size query: job running")
+                        pass  # Job running — skip bed-size query; retried next CARD_ID
             else:
                 forward_replies_raw.append(raw_reply)
 
@@ -760,8 +764,11 @@ class RdDriver(GlueScript):
 
     # ---- Script Execution API ----
 
-    def run(self, script: list[str], auto_checksum: bool = False) -> None:
-        """Queue a script for background execution.
+    def _queue_script(self, script: list[str], auto_checksum: bool = False) -> None:
+        """Queue a script for background execution without the job-running guard.
+
+        Internal path used by _emit_live_lines so the job-control commands
+        (pause/resume/stop_job/reset) can reach the controller while a job runs.
 
         Args:
             script: List of rpascript-formatted command lines.
@@ -779,6 +786,20 @@ class RdDriver(GlueScript):
             if not script:
                 return  # Empty script is a no-op
             self._script_queue.put((script, auto_checksum))
+
+    def run(self, script: list[str], auto_checksum: bool = False) -> None:
+        """Queue a script for background execution.
+
+        Args:
+            script: List of rpascript-formatted command lines.
+            auto_checksum: If True, auto-calculate END_JOB on mismatch
+                with a warning instead of raising.
+
+        Raises:
+            RuntimeError: If script runner is not started.
+            JobRunningError: If the controller is running a job.
+        """
+        self._queue_script(script, auto_checksum)
 
     def cancel_script(self) -> None:
         """Cancel all queued scripts and prevent current script from requeuing.
@@ -964,6 +985,14 @@ class RdDriver(GlueScript):
                     break
                 time.sleep(0.05)
 
+    def _job_running(self) -> bool:
+        """Return True while the controller is running a job."""
+        with self._lock:
+            return bool(
+                self._decoded_values.get(0x0400, 0)
+                & rdap.MACHINE_STATUS_JOB_RUNNING[0]
+            )
+
     # ---- Properties ----
 
     @property
@@ -990,7 +1019,7 @@ class RdDriver(GlueScript):
             logging.warning("live command ignored - no active session")
             return None
         try:
-            self.run(lines)
+            self._queue_script(lines)
         except RuntimeError as exc:
             logging.warning("live command not sent - %s", exc)
             return None

@@ -64,7 +64,7 @@ from rpascript.encoding import encode_command, is_resolvable_address, parse_valu
 from rpascript.interpreter import ScriptParser, reconstruct_script_line
 from ruidadriver.rd_status import RdStatusEvent
 from ruidadriver.ruida_driver import RdDriver, StatusDict
-from ruidadriver.rd_gluescript import GlueScript
+from ruidadriver.rd_gluescript import GlueScript, JobRunningError
 
 from rpyc.utils.server import ThreadedServer
 
@@ -2490,13 +2490,16 @@ class TuiAdapter(App):
 
         Returns True when the job is (now) complete. Logs a friendly error
         and returns False when there is no declared job to finalize
-        (end_job() would raise — the only remaining RuntimeError given the
-        job_complete guard).
+        (end_job() would raise RuntimeError) or when a job is running
+        (end_job() would raise JobRunningError).
         """
         if driver.job_complete:
             return True
         try:
             driver.end_job()
+        except JobRunningError:
+            self._log_error("Cannot finalize while a job is running.")
+            return False
         except RuntimeError:
             self._log_error("No job to finalize. Use /gluescript new to start a job.")
             return False
@@ -3314,7 +3317,11 @@ class TuiAdapter(App):
 
         if sub == "new":
             label = " ".join(tokens[1:]).strip() or "New Job"
-            driver.declare_job(label=label, ref_point="MACHINE")
+            try:
+                driver.declare_job(label=label, ref_point="MACHINE")
+            except JobRunningError:
+                self._log_error("Cannot start a new job while a job is running.")
+                return
             self._gluescript_was_run = False
             self._gluescript_cglu_path = None
             # Wipe the loaded-script slot too: the previous job's rpascript
@@ -3524,7 +3531,11 @@ class TuiAdapter(App):
         except RuntimeError as e:
             self._log_error(f"{fail_prefix} failed: {e}")
             return None
-        driver.stage_gluescript(kept_lines)
+        try:
+            driver.stage_gluescript(kept_lines)
+        except JobRunningError:
+            self._log_error("Cannot apply gluescript lines while a job is running.")
+            return None
         self._copy_staged_rpascript_to_loaded()
         return kept_lines, len(driver.rpascript)
 

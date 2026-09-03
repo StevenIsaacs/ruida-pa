@@ -707,6 +707,7 @@ class ScriptInterpreter:
         for cmd in commands:
             if cmd["type"] == "SESSION_START":
                 from ruidadriver.ruida_driver import RdDriver
+                from ruidadriver.rd_gluescript import JobRunningError
 
                 params = cmd.get("params", {})
                 # Parse optional magic number (hex string to int)
@@ -746,7 +747,13 @@ class ScriptInterpreter:
                         "Use 'session start' first."
                     )
                 line = reconstruct_script_line(cmd)
-                driver.run([line])
+                try:
+                    driver.run([line])
+                except JobRunningError:
+                    self._out.write(
+                        "# ERROR: Cannot execute command while a job is running.\n"
+                    )
+                    break
 
         # Clean up if session wasn't explicitly ended
         if driver is not None:

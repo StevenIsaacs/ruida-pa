@@ -7,6 +7,7 @@ as a mixin for RdDriver: class RdDriver(GlueScript).
 """
 
 import ast
+import functools
 import logging
 import re
 import shlex
@@ -20,6 +21,80 @@ from rpalib.gluescript_signature import (
 from rpalib.version import __version__
 
 logger = logging.getLogger(__name__)
+
+
+class JobRunningError(RuntimeError):
+    """Raised when a gluescript command is invoked while the controller
+    is running a job.
+
+    Only the job-control commands (pause, resume, stop_job, reset) are
+    permitted while a job runs; every other gluescript command raises
+    this error via the _job_guard wrapper.
+    """
+
+
+# Registry method names, in registration order. _build_command_registry()
+# maps each name to the bound method for re-staging; the job-running guard
+# (_GUARDED_COMMANDS) derives its guarded set from this list.
+REGISTRY_METHODS = [
+    "new_gluescript",
+    "comment",
+    "inline",
+    "delay",
+    "wait",
+    "declare_job",
+    "end_job",
+    "declare_layer",
+    "move_xy_to",
+    "move_x_to",
+    "move_y_to",
+    "cut_xy_to",
+    "cut_x_to",
+    "cut_y_to",
+    "power",
+    "power_range",
+    "set_mode",
+    "set_overscan",
+    "air_assist_on",
+    "air_assist_off",
+    "cut_speed",
+    "move_speed",
+    "frequency",
+    "pwm",
+    "select_laser",
+    "jog_set_xy_speed",
+    "jog_set_z_speed",
+    "jog_set_u_speed",
+    "jog_set_xy_rel",
+    "jog_set_z_rel",
+    "jog_set_u_rel",
+    "jog_xy_to",
+    "jog_x_to",
+    "jog_y_to",
+    "jog_z_to",
+    "jog_u_to",
+    "jog_xy_rel",
+    "jog_x_rel",
+    "jog_y_rel",
+    "jog_z_rel",
+    "jog_u_rel",
+    "home",
+    "home_z",
+    "home_u",
+    "pause",
+    "resume",
+    "stop_job",
+    "reset",
+]
+
+
+def _job_guard(fn):
+    """Wrap a gluescript command so it raises JobRunningError while a job runs."""
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        self._assert_job_not_running()
+        return fn(self, *args, **kwargs)
+    return wrapper
 
 
 def _strip_inline_comment(line: str) -> str:
@@ -140,6 +215,33 @@ class GlueScript:
     LIVE_ONLY_COMMANDS: frozenset[str] = (
         JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS
     )
+    # Every registry command except the job-control commands, plus the
+    # staging/run entry points — 48 commands total (48 registry methods
+    # − 4 JOB_CONTROL + 4 extra). The move_z_to/move_u_to/cut_z_to/
+    # cut_u_to stubs are unguarded but moot: they raise
+    # NotImplementedError before any guard could matter.
+    _GUARDED_COMMANDS: frozenset[str] = (
+        frozenset(REGISTRY_METHODS) - JOB_CONTROL_COMMANDS
+    ) | frozenset(
+        {"stage_gluescript", "stage_gluescript_delta", "run", "run_job"}
+    )
+
+    def __init_subclass__(cls, **kwargs):
+        """Wrap every guarded command so the job-running guard applies
+        to all subclasses.
+
+        The guard must wrap the subclass's own override, not the base
+        method: RpcRdDriver overrides forward to the server BEFORE calling
+        super(), so a guard inside the base method would fire too late to
+        prevent the RPC call. Wrapping at the subclass level catches the
+        override itself. Re-wrapping on a future subclass is functionally
+        harmless (the guard runs twice).
+        """
+        super().__init_subclass__(**kwargs)
+        for name in cls._GUARDED_COMMANDS:
+            fn = getattr(cls, name, None)
+            if callable(fn):
+                setattr(cls, name, _job_guard(fn))
 
     def __init__(self) -> None:
         """Initialize GlueScript with empty scripts and default state."""
@@ -277,57 +379,7 @@ class GlueScript:
         This registry is used during re-staging to call the appropriate
         method for each gluescript command line.
         """
-        registry_methods = [
-            "new_gluescript",
-            "comment",
-            "inline",
-            "delay",
-            "wait",
-            "declare_job",
-            "end_job",
-            "declare_layer",
-            "move_xy_to",
-            "move_x_to",
-            "move_y_to",
-            "cut_xy_to",
-            "cut_x_to",
-            "cut_y_to",
-            "power",
-            "power_range",
-            "set_mode",
-            "set_overscan",
-            "air_assist_on",
-            "air_assist_off",
-            "cut_speed",
-            "move_speed",
-            "frequency",
-            "pwm",
-            "select_laser",
-            "jog_set_xy_speed",
-            "jog_set_z_speed",
-            "jog_set_u_speed",
-            "jog_set_xy_rel",
-            "jog_set_z_rel",
-            "jog_set_u_rel",
-            "jog_xy_to",
-            "jog_x_to",
-            "jog_y_to",
-            "jog_z_to",
-            "jog_u_to",
-            "jog_xy_rel",
-            "jog_x_rel",
-            "jog_y_rel",
-            "jog_z_rel",
-            "jog_u_rel",
-            "home",
-            "home_z",
-            "home_u",
-            "pause",
-            "resume",
-            "stop_job",
-            "reset",
-        ]
-        for name in registry_methods:
+        for name in REGISTRY_METHODS:
             self._command_registry[name] = getattr(self, name)
 
         # Contract: subclasses may override the job-control commands
@@ -339,6 +391,24 @@ class GlueScript:
     # ------------------------------------------------------------------ #
     #  Internal helpers
     # ------------------------------------------------------------------ #
+
+    def _job_running(self) -> bool:
+        """Return True while the controller is running a job.
+
+        Base implementation returns False (session-less authoring drivers
+        have no status). RdDriver overrides this to read live machine
+        status; RpcRdDriver overrides it to read a status-event cache.
+        """
+        return False
+
+    def _assert_job_not_running(self) -> None:
+        """Raise JobRunningError if the controller is running a job."""
+        if self._job_running():
+            allowed = ", ".join(sorted(self.JOB_CONTROL_COMMANDS))
+            raise JobRunningError(
+                f"Cannot run gluescript command while a job is running. "
+                f"Only job-control commands are allowed: {allowed}"
+            )
 
     @staticmethod
     def _count_top_level_commas(s: str) -> int:

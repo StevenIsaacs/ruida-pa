@@ -627,7 +627,7 @@ A daemon thread that processes scripts from `_script_queue`:
 def run(script: list[str]) -> None
 ```
 
-Queues a script for background execution. Raises `RuntimeError("Script runner not started")` if the runner thread is not alive. Empty scripts are silently ignored.
+Queues a script for background execution. Raises `RuntimeError("Script runner not started")` if the runner thread is not alive. Empty scripts are silently ignored. Raises `JobRunningError` while the controller is running a job (see §5.1.10). The queueing itself is delegated to the unguarded `_queue_script()`; the guard is applied to `run` via `__init_subclass__`.
 
 #### 5.1.6 Reply Handling (`_on_reply`)
 
@@ -638,7 +638,7 @@ Called from the handshake thread for each batch of unpacked replies:
    - Decode value via `RdDecoder.decode_value()`.
    - Store in `_machine_status[address]`.
    - If address is `0x0400` (machine status): parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_LAYER_END`, `MACHINE_STATUS_JOB_RUNNING` events and fire them.
-   - If address is `0x057E` (card ID): queue `_BED_SIZE_SCRIPT` via `self.run()`.
+   - If address is `0x057E` (card ID): queue `_BED_SIZE_SCRIPT` via `self.run()`, wrapped in `try/except JobRunningError: pass` — the bed-size query is skipped while a job runs and retried on the next card-ID reply (see §5.1.10).
 2. Forward raw replies to all registered reply listeners.
 
 #### 5.1.7 Machine Status Parsing
@@ -666,6 +666,62 @@ Thread-safe (RLock). Forwarding methods copy the listener list under lock and it
 | Property | Returns |
 |---|---|
 | `machine_status` | Read-only snapshot of `{address: decoded_value}` dict |
+
+#### 5.1.10 Job-Running Guard (GlueScript Commands)
+
+**Files:** `ruidadriver/rd_gluescript.py`, `ruidadriver/ruida_driver.py`, `rpalib/rpyc_client.py`
+
+While the controller is running a job, every GlueScript command except the
+job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
+`JobRunningError` — a `RuntimeError` subclass — instead of executing. This
+prevents a job in flight from being corrupted by authoring, staging, jog,
+home, or run commands.
+
+**Guarded command set.** `GlueScript._GUARDED_COMMANDS` (48 commands) is
+derived from `REGISTRY_METHODS` (48 registry methods) minus
+`JOB_CONTROL_COMMANDS` (4), plus the four staging/run entry points
+`stage_gluescript`, `stage_gluescript_delta`, `run`, and `run_job`. The
+`move_z_to`/`move_u_to`/`cut_z_to`/`cut_u_to` stubs are unguarded but moot —
+they raise `NotImplementedError` before any guard could matter.
+
+**Guard mechanism.** `_job_guard` is a decorator that calls
+`_assert_job_not_running()` — which raises `JobRunningError` when
+`_job_running()` returns `True` — before invoking the wrapped method.
+`GlueScript.__init_subclass__` wraps every guarded method on each subclass
+at class-creation time. The subclass-level wrap is deliberate: `RpcRdDriver`
+overrides the guarded methods to forward to the server BEFORE calling
+`super()`, so a guard inside the base method would fire too late to prevent
+the RPC call. Wrapping the subclass's own override catches it first.
+Re-wrapping on a future subclass is functionally harmless (the guard runs
+twice).
+
+**`_job_running()` hook.** The base `GlueScript._job_running()` returns
+`False` (session-less authoring drivers have no status). `RdDriver`
+overrides it to read the `MACHINE_STATUS_JOB_RUNNING` bit of the decoded
+`0x0400` machine-status value under `self._lock`; `RpcRdDriver` overrides it
+to read a status-event cache (see below).
+
+**Detection latency.** The direct driver's `_job_running()` reflects the
+last query reply, so detection is bounded by the status monitor's poll
+interval (`POLL_INTERVAL`, 0.5s) — a job that starts between polls is not
+seen until the next query reply arrives.
+
+**Unguarded internal path.** `RdDriver.run()` delegates to the unguarded
+`_queue_script()`; the guard is applied to `run` itself via
+`__init_subclass__`. `_emit_live_lines()` — used by the job-control commands
+`pause`/`resume`/`stop_job`/`reset`, and by jogs/homing — calls
+`_queue_script()` directly, so job-control commands reach the controller
+while a job runs. The internal `_on_reply` bed-size query
+(`self.run(self._BED_SIZE_SCRIPT)` on a `MEM_CARD_ID` reply) is wrapped in
+`try/except JobRunningError: pass` — the query is skipped while a job runs
+and retried on the next card-ID reply.
+
+**RPyC client cache.** `RpcRdDriver` caches job-running state in
+`_job_running_cache`, updated by an internal status listener
+(`_on_status_event_for_cache`) registered lazily on the server on the first
+`_job_running()` call. The cache is reset to `False` on `DISCONNECTED` and
+`TERMINATED` events. Because the guard fires client-side on the wrapper's
+own overrides, a guarded call is rejected locally without an RPC round trip.
 
 ---
 

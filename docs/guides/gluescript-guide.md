@@ -634,6 +634,26 @@ against a connected controller, are never appended to the gluescript, and
 their lines in a `.cglu` file are ignored with a warning on load (see
 Section 5).
 
+### 4.5.3 Job-Running Guard
+
+While the controller is running a job, every GlueScript command except the
+job-control commands raises `JobRunningError` (a `RuntimeError` subclass)
+instead of executing. The guard covers all 48 guarded commands — every
+registry command except `pause`/`resume`/`stop_job`/`reset`, plus
+`stage_gluescript`, `stage_gluescript_delta`, `run`, and `run_job` — so
+authoring, staging, jog, home, and run calls are all rejected while a job
+runs.
+
+The job-control commands (`pause`, `resume`, `stop_job`, `reset`) remain
+available at all times: they are the only way to pause, resume, stop, or
+reset a running job, so they bypass the guard and reach the controller
+immediately.
+
+Detection is not instantaneous: the direct driver's `_job_running()` reads
+the last status query reply, so a job that starts between status polls is
+not seen until the next poll (up to 0.5s later). Over RPC, `RpcRdDriver`
+reads a status-event cache with the same poll-driven freshness.
+
 ### 4.6 Utilities
 
 #### `comment(comments: list[str])`

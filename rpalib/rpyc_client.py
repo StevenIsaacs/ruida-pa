@@ -152,7 +152,7 @@ from rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
     gluescript_signature,
 )
-from ruidadriver.rd_gluescript import GlueScript
+from ruidadriver.rd_gluescript import GlueScript, JobRunningError
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +315,11 @@ class RpcRdDriver(GlueScript):
         # the command registry binds the real subclass methods and any
         # registry-bound method that touches _svc is safe.
         super().__init__()
+        # Job-running cache, updated from status events. The attribute is
+        # deliberately named _job_running_cache, NOT _job_running, so it
+        # never shadows the _job_running() method.
+        self._job_running_cache: bool = False
+        self._job_running_cache_registered: bool = False
 
     def close(self) -> None:
         """Close the owned connection and mark the driver closed.
@@ -469,6 +474,29 @@ class RpcRdDriver(GlueScript):
         self._current_layer_mode = mode
         self._current_layer_overscan = overscan
         self._job_complete = bool(self._svc.job_complete())
+
+    def _on_status_event_for_cache(self, event: object) -> None:
+        """Update the job-running cache from status events."""
+        if isinstance(event, dict):
+            if "MACHINE_STATUS_JOB_RUNNING" in event:
+                self._job_running_cache = bool(
+                    event["MACHINE_STATUS_JOB_RUNNING"]
+                )
+        elif event in ("DISCONNECTED", "TERMINATED"):
+            self._job_running_cache = False
+            self._job_running_cache_registered = False
+
+    def _job_running(self) -> bool:
+        """Return the cached job-running state from status events."""
+        if not self._job_running_cache_registered:
+            try:
+                self._svc.register_status_listener(
+                    self._on_status_event_for_cache
+                )
+                self._job_running_cache_registered = True
+            except RuntimeError:
+                pass  # Server driver not ready — retry on next call
+        return self._job_running_cache
 
     # ------------------------------------------------------------------ #
     #  Job authoring — forwarded, mirrored into the local transcript
