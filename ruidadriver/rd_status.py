@@ -44,13 +44,16 @@ class RdStatus:
     The state machine transitions:
         CONNECTING → WAIT_TO_PING → SEND_PING → PING_REPLY → WAIT_TO_POLL
             → SEND_QUERY → REPLY_PENDING → WAIT_TO_POLL (loop)
-        PING_REPLY → RESYNC → WAIT_TO_PING (failure recovery)
+        REPLY_PENDING → SEND_QUERY (timeout, retry; drains)
+        PING_REPLY → RESYNC → CONNECTING (failure recovery)
         Any state → CONNECTING on transport DROPPED/CLOSED
     """
 
     # Class-level constants
     PING_RETRY_COUNT = 10  # max consecutive ping failures
     PING_RETRY_DELAY = 1.0  # seconds between ping retries
+    QUERY_RETRY_COUNT = 3  # max consecutive query reply failures
+    QUERY_RETRY_DELAY = 1.0  # seconds between query retries
     POLL_INTERVAL = 0.5  # seconds; default query_interval if not set
     CONNECT_RETRY_DELAY = 1.0  # seconds between connect attempts
 
@@ -318,6 +321,7 @@ class RdStatus:
         state = "CONNECTING"
         # State-local variables
         retries = 0
+        query_retries = 0
 
         while not self._shutdown.is_set():
             if state == "CONNECTING":
@@ -332,11 +336,11 @@ class RdStatus:
             elif state == "RESYNC":
                 state = self._run_resync()
             elif state == "WAIT_TO_POLL":
-                state = self._run_wait_to_poll()
+                state, query_retries = self._run_wait_to_poll()
             elif state == "SEND_QUERY":
                 state = self._run_send_query()
             elif state == "REPLY_PENDING":
-                state = self._run_reply_pending()
+                state, query_retries = self._run_reply_pending(query_retries)
             else:
                 # Unknown state — fall back to CONNECTING
                 state = "CONNECTING"
@@ -497,12 +501,12 @@ class RdStatus:
             self.transport.drain()
         return "CONNECTING"
 
-    def _run_wait_to_poll(self) -> str:
+    def _run_wait_to_poll(self) -> tuple[str, int]:
         """WAIT_TO_POLL state: wait for query interval before sending queries.
 
         No connection notification — handled in PING_REPLY's REPLY_FORWARDED handler.
-        On DROPPED/CLOSED → CONNECTING.
-        On timeout → SEND_QUERY.
+        On DROPPED/CLOSED/TIMEOUT → CONNECTING.
+        On timeout → SEND_QUERY with a fresh query retry budget.
         """
         while not self._shutdown.is_set():
             event = self._wait_for_event(
@@ -510,14 +514,14 @@ class RdStatus:
                 [TransportEvent.DROPPED, TransportEvent.CLOSED, TransportEvent.TIMEOUT],
             )
             if self._shutdown.is_set():
-                return "WAIT_TO_POLL"
+                return ("WAIT_TO_POLL", 0)
             if event is TransportEvent.DROPPED or event is TransportEvent.CLOSED:
-                return "CONNECTING"
+                return ("CONNECTING", 0)
             if event is TransportEvent.TIMEOUT:
-                return "CONNECTING"
+                return ("CONNECTING", 0)
             # Timeout — proceed to send queries
-            return "SEND_QUERY"
-        return "WAIT_TO_POLL"
+            return ("SEND_QUERY", self.QUERY_RETRY_COUNT)
+        return ("WAIT_TO_POLL", 0)
 
     def _run_send_query(self) -> str:
         """SEND_QUERY state: send all status query commands.
@@ -533,20 +537,23 @@ class RdStatus:
             self._notify_listeners(RdStatusEvent.QUERY_SENT)
         return "REPLY_PENDING"
 
-    def _run_reply_pending(self) -> str:
+    def _run_reply_pending(self, query_retries: int) -> tuple[str, int]:
         """REPLY_PENDING state: wait for replies to status query commands.
 
+        query_retries initialized by WAIT_TO_POLL; persists across retries.
         If query_cmds is empty → WAIT_TO_POLL immediately.
         On REPLY_FORWARDED → notify QUERY_RECEIVED, go to WAIT_TO_POLL.
         On DROPPED/CLOSED → CONNECTING.
-        On timeout → notify DISCONNECTED, go to CONNECTING.
+        On timeout → decrement retries, drain stale data (if handshake idle).
+        If retries remain → SEND_QUERY to re-send the query.
+        If exhausted → notify DISCONNECTED, go to CONNECTING.
         """
         if not self._query_cmds:
-            return "WAIT_TO_POLL"
+            return ("WAIT_TO_POLL", query_retries)
 
         while not self._shutdown.is_set():
             event = self._wait_for_event(
-                self.PING_RETRY_DELAY,
+                self.QUERY_RETRY_DELAY,
                 [
                     TransportEvent.REPLY_FORWARDED,
                     TransportEvent.DROPPED,
@@ -554,17 +561,31 @@ class RdStatus:
                 ],
             )
             if self._shutdown.is_set():
-                return "WAIT_TO_POLL"
+                return ("WAIT_TO_POLL", query_retries)
             if event is TransportEvent.REPLY_FORWARDED:
                 self._notify_listeners(RdStatusEvent.QUERY_RECEIVED)
                 self._log_connection("[STATUS] Query reply received")
-                return "WAIT_TO_POLL"
+                return ("WAIT_TO_POLL", query_retries)
             if event is TransportEvent.DROPPED or event is TransportEvent.CLOSED:
-                return "CONNECTING"
+                return ("CONNECTING", query_retries)
             # Timeout
-            self._connected = False
-            self._notify_listeners(RdStatusEvent.DISCONNECTED)
-            self._log_connection("[STATUS] Query timeout — disconnecting")
-            self._disconnect_fired = True
-            return "CONNECTING"
-        return "WAIT_TO_POLL"
+            query_retries -= 1
+            # Best-effort drain: is_idle + drain() are not atomic — the handshake
+            # thread can go IDLE→SEND between them, so the drain may consume an
+            # ACK/reply. Result: a spurious TIMEOUT that advances the batch, no desync.
+            if self.transport.is_idle:
+                self.transport.drain()
+            if query_retries > 0:
+                self._log_connection(
+                    f"[STATUS] Query timeout (retries left: {query_retries})"
+                )
+                return ("SEND_QUERY", query_retries)
+            else:
+                self._log_connection(
+                    f"[STATUS] Query failed after {self.QUERY_RETRY_COUNT} retries"
+                )
+                self._connected = False
+                self._notify_listeners(RdStatusEvent.DISCONNECTED)
+                self._disconnect_fired = True
+                return ("CONNECTING", query_retries)
+        return ("WAIT_TO_POLL", query_retries)

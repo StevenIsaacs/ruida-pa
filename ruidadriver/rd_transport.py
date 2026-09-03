@@ -57,6 +57,8 @@ class RdTransport:
 
         # Handshake thread
         self._handshake_thread: threading.Thread | None = None
+        # Handshake state — "IDLE" when the thread is not processing a batch
+        self._handshake_state = "IDLE"
 
     # ---- Configuration and Connection ----
 
@@ -132,6 +134,11 @@ class RdTransport:
         """Drain all pending data from the underlying transport."""
         if self._transport and self._transport.is_open:
             self._transport.drain()
+
+    @property
+    def is_idle(self) -> bool:
+        """True when the handshake thread is not processing a batch."""
+        return self._handshake_state == "IDLE"
 
     # ---- Write ----
 
@@ -245,33 +252,33 @@ class RdTransport:
         prevents interleaving of status monitor queries between job packets.
         """
         try:
-            state = "IDLE"
+            self._handshake_state = "IDLE"
             packet: bytearray | None = None
             batch: list[bytearray] | None = None
             batch_index: int = 0
 
             def advance_batch() -> bool:
                 """Advance to next packet in batch. Sets state to SEND if more packets, IDLE if exhausted."""
-                nonlocal batch_index, packet, state
+                nonlocal batch_index, packet
                 batch_index += 1
                 if batch is not None and batch_index < len(batch):
                     packet = batch[batch_index]
-                    state = "SEND"
+                    self._handshake_state = "SEND"
                     return True
-                state = "IDLE"
+                self._handshake_state = "IDLE"
                 return False
 
             while not self._shutdown_event.is_set():
-                if state == "IDLE":
+                if self._handshake_state == "IDLE":
                     try:
                         batch = self._send_queue.get(timeout=self._HANDSHAKE_TIMEOUT)
                         batch_index = 0
                         packet = batch[0]
-                        state = "SEND"
+                        self._handshake_state = "SEND"
                     except queue.Empty:
                         continue
 
-                elif state == "SEND":
+                elif self._handshake_state == "SEND":
                     try:
                         self._transport.write(packet)
                     except OSError:
@@ -281,16 +288,16 @@ class RdTransport:
                         advance_batch()
                         continue
                     if self._transport.is_udp:
-                        state = "ACK_PENDING"
+                        self._handshake_state = "ACK_PENDING"
                     else:
                         # USB: no ACK; check if it contains GET_SETTING commands
                         if self._has_get_setting(packet):
-                            state = "REPLY_PENDING"
+                            self._handshake_state = "REPLY_PENDING"
                         else:
                             advance_batch()
                             continue
 
-                elif state == "ACK_PENDING":
+                elif self._handshake_state == "ACK_PENDING":
                     try:
                         data = self._wait_for_data(self._timeout)
                     except OSError:
@@ -311,7 +318,7 @@ class RdTransport:
                     if len(data) == 1 and self._swizzler.unswizzle_byte(data[0], self._swizzler.magic) == ACK:
                         self._notify_status(TransportEvent.ACK_RECEIVED)
                         if self._has_get_setting(packet):
-                            state = "REPLY_PENDING"
+                            self._handshake_state = "REPLY_PENDING"
                         else:
                             advance_batch()
                             continue
@@ -320,7 +327,7 @@ class RdTransport:
                         # Mid-batch failure: advance to next packet or go IDLE
                         advance_batch()
 
-                elif state == "REPLY_PENDING":
+                elif self._handshake_state == "REPLY_PENDING":
                     try:
                         data = self._wait_for_data(self._timeout)
                     except OSError:

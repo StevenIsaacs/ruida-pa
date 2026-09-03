@@ -378,15 +378,16 @@ stateDiagram-v2
     PING_REPLY --> RESYNC: Timeout (retries exhausted)
     PING_REPLY --> CONNECTING: DROPPED or CLOSED
 
-    RESYNC --> WAIT_TO_PING: drain()
+    RESYNC --> CONNECTING: drain()
 
-    WAIT_TO_POLL --> SEND_QUERY: query interval expired\n(not blocked)
+    WAIT_TO_POLL --> SEND_QUERY: query interval expired
     WAIT_TO_POLL --> CONNECTING: DROPPED or CLOSED
 
     SEND_QUERY --> REPLY_PENDING: queries sent
 
     REPLY_PENDING --> WAIT_TO_POLL: REPLY_FORWARDED\n(fire QUERY_RECEIVED)
-    REPLY_PENDING --> CONNECTING: Timeout\n(fire DISCONNECTED)
+    REPLY_PENDING --> SEND_QUERY: Timeout (retry, drain)
+    REPLY_PENDING --> CONNECTING: Timeout (retries exhausted,\nfire DISCONNECTED)
     REPLY_PENDING --> CONNECTING: DROPPED or CLOSED
 
     CONNECTING --> [*]: Shutdown
@@ -402,10 +403,14 @@ Detailed state behavior:
 | **WAIT_TO_PING** | Wait `ping_interval` seconds, watching for transport events. | Timeout → `SEND_PING`; `DROPPED`/`CLOSED` → `CONNECTING`; shutdown → exit. |
 | **SEND_PING** | Guard: if transport not open → `CONNECTING`. Send `ping_cmd` via `transport.write([ping_cmd])`. Fire `PING_SENT`. | → `PING_REPLY`. |
 | **PING_REPLY** | Wait for `REPLY_FORWARDED` with retry loop (default 5 retries, 1s delay). | `REPLY_FORWARDED` → fire `PING_REPLIED` + `CONNECTED` → `WAIT_TO_POLL`; `DROPPED`/`CLOSED` → `CONNECTING`; timeout with retries → decrement, retry; exhausted → `RESYNC`. |
-| **RESYNC** | Call `transport.drain()` to clear stale data. | → `WAIT_TO_PING`. |
-| **WAIT_TO_POLL** | Wait `query_interval`. If blocked, loop `wait_until_unblocked(0.5s)` checking shutdown. | Timeout → `SEND_QUERY`; `DROPPED`/`CLOSED`/`TIMEOUT` → `CONNECTING`; shutdown → exit. |
+| **RESYNC** | Call `transport.drain()` to clear stale data. | → `CONNECTING`. |
+| **WAIT_TO_POLL** | Wait `query_interval` for the query interval to expire. | Timeout → `SEND_QUERY`; `DROPPED`/`CLOSED`/`TIMEOUT` → `CONNECTING`; shutdown → exit. |
 | **SEND_QUERY** | Guard: if transport not open → `CONNECTING`. Send `query_cmds` via `transport.write(query_cmds)`. Fire `QUERY_SENT`. | → `REPLY_PENDING`. |
-| **REPLY_PENDING** | If no `query_cmds` → `WAIT_TO_POLL` immediately. Wait for `REPLY_FORWARDED` (1s timeout). | `REPLY_FORWARDED` → fire `QUERY_RECEIVED` → `WAIT_TO_POLL`; `DROPPED`/`CLOSED` → `CONNECTING`; timeout → fire `DISCONNECTED` → `CONNECTING`. |
+| **REPLY_PENDING** | If no `query_cmds` → `WAIT_TO_POLL` immediately. Wait for `REPLY_FORWARDED` (`QUERY_RETRY_DELAY` = 1s timeout). | `REPLY_FORWARDED` → fire `QUERY_RECEIVED` → `WAIT_TO_POLL`; `DROPPED`/`CLOSED` → `CONNECTING`; timeout → drain stale data (guarded by `is_idle`), retry → `SEND_QUERY` while retries remain; retries exhausted (`QUERY_RETRY_COUNT` = 3) → fire `DISCONNECTED` → `CONNECTING`. |
+
+**Dead-controller detection latency:** A dead controller is detected after 3s of query timeouts (`QUERY_RETRY_COUNT` = 3 × `QUERY_RETRY_DELAY` = 1s) — up to ~4s from actual death when the remaining `WAIT_TO_POLL` wait is included. This is the accepted trade-off for responsive UDP↔USB switching.
+
+**`is_idle` drain guard:** On query timeout, the retry path drains stale data only when `RdTransport.is_idle` is `True` (handshake thread not mid-batch). The drain is skipped when the handshake is mid-batch — e.g., a query queued behind a driver batch. Note the residual TOCTOU window: between the `is_idle` check and the drain call the handshake could transition `IDLE → SEND → ACK_PENDING`, up to ~0.2s later (`_HANDSHAKE_TIMEOUT` queue poll interval, `ruidadriver/rd_transport.py:29`), not microseconds. Impact is the same as the pre-existing `_run_resync` drain: the drain steals that packet's ACK → `TIMEOUT` → advance (packet already sent, no desync).
 
 #### 4.2.3 Wait-for-Event Mechanism
 
@@ -706,7 +711,7 @@ A Textual-based terminal user interface that implements (duck-types) the `AppAda
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.20.0            [Header]   │
+│  Ruida Script TUI v0.20.1            [Header]   │
 ├──────────────────────────┬──────────────────────┤
 │                          │  [STATUS] CONNECTED   │
 │  Log Area                │  [STATUS] PING_SENT   │
