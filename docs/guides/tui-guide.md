@@ -123,6 +123,7 @@ Parameters:
 - `usb=<device>` — USB serial device (e.g., `ttyUSB0`, `/dev/ttyACM0`).
   Can be combined with UDP; USB is preferred when both are specified.
 - `to=<timeout>` — Connection timeout. Formats: `5s`, `5000ms`. Default: 5000ms.
+- `magic=0xNN` — Optional swizzle magic number (e.g., `magic=0x88`).
 
 The TUI remains responsive while connecting. Use `/stop` or **Escape** to cancel
 a pending connection.
@@ -159,10 +160,16 @@ processed in this order:
 ```
 session start udp=192.168.1.100
 session end
+server start host=0.0.0.0 port=19001 cert=server.crt key=server.key token=secret
+server stop
 ```
 
 Directives that control the connection lifecycle, handled internally
 without involving the controller.
+
+`server start` launches the RPyC RPC server (host defaults to `localhost`,
+port `18812`, no token); `server stop` shuts it down. The `--rpc` launch
+flag is equivalent to `server start` (see Section 2).
 
 ### 5.2 Jog, Home & Job-Control Commands
 
@@ -210,7 +217,7 @@ jog_set_u_rel 10            # Set relative U jog distance (mm)
 ```
 /help
 /load my-script.rds
-/exec job
+/run
 ```
 
 TUI meta-commands starting with `/` (see Section 6 for full reference).
@@ -252,26 +259,35 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | --------------------- | ---------------------------------------------------------------------------- |
 | `/help`               | Display formatted help text covering all command categories.                 |
 | `/load <path>`        | Load a `.rds` script file into memory for editing or execution.              |
-| `/head <path>`        | Load a `.rds` file as head (prepended to future `/exec job` and `/list job`).  |
-| `/tail <path>`        | Load a `.rds` file as tail (appended to future `/exec job` and `/list job`).   |
-| `/exec`               | Execute the composed job (head + job + tail) as a batch.                     |
-| `/exec script`        | Execute the loaded script as raw commands (no job extraction).               |
+| `/head <path>`        | Load a `.rds` file as head (prepended to future `/run` and `/list job`).  |
+| `/tail <path>`        | Load a `.rds` file as tail (appended to future `/run` and `/list job`).   |
+| `/run`                | Execute the composed job (head + job + tail) as a batch.                     |
+| `/run script`        | Execute the loaded script as raw commands (no job extraction).               |
+| `/dryrun on\|off`    | Toggle dry-run mode. When on, `/run` runs normally but RPC `driver.run()` only logs to TUI. |
+| `/frame job \| /frame layer <N>` | Frame job or layer boundaries via jog moves at 600 mm/S (top-right then bottom-left). Requires loaded script + active session. |
 | `/export <path> [magic=0xNN]` | Export the loaded script as a binary `.rd` file. Default path: `<source>.rd`. Supports `magic=0xNN` to override swizzle byte. |
 | `/import <path>`      | Import a tshark capture file (`.log`/`.txt`/`.rd`) and decode into a script. |
 | `/edit`               | Open the loaded rpascript in a full-screen text editor (Ctrl+S saves, Esc cancels). |
-| `/gluescript <sub>`   | GlueScript high-level scripting (`new`, `stage`, `run`, `save`, `load`, `edit`, ...). See the [GlueScript guide](gluescript-guide.md). |
-| `/save job <path>`    | Save the pure job body (START_JOB to EOF, no head/tail) to a `.rds` file. |
+| `/gluescript <sub>`   | GlueScript high-level scripting (`new`, `show`, `stage`, `run`, `save`, `load`, `edit`, `list`, ...). See the [GlueScript guide](gluescript-guide.md). |
+| `/save job\|script\|as <path>` | Save the pure job body (`/save job`, START_JOB to EOF, no head/tail) or the full loaded script (`/save script`; `/save as` is an alias). Bare `/save <path>` defaults to script save. |
+| `/autosave <path>`    | Set RPC gluescript autosave base path (saves `.cglu`/`.rds`/`.rd`/`-plot.html` on RPC stage). `/autosave off` disables; `/autosave` shows current setting. Requires RPC server (`server start` first). |
 | `/list`               | Show the composed job with section markers (`# --- Head ---` / `# --- Job ---` / `# --- Tail ---`). |
+| `/list auto [on\|off]`| Auto-display of RPC scripts.                                                  |
 | `/list job`           | Same as `/list`.                                                             |
 | `/list script`        | Show only the loaded script (without head/tail).                             |
 | `/list head`          | Show the head script.                                                        |
 | `/list tail`          | Show the tail script.                                                        |
+| `/listeners [full]`   | List listeners registered with the RdDriver; `full` shows each listener repr. Requires a session. |
 | `/plot`               | Open an interactive Bokeh visualization of the loaded script.                |
+| `/monitor [on\|off]`  | `/monitor` immediate update; `/monitor on` auto-update every 15s; `/monitor off` disable. |
+| `/protect on\|off\|status` | Toggle protect mode. When on, SET_SETTING commands are blocked to prevent hardware damage. |
+| `/scan_mem`           | Generate a GET_SETTING script for all MT memory addresses, staged into the loaded script; then `/run script` to run or `/list` to review. |
 | `/clear`              | Clear all log panels, loaded script, head/tail, and monitor totals.          |
 | `/stop`               | Cancel pending session connection or stop script execution. Also on Escape.  |
 | `/status on`          | Enable reply logging (controller responses shown in log).                    |
 | `/status off`         | Disable reply logging.                                                       |
 | `/status status`      | Show whether reply logging is currently enabled.                             |
+| `/status connection [on\|off\|status]` | Enable/disable transport-event logging; `status` shows the current state.    |
 | `/rpclog [on\|off\|status]` | Toggle verbose RPC server logging (no args toggles).                         |
 | `/quit`               | Exit the TUI. Also on Ctrl+C.                                                |
 
@@ -288,11 +304,18 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/import` with no path                               | `Usage: /import <path> [magic=0xNN]`                                 |
 | `/import` file not found                             | `File not found: <path>`                                              |
 | `/import` decode failure                             | `Decode error: <details>`                                             |
-| `/exec` with no script loaded                        | `No script loaded. Use /load <path> first.`                           |
-| `/exec` with no session                              | `No active session. Use 'session start udp=...' first.`               |
-| `/exec` with no job markers                          | `No job commands found (no START_JOB/EOF markers).`               |
+| `/run` with no script loaded                        | `No script loaded. Use /load <path> first.`                           |
+| `/run` with no session                              | `No active session. Use 'session start udp=...' first.`               |
+| `/run` with no job markers                          | `No job commands found (no START_JOB/EOF markers).`               |
+| `/autosave` without RPC server                       | `RPC server not running. Start it with 'server start' first.`          |
+| `/frame` with no script loaded                       | `No script loaded. Use /load <path> first.`                           |
+| `/frame` with no session                             | `No active session. Use 'session start udp=<IP>' first.`               |
+| `/dryrun` bad arg                                    | `Usage: /dryrun on\|off`                                                |
+| `/protect` bad arg                                   | `Usage: /protect on\|off\|status`                                        |
+| `/monitor` bad arg                                   | `Usage: /monitor \[on\|off]`                                            |
+| `/listeners` no driver                               | `No driver. Start a session first.`                                    |
 | `/save job` with no script loaded                    | `No script loaded. Use /load <path> first.`                           |
-| `/save job` with no job markers                      | `No job commands to save (no START_JOB/EOF markers).`             |
+| `/save job` with no job markers                      | `No job commands found (no START_JOB/EOF markers).`             |
 | `/save job` permission denied                        | `Permission denied: <path>`                                           |
 | `/save job` write error                              | `Error writing <path>: <ErrorType>: <message>`                        |
 | `/list script` with no script loaded                 | `No script loaded. Use /load <path> first.`                           |
@@ -305,7 +328,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 Head and tail scripts are stored by `RdDriver` and applied at execution time.
 Each command has a different role:
 
-- **`/exec job`** — extracts the job body (START_JOB → EOF), then calls
+- **`/run`** — extracts the job body (START_JOB → EOF), then calls
   `driver.run_job(job)` passing the extracted job body explicitly, which
   composes `head + job_body + tail` atomically and queues the result for
   execution. The composition happens inside the driver, not in the TUI.
@@ -327,7 +350,7 @@ Each command has a different role:
 
 If no `START_JOB`/`EOF` markers exist in the loaded script, the job body
 is empty. This allows modular workflow: separate head (homing, initialization),
-job body, and tail (cleanup, shutdown) scripts. Use `/exec script` to run
+job body, and tail (cleanup, shutdown) scripts. Use `/run script` to run
 scripts that don't follow the job-marker structure.
 
 ---
@@ -335,13 +358,16 @@ scripts that don't follow the job-marker structure.
 ## 7. File Browser
 
 Commands that take a file path (`/load`, `/head`, `/tail`, `/import`,
-`/save job`) trigger an interactive file browser when you type a space
-after the command:
+`/save`, `/save job`, `/save script`, `/save as`, `/autosave`, `/export`,
+`/gluescript save`, `/gluescript load`) trigger an interactive file
+browser when you type a space after the command:
 
 - The tree filters to show only matching file types:
   - `.rds` for `/load`, `/head`, `/tail`
   - `.log`, `.txt`, `.rd` for `/import`
-  - All files for `/save job`
+  - All files for `/save`, `/save job`, `/save script`, `/save as`, `/autosave`
+  - `.rd` for `/export`
+  - `.cglu` for `/gluescript save`, `/gluescript load`
 - **Tab** toggles focus between the command input and the file tree
 - **Enter** uses the path you've typed as-is when you haven't navigated the
   tree; otherwise it backfills the command with the selected file
@@ -476,7 +502,7 @@ For modular workflow, you can split your script into three parts:
 /tail cleanup.rds        # Commands to append (e.g., shutdown, air assist off)
 ```
 
-Head and tail are automatically included in `/exec job` and `/list job`.
+Head and tail are automatically included in `/run` and `/list job`.
 `/save job` saves only the pure job body — head/tail are applied at
 execution time by the driver.
 
@@ -503,17 +529,17 @@ transcript.
 ### Executing
 
 ```bash
-/exec job        # Execute the composed job as a batch
-/exec script     # Execute the loaded script as raw commands
+/run             # Execute the composed job as a batch
+/run script     # Execute the loaded script as raw commands
 ```
 
-`/exec job` extracts only the portion between `START_JOB` and end-of-file
+`/run` extracts only the portion between `START_JOB` and end-of-file
 markers (or `BLOCK_END`), then delegates to `driver.run_job(job)` passing the
 extracted job body explicitly, which composes head + job + tail atomically at
 queue time. This ensures only the job commands are sent, with setup/teardown
 wrapped around them.
 
-`/exec script` sends the entire loaded script as-is, without job extraction
+`/run script` sends the entire loaded script as-is, without job extraction
 or head/tail wrapping. Use this for scripts that don't follow the
 START_JOB/BLOCK_END structure.
 
@@ -523,13 +549,38 @@ Both modes require an active session.
 
 ```
 /save job my-output.rds
+/save script my-script.rds
+/save as my-script.rds
 ```
 
-Saves only the pure job body (START_JOB to EOF) as a `.rds` file.
-Head and tail are NOT included — the output is the same as the job portion
-shown by `/list job` between the section markers. The saved file is
-compatible with `rpa-script` playback, `RdDriver.run()`, and can be
-reloaded with `/load` without double-appending head/tail.
+- `/save job <path>` — saves only the pure job body (START_JOB to EOF) as a
+  `.rds` file. Head and tail are NOT included — the output is the same as the
+  job portion shown by `/list job` between the section markers. The saved file
+  is compatible with `rpa-script` playback, `RdDriver.run()`, and can be
+  reloaded with `/load` without double-appending head/tail.
+- `/save script <path>` — saves the full loaded script (all lines, including
+  head/tail if composed) as a `.rds` file.
+- `/save as <path>` — alias for `/save script`.
+- Bare `/save <path>` — defaults to `/save script`.
+
+### RPC Autosave
+
+```
+/autosave my-job
+/autosave off        # Disable
+/autosave            # Show current setting
+```
+
+The RPC autosave workflow captures gluescript jobs staged by an RPC client:
+
+1. Start the RPC server (`server start` or launch with `--rpc`).
+2. Set the base path with `/autosave <path>`.
+3. An RPC client stages a gluescript job (full stage).
+4. The TUI writes `<path>-<version>.cglu`, `<path>-<version>.rds`,
+   `<path>-<version>.rd`, and `<path>-<version>-plot.html` on each full stage.
+
+`/autosave off` disables autosave; `/autosave` with no argument shows the
+current setting. Requires the RPC server to be running first.
 
 ### Plotting
 
@@ -677,7 +728,7 @@ session start udp=192.168.1.100
 [STATUS] PING_REPLIED
 [STATUS] CONNECTED
 
-/exec job
+/run
 [SCRIPT] Executing composed job (478 lines)...
 [replies appear as controller processes]
 ```

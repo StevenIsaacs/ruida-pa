@@ -354,9 +354,9 @@ These tests require no controller. They verify the core wire-format logic using 
 
 | Field | Value |
 |-------|-------|
-| **Objective** | Verify that a pre-recorded `.rds` file can be loaded via `/load` and executed via `/exec`. |
+| **Objective** | Verify that a pre-recorded `.rds` file can be loaded via `/load` and executed via `/run`. |
 | **Prerequisites** | Active session. A pre-recorded `.rds` file available (e.g., at `tmp/test-script.rds`). |
-| **Steps** | 1. With active TUI, type `/load tmp/test-script.rds` and press Enter.<br>2. Observe the log — should show `Loaded N lines from tmp/test-script.rds`.<br>3. Type `/exec` and press Enter.<br>4. Observe the TUI log and machine behavior. |
+| **Steps** | 1. With active TUI, type `/load tmp/test-script.rds` and press Enter.<br>2. Observe the log — should show `Loaded N lines from tmp/test-script.rds`.<br>3. Type `/run` and press Enter.<br>4. Observe the TUI log and machine behavior. |
 | **Expected result** | The script loads without error. Execution produces expected commands in the log. Machine behaves as expected. |
 
 ---
@@ -464,10 +464,10 @@ These tests require no controller. They verify the core wire-format logic using 
 
 | Field | Value |
 |-------|-------|
-| **Objective** | Verify that removed key bindings (F1) have no effect. Ctrl+L and Ctrl+E are also inert — their functionality has been replaced by the `/load` and `/exec` slash commands. |
+| **Objective** | Verify that removed key bindings (F1) have no effect. Ctrl+L and Ctrl+E are also inert — their functionality has been replaced by the `/load` and `/run` slash commands. |
 | **Prerequisites** | TUI running |
 | **Steps** | 1. Press F1.<br>2. Press Ctrl+L.<br>3. Press Ctrl+E.<br>4. Observe the log area and verify no action occurs |
-| **Expected result** | No help text, file picker, or script execution occurs on any of the three key presses. The TUI remains stable. Textual may log a warning about unbound keys to stderr. The equivalent functionality is now available via the `/load` and `/exec` text-input commands (see §5.4). |
+| **Expected result** | No help text, file picker, or script execution occurs on any of the three key presses. The TUI remains stable. Textual may log a warning about unbound keys to stderr. The equivalent functionality is now available via the `/load` and `/run` text-input commands (see §5.4). |
 
 ### 5.3 Introspection Testing [ ]
 
@@ -573,24 +573,24 @@ These tests require no controller. They verify the core wire-format logic using 
 | **Steps** | 1. Type `/load nonexistent.rds` and press Enter |
 | **Expected result** | Log shows `File not found: nonexistent.rds` (or similar) error message. |
 
-#### Test 5.4.7 — `/exec` With No Script Loaded
+#### Test 5.4.7 — `/run` With No Script Loaded
 - [x] Test 5.4.7 ✅ 2026-06-06
 
 | Field | Value |
 |-------|-------|
-| **Objective** | Verify that `/exec` with no prior `/load` shows an error message |
+| **Objective** | Verify that `/run` with no prior `/load` shows an error message |
 | **Prerequisites** | TUI running. No script loaded via `/load`. |
-| **Steps** | 1. Type `/exec` and press Enter |
+| **Steps** | 1. Type `/run` and press Enter |
 | **Expected result** | Log shows `No script loaded` error message. |
 
-#### Test 5.4.8 — `/exec` With No Active Session
+#### Test 5.4.8 — `/run` With No Active Session
 - [ ] Test 5.4.8
 
 | Field | Value |
 |-------|-------|
-| **Objective** | Verify that `/exec` requires an active session |
+| **Objective** | Verify that `/run` requires an active session |
 | **Prerequisites** | TUI running. Script loaded via `/load tmp/test-script.rds`. Session NOT started (no `session start`). |
-| **Steps** | 1. Type `/load tmp/test-script.rds` and press Enter (succeeds).<br>2. Type `/exec` and press Enter. |
+| **Steps** | 1. Type `/load tmp/test-script.rds` and press Enter (succeeds).<br>2. Type `/run` and press Enter. |
 | **Expected result** | Log shows `No active session` error message. No commands are sent to the controller. |
 
 #### Test 5.4.9 — `/clear` Clears Logs
