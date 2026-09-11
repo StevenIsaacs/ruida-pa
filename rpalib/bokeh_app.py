@@ -16,7 +16,7 @@ try:
     from bokeh.server.server import Server
 except ImportError:
     raise ImportError(
-        "Bokeh and Tornado are required for plotting. Install with: pip install bokeh"
+        "Bokeh and Tornado are required for plotting. Install with: pip install ruida-pa"
     )
 
 from rpalib.bokeh_view import BokehView

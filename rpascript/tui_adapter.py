@@ -2238,7 +2238,7 @@ class TuiAdapter(App):
             return
 
         if BokehApp is None:
-            self._log_error("Bokeh is not installed. Install with: pip install bokeh")
+            self._log_error("Bokeh is not installed. Install with: pip install ruida-pa")
             return
 
         from protocols.ruida.rpa_plotter import RpaPlotter
@@ -3882,7 +3882,7 @@ class TuiAdapter(App):
             except ImportError:
                 self._log_error(
                     "pyserial is not installed. "
-                    "Install it with: pip install ruida-pa\\[serial]"
+                    "Install it with: pip install ruida-pa"
                 )
                 return
 

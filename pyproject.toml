@@ -1,25 +1,49 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ruida-pa"
-version = "0.20.3"
+version = "0.20.4"
 description = "RPA Protocol Analyzer - Parse and decode Ruida protocol packets"
 readme = "README.md"
-license = {file = "LICENSE"}
-requires-python = ">=3.7"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
 authors = [
     {name = "Ruida Protocol Analyzer Contributors"}
 ]
+keywords = ["ruida", "laser", "cnc", "protocol", "analyzer", "decoder", "udp", "tui"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Debuggers",
+]
+dependencies = [
+    "bokeh>=3.9",
+    "pyserial>=3.5",
+    "textual>=0.32",
+    "rpyc>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/StevenIsaacs/ruida-pa"
+Repository = "https://github.com/StevenIsaacs/ruida-pa"
+Issues = "https://github.com/StevenIsaacs/ruida-pa/issues"
 
 [project.scripts]
 rpa = "rpa:main"
 rpa-script = "rpascript.tui:main"
-
-[project.optional-dependencies]
-plotting = ["bokeh"]
-serial = ["pyserial"]
 
 [tool.setuptools]
 py-modules = ["rpa"]

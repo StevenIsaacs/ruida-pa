@@ -7,7 +7,7 @@ Maintains the same public interface for compatibility with RpaPlotter."""
 try:
     from bokeh.models import ColumnDataSource  # noqa: F401
 except ImportError:
-    raise ImportError("Bokeh is required for plotting. Install with: pip install bokeh")
+    raise ImportError("Bokeh is required for plotting. Install with: pip install ruida-pa")
 
 import rpalib.rpa_line as rpa_l
 from rpalib.rpa_emitter import RpaEmitter

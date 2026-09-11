@@ -323,7 +323,7 @@ def main():
         parser.plot.plot.enable()
 
     if args.plot_moves and BokehApp is None:
-        output.warning("Bokeh is not installed. Install with: pip install bokeh")
+        output.warning("Bokeh is not installed. Install with: pip install ruida-pa")
 
     try:
         if is_rd:

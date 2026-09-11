@@ -9,7 +9,7 @@ usage () {
   cat <<EOF
 Usage: $_self [--test] [--no-upload]
 
-Build and optionally publish CPA to PyPI.
+Build and optionally publish RPA to PyPI.
 
 Options:
   --test         Upload to TestPyPI instead of PyPI
@@ -49,8 +49,8 @@ with open('pyproject.toml', 'rb') as f:
 print(data['project']['version'])
 ")
 
-echo "Building CPA v$_version for PyPI..."
-rm -rf dist/ build/
+echo "Building RPA v$_version for PyPI..."
+rm -rf dist/ build/ *.egg-info
 python -m build
 
 if [ "$_no_upload" = true ]; then

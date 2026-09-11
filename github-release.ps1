@@ -52,7 +52,7 @@ $notes = [System.IO.Path]::GetTempFileName()
 ### Artifacts
 "@ | Out-File -FilePath $notes -Encoding utf8
 
-$ghArgs = @("release", "create", $Tag, "--title", "CPA $($Tag.TrimStart('v'))", "--notes-file", $notes)
+$ghArgs = @("release", "create", $Tag, "--title", "RPA $($Tag.TrimStart('v'))", "--notes-file", $notes)
 if ($Draft) { $ghArgs += "--draft" }
 
 # Add all artifacts

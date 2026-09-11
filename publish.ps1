@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Build and optionally publish CPA to PyPI.
+    Build and optionally publish RPA to PyPI.
 .PARAMETER Test
     Upload to TestPyPI instead of PyPI.
 .PARAMETER NoUpload
@@ -41,8 +41,9 @@ with open('pyproject.toml', 'rb') as f:
 print(data['project']['version'])
 "@
 
-Write-Host "Building CPA v$version for PyPI..."
-Remove-Item -Recurse -Force "dist" -ErrorAction SilentlyContinue
+Write-Host "Building RPA v$version for PyPI..."
+Remove-Item -Recurse -Force "dist","build" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "*.egg-info" -ErrorAction SilentlyContinue
 python -m build
 
 if ($NoUpload) {

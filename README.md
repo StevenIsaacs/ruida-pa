@@ -100,13 +100,21 @@ This tool is laser-focused on the Ruida protocol only.
 
 ## Requirements
 
-- Python 3.7+
+- Python 3.10+
 - Wireshark/tshark installed and accessible in PATH
 - Network access to capture Ruida controller communications
 
 ## Installation
 
-### Option 1: Install from source (recommended for development)
+### Option 1: Install from PyPI (recommended)
+
+```bash
+pip install ruida-pa
+```
+
+All dependencies (bokeh, pyserial, textual, rpyc) are installed automatically, so the TUI (`rpa-script --tui`) and plotting work out of the box.
+
+### Option 2: Install from source (recommended for development)
 
 ```bash
 git clone https://github.com/StevenIsaacs/ruida-pa.git
@@ -118,12 +126,9 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install the package in editable mode
 pip install -e .
-
-# For plotting support:
-pip install -e ".[plotting]"
 ```
 
-### Option 2: Direct install from source
+### Option 3: Direct install from source
 
 ```bash
 pip install git+https://github.com/StevenIsaacs/ruida-pa.git
@@ -141,7 +146,7 @@ rpa-script --help
 
 ### Requirements
 
-- Python 3.7+
+- Python 3.10+
 - Wireshark/tshark installed and accessible in PATH
 - Network access to capture Ruida controller communications
 

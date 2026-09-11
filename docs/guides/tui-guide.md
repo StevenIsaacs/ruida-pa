@@ -63,7 +63,7 @@ enforced when `--rpc-host` is a non-local address.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.20.3               [Header]   │
+│  Ruida Script TUI v0.20.4               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │
@@ -321,7 +321,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/list script` with no script loaded                 | `No script loaded. Use /load <path> first.`                           |
 | `/list job` with no job markers                      | `No job commands found (no START_JOB/EOF markers).`               |
 | `/plot` with no script loaded                        | `No script loaded. Use /load <path> first.`                           |
-| `/plot` with no bokeh installed                      | `Bokeh is not installed. Install with: pip install bokeh`            |
+| `/plot` with no bokeh installed                      | `Bokeh is not installed. Install with: pip install ruida-pa`            |
 
 ### Job Composition
 
@@ -599,7 +599,7 @@ individual head moves from the loaded script:
 
 ![Example:](example-moves.png)
 
-Requires `bokeh` to be installed (`pip install bokeh`) and a virtual
+Requires `bokeh` to be installed (`pip install ruida-pa`) and a virtual
 environment active.
 
 ### Clearing

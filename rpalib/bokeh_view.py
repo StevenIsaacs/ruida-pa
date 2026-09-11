@@ -36,7 +36,7 @@ try:
     from bokeh.resources import CDN
 
 except ImportError:
-    raise ImportError("Bokeh is required for plotting. Install with: pip install bokeh")
+    raise ImportError("Bokeh is required for plotting. Install with: pip install ruida-pa")
 
 
 class BokehView:
