@@ -2339,7 +2339,9 @@ class TuiAdapter(App):
         """Frame the job or a specific layer.
 
         Sets speed to 600 mm/S and moves the laser head to the top-right
-        corner, then to the bottom-left corner using jog moves.
+        corner, then to the bottom-left corner using jog moves. Jog moves
+        are relative to the job's detected reference point (MACHINE,
+        CURRENT, SET_POINT, or ABSOLUTE from the script header).
 
         Usage: /frame job | /frame layer <N>
         """
@@ -2409,14 +2411,19 @@ class TuiAdapter(App):
             )
             return
 
-        frame_script = [
-            "SPEED_LASER_1 Speed:600.000mm/S",
-            f"JOG_XY Rel:MACHINE X={top_right[0]:.3f}mm Y={top_right[1]:.3f}mm",
-            f"JOG_XY Rel:MACHINE X={bottom_left[0]:.3f}mm Y={bottom_left[1]:.3f}mm",
-        ]
+        ref_rel, abs_origin = TuiAdapter._detect_ref_point(parsed)
+
+        try:
+            frame_script = TuiAdapter._build_frame_script(
+                ref_rel, abs_origin, top_right, bottom_left
+            )
+        except ValueError as e:
+            self._log_error(str(e))
+            return
 
         self._log_info(
             f"Framing {label}: "
+            f"ref={ref_rel} "
             f"top_right=({top_right[0]:.1f},{top_right[1]:.1f}) "
             f"bottom_left=({bottom_left[0]:.1f},{bottom_left[1]:.1f})"
         )
@@ -2429,8 +2436,10 @@ class TuiAdapter(App):
     def _extract_xy(params: list[str]) -> tuple[float, float] | None:
         """Extract X,Y coordinate values from parsed command params.
 
-        Handles params in the form ``"X=335.000mm"``, ``"Y=225.000mm"``.
-        Returns ``(x, y)`` or ``None`` if either value is missing.
+        Handles params in the form ``"X=335.000mm"``, ``"Y=225.000mm"`` as
+        well as bare coords like ``"X=100"`` (no ``mm`` suffix). Non-coordinate
+        tokens such as ``"Rel:MACHINE"`` are skipped. Returns ``(x, y)`` or
+        ``None`` if either value is missing.
         """
         x_val: float | None = None
         y_val: float | None = None
@@ -2449,6 +2458,113 @@ class TuiAdapter(App):
         if x_val is not None and y_val is not None:
             return (x_val, y_val)
         return None
+
+    @staticmethod
+    def _detect_ref_point(
+        parsed: list[dict],
+    ) -> tuple[str, tuple[float, float] | None]:
+        """Detect the job's reference point from the parsed script header.
+
+        Scans commands up to (but not including) the first REF_POINT_SET or
+        START_JOB mnemonic. Returns ``(ref_rel, abs_origin)`` where ref_rel is
+        one of ``"MACHINE"``, ``"CURRENT"``, ``"SET_POINT"``, ``"ABSOLUTE"``
+        and abs_origin is the machine origin for ABSOLUTE (None otherwise).
+
+        An ABSOLUTE reference is declared by a ``JOG_XY Rel:MACHINE`` (or
+        ``Rel=MACHINE``) header line immediately followed by REF_POINT_CURRENT;
+        the jog's coordinates become the origin. A dangling jog (not followed
+        by REF_POINT_CURRENT) has no effect.
+        """
+        ref_rel = "MACHINE"
+        pending_abs: tuple[float, float] | None = None
+
+        for cmd in parsed:
+            mnemonic = cmd.get("mnemonic", "")
+            params = cmd.get("params", [])
+
+            if mnemonic in ("REF_POINT_SET", "START_JOB"):
+                break
+
+            if mnemonic == "REF_POINT_MACHINE":
+                ref_rel = "MACHINE"
+                pending_abs = None
+            elif mnemonic == "REF_POINT_ORIGIN":
+                ref_rel = "SET_POINT"
+                pending_abs = None
+            elif mnemonic == "REF_POINT_CURRENT":
+                if pending_abs is not None:
+                    return ("ABSOLUTE", pending_abs)
+                ref_rel = "CURRENT"
+            elif mnemonic == "JOG_XY":
+                is_machine_rel = any(
+                    tok.startswith(("Rel:", "Rel=")) and tok[4:] == "MACHINE"
+                    for tok in params
+                )
+                if not is_machine_rel:
+                    pending_abs = None
+                    continue
+                pending_abs = TuiAdapter._extract_xy(params)
+                if pending_abs is None:
+                    line_num = cmd.get("line_num", "?")
+                    _log.warning(
+                        "Malformed ABSOLUTE reference declaration "
+                        "(JOG_XY Rel:MACHINE without valid X/Y coordinates) "
+                        "at line %s; ignoring origin, reference falls back to CURRENT",
+                        line_num,
+                    )
+            else:
+                pending_abs = None
+
+        return (ref_rel, None)
+
+    @staticmethod
+    def _build_frame_script(
+        ref_rel: str,
+        abs_origin: tuple[float, float] | None,
+        top_right: tuple[float, float],
+        bottom_left: tuple[float, float],
+    ) -> list[str]:
+        """Build the jog script that frames the job boundaries.
+
+        For MACHINE/SET_POINT references, each corner is jogged relative to
+        that fixed reference. For CURRENT, the first jog moves to top_right
+        relative to the head position; the second jog is emitted as a delta
+        (bottom_left - top_right) so it lands at bottom_left relative to the
+        original head position (avoiding the corner-accumulation error of two
+        relative moves). For ABSOLUTE, the origin is added to each corner so
+        both jog moves land at machine coordinates.
+        """
+        speed_line = "SPEED_LASER_1 Speed:600.000mm/S"
+
+        if ref_rel == "ABSOLUTE":
+            if abs_origin is None:
+                raise ValueError(
+                    "ABSOLUTE ref point declared but no origin JOG_XY found in header"
+                )
+            ox, oy = abs_origin
+            targets = [
+                (ox + top_right[0], oy + top_right[1]),
+                (ox + bottom_left[0], oy + bottom_left[1]),
+            ]
+            return [
+                speed_line,
+                f"JOG_XY Rel:MACHINE X={targets[0][0]:.3f}mm Y={targets[0][1]:.3f}mm",
+                f"JOG_XY Rel:MACHINE X={targets[1][0]:.3f}mm Y={targets[1][1]:.3f}mm",
+            ]
+
+        if ref_rel == "CURRENT":
+            return [
+                speed_line,
+                f"JOG_XY Rel:CURRENT X={top_right[0]:.3f}mm Y={top_right[1]:.3f}mm",
+                f"JOG_XY Rel:CURRENT X={bottom_left[0] - top_right[0]:.3f}mm "
+                f"Y={bottom_left[1] - top_right[1]:.3f}mm",
+            ]
+
+        return [
+            speed_line,
+            f"JOG_XY Rel:{ref_rel} X={top_right[0]:.3f}mm Y={top_right[1]:.3f}mm",
+            f"JOG_XY Rel:{ref_rel} X={bottom_left[0]:.3f}mm Y={bottom_left[1]:.3f}mm",
+        ]
 
     def _cmd_monitor(self, args: str) -> None:
         """Handle /monitor subcommand: on, off, or immediate update."""

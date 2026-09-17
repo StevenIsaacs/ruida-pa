@@ -63,7 +63,7 @@ enforced when `--rpc-host` is a non-local address.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.20.4               [Header]   │
+│  Ruida Script TUI v0.21.0               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │
@@ -264,7 +264,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/run`                | Execute the composed job (head + job + tail) as a batch.                     |
 | `/run script`        | Execute the loaded script as raw commands (no job extraction).               |
 | `/dryrun on\|off`    | Toggle dry-run mode. When on, `/run` runs normally but RPC `driver.run()` only logs to TUI. |
-| `/frame job \| /frame layer <N>` | Frame job or layer boundaries via jog moves at 600 mm/S (top-right then bottom-left). Requires loaded script + active session. |
+| `/frame job \| /frame layer <N>` | Frame job or layer boundaries via jog moves at 600 mm/S (top-right then bottom-left), relative to the job's detected reference point. Requires loaded script + active session. |
 | `/export <path> [magic=0xNN]` | Export the loaded script as a binary `.rd` file. Default path: `<source>.rd`. Supports `magic=0xNN` to override swizzle byte. |
 | `/import <path>`      | Import a tshark capture file (`.log`/`.txt`/`.rd`) and decode into a script. |
 | `/edit`               | Open the loaded rpascript in a full-screen text editor (Ctrl+S saves, Esc cancels). |
