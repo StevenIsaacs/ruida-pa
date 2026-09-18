@@ -902,6 +902,14 @@ edited through the editor — can be persisted to disk and reloaded:
   if validation passes — applies it via `driver.stage_gluescript(lines)`. Logs
   `Loaded N gluescript lines from <path>, staged M rpascript lines`.
 
+After a successful load the TUI **watches** the `.cglu` file and polls it every
+2 seconds; if the file changes on disk (e.g. edited in an external editor), it
+is automatically re-read and re-staged — the external-editor workflow. An
+auto-reload skips the `.cglu` autosave write (the watched file is the source of
+truth) but still writes the derived `.rds`/`.rd`/`-plot.html` autosave files.
+The watch stops when the file is deleted, on `/gluescript new`, `/clear`,
+session teardown, or app exit.
+
 Load **auto-stages** the file: after a successful load the rpascript is ready,
 but finalization still requires `end_job()` in the file (the job is only marked
 complete when `end_job()` is replayed). Load errors fail loud without corrupting

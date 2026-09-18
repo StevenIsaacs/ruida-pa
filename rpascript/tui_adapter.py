@@ -71,6 +71,8 @@ from rpyc.utils.server import ThreadedServer
 
 _log = logging.getLogger(__name__)
 
+_GLUESCRIPT_WATCH_INTERVAL = 2.0  # seconds between .cglu external-edit polls
+
 
 def _parse_timeout_spec(to_str: str) -> float:
     """Parse a timeout spec like '5s' or '5000ms' into seconds (float).
@@ -630,6 +632,10 @@ class TuiAdapter(App):
         self._preserved_gluescript: list[str] | None = None  # Transcript preserved across session teardown, re-staged on next driver creation
         self._bokeh_apps: list[BokehApp] = []  # running Bokeh servers for /clear shutdown
         self._gluescript_was_run: bool = False  # Tracks if staged gluescript has been executed
+        self._gluescript_watch_path: str | None = None  # .cglu file being monitored for external edits
+        self._gluescript_watch_mtime: float | None = None  # last-seen mtime
+        self._gluescript_watch_size: int | None = None  # last-seen size
+        self._gluescript_watch_timer: Any | None = None  # set_interval handle
         self._rpyc_server: ThreadedServer | None = None
         # Serializes session-less GlueScript RPC delegates when the app is
         # not running (no TUI event loop to marshal onto).
@@ -1979,6 +1985,7 @@ class TuiAdapter(App):
         self._plot_source = None
         self._loaded_script_path = None
         self._gluescript_cglu_path = None
+        self._stop_gluescript_watch()
         self._log_info("Logs, head, and tail cleared")
 
     def _cmd_quit(self) -> None:
@@ -2824,6 +2831,7 @@ class TuiAdapter(App):
             self._ensure_gluescript_driver().new_gluescript()
             self._gluescript_was_run = False
             self._gluescript_cglu_path = None
+            self._stop_gluescript_watch()
             # NOTE: _plot_source deliberately left untouched (mirrors
             # interactive /gluescript new).
 
@@ -3263,15 +3271,86 @@ class TuiAdapter(App):
                 "loaded-script slot left unchanged."
             )
 
-    def _autosave_gluescript(self) -> None:
-        """Save gluescript, rpascript, and .rd files after a gluescript stage."""
+    def _start_gluescript_watch(self, path: str) -> None:
+        """Begin polling a .cglu file for external edits (auto-reload on change)."""
+        try:
+            st = os.stat(path)
+        except OSError:
+            self._log_warning(f"GlueScript: cannot watch {path} (stat failed)")
+            return
+        self._gluescript_watch_path = path
+        self._gluescript_watch_mtime = st.st_mtime
+        self._gluescript_watch_size = st.st_size
+        if self._gluescript_watch_timer is None:
+            self._gluescript_watch_timer = self.set_interval(
+                _GLUESCRIPT_WATCH_INTERVAL, self._check_gluescript_watch
+            )
+        self._log_info(f"GlueScript: watching {path} for external edits")
+
+    def _stop_gluescript_watch(self) -> None:
+        """Cancel the watch timer and clear the watched-file state."""
+        if self._gluescript_watch_timer is not None:
+            self._gluescript_watch_timer.cancel()
+            self._gluescript_watch_timer = None
+        self._gluescript_watch_path = None
+        self._gluescript_watch_mtime = None
+        self._gluescript_watch_size = None
+
+    async def _check_gluescript_watch(self) -> None:
+        """Poll the watched .cglu file and auto-reload it when it changes."""
+        path = self._gluescript_watch_path
+        if path is None:
+            return
+        try:
+            st = os.stat(path)
+        except OSError:
+            self._log_warning(
+                f"GlueScript: watched file {path} no longer exists — stopping watch"
+            )
+            self._stop_gluescript_watch()
+            return
+        if (st.st_mtime, st.st_size) == (
+            self._gluescript_watch_mtime,
+            self._gluescript_watch_size,
+        ):
+            return
+        self._gluescript_watch_mtime = st.st_mtime
+        self._gluescript_watch_size = st.st_size
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+        except OSError as e:
+            self._log_error(
+                f"GlueScript: error re-reading {path}: {type(e).__name__}: {e}"
+            )
+            return
+        lines = content.splitlines()
+        result = self._apply_gluescript_lines(
+            lines, "on reload", f"in {path}", "Reload", skip_cglu_autosave=True
+        )
+        if result is None:
+            return
+        kept, staged_count = result
+        self._gluescript_was_run = False
+        self._log_info(
+            f"GlueScript: reloaded {len(kept)} lines from {path}, "
+            f"staged {staged_count} rpascript lines"
+        )
+
+    def _autosave_gluescript(self, skip_cglu: bool = False) -> None:
+        """Save gluescript, rpascript, and .rd files after a gluescript stage.
+
+        ``skip_cglu`` suppresses the .cglu write (used on auto-reload, where
+        the watched file is the source of truth); the derived .rds/.rd and
+        -plot.html writes are unaffected.
+        """
         if self._autosave_path is None:
             return
         driver = self._ruida_driver
         if driver is None:
             return
         base = f"{self._autosave_path}-{__version__}"
-        if driver.gluescript:
+        if driver.gluescript and not skip_cglu:
             cglu_path = base + ".cglu"
             try:
                 with open(cglu_path, "w") as f:
@@ -3489,6 +3568,7 @@ class TuiAdapter(App):
                 return
             self._gluescript_was_run = False
             self._gluescript_cglu_path = None
+            self._stop_gluescript_watch()
             # Wipe the loaded-script slot too: the previous job's rpascript
             # no longer exists. _plot_source is intentionally NOT cleared
             # (user decision) — the stale label is accepted until a file is
@@ -3595,6 +3675,7 @@ class TuiAdapter(App):
             kept, staged_count = result
             self._gluescript_was_run = False
             self._gluescript_cglu_path = path
+            self._start_gluescript_watch(path)
             self._log_info(
                 f"Loaded {len(kept)} gluescript lines from {path}, "
                 f"staged {staged_count} rpascript lines"
@@ -3644,6 +3725,7 @@ class TuiAdapter(App):
         live_ctx: str,
         where_ctx: str,
         fail_prefix: str,
+        skip_cglu_autosave: bool = False,
     ) -> tuple[list[str], int] | None:
         """Filter live-only lines, validate, and apply a gluescript to the driver.
 
@@ -3655,6 +3737,9 @@ class TuiAdapter(App):
         of staged rpascript lines (the length of the driver's rpascript
         right after apply), or None if the input cannot be staged (the
         error is already logged).
+
+        ``skip_cglu_autosave`` is forwarded to ``_autosave_gluescript`` so an
+        auto-reload does not overwrite the watched .cglu file.
         """
         driver = self._ruida_driver
         # Defensive only — _cmd_gluescript ensures a driver exists before
@@ -3704,7 +3789,7 @@ class TuiAdapter(App):
             self._log_error("Cannot apply gluescript lines while a job is running.")
             return None
         self._copy_staged_rpascript_to_loaded()
-        self._autosave_gluescript()
+        self._autosave_gluescript(skip_cglu=skip_cglu_autosave)
         return kept_lines, len(driver.rpascript)
 
     def _handle_live_command(self, line: str) -> None:
@@ -4163,6 +4248,7 @@ class TuiAdapter(App):
             if self._ruida_driver is not None:
                 self._disable_connection_logging()
                 self._session_connected.clear()
+                self._stop_gluescript_watch()
                 self._release_driver()
 
     async def _stop_session(self) -> None:
@@ -4173,6 +4259,7 @@ class TuiAdapter(App):
 
         try:
             self._disable_connection_logging()
+            self._stop_gluescript_watch()
             self._release_driver()
             self._session_connected.clear()
             self._log_info("Session ended")
@@ -5167,6 +5254,7 @@ class TuiAdapter(App):
         if self._mem_timer is not None:
             self._mem_timer.cancel()
             self._mem_timer = None
+        self._stop_gluescript_watch()
         self._save_command_history()
         if self._ruida_driver is not None:
             self._session_connected.clear()

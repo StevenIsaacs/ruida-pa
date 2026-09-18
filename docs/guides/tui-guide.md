@@ -268,7 +268,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/export <path> [magic=0xNN]` | Export the loaded script as a binary `.rd` file. Default path: `<source>.rd`. Supports `magic=0xNN` to override swizzle byte. |
 | `/import <path>`      | Import a tshark capture file (`.log`/`.txt`/`.rd`) and decode into a script. |
 | `/edit`               | Open the loaded rpascript in a full-screen text editor (Ctrl+S saves, Esc cancels). |
-| `/gluescript <sub>`   | GlueScript high-level scripting (`new`, `show`, `stage`, `run`, `save`, `load`, `edit`, `list`, ...). See the [GlueScript guide](gluescript-guide.md). |
+| `/gluescript <sub>`   | GlueScript high-level scripting (`new`, `show`, `stage`, `run`, `save`, `load`, `edit`, `list`, ...). See the [GlueScript guide](gluescript-guide.md). Loaded `.cglu` files are watched and auto-reloaded when they change on disk (external-editor workflow); auto-reloads skip the `.cglu` autosave write but still write derived `.rds`/`.rd`/`-plot.html`. |
 | `/save job\|script\|as <path>` | Save the pure job body (`/save job`, START_JOB to EOF, no head/tail) or the full loaded script (`/save script`; `/save as` is an alias). Bare `/save <path>` defaults to script save. |
 | `/autosave <path>`    | Set gluescript autosave base path (saves `.cglu`/`.rds`/`.rd`/`-plot.html` on every gluescript stage). `/autosave off` disables; `/autosave` shows current setting. |
 | `/list`               | Show the composed job with section markers (`# --- Head ---` / `# --- Job ---` / `# --- Tail ---`). |
