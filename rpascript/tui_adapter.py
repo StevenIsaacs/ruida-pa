@@ -611,7 +611,7 @@ class TuiAdapter(App):
         self._plot_source: str | None = None  # source label for /plot title (filename or "[RPC]")
         self._loaded_script_path: str | None = None  # Full path of last /load-ed file, for /save preselect
         self._gluescript_cglu_path: str | None = None  # Full path of last saved/loaded .cglu file, for /gluescript preselect
-        self._autosave_path: str | None = None  # Base path for RPC gluescript autosave (None = disabled)
+        self._autosave_path: str | None = None  # Base path for gluescript autosave (None = disabled)
         self._preserved_gluescript: list[str] | None = None  # Transcript preserved across session teardown, re-staged on next driver creation
         self._bokeh_apps: list[BokehApp] = []  # running Bokeh servers for /clear shutdown
         self._gluescript_was_run: bool = False  # Tracks if staged gluescript has been executed
@@ -650,7 +650,7 @@ class TuiAdapter(App):
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
             "gluescript": "GlueScript high-level scripting. Subcommands: new, show, stage, run, save, load, edit, list",
-            "autosave": "Set RPC gluescript autosave path (/autosave <path> | /autosave off | /autosave to show)",
+            "autosave": "Set, show, or disable the gluescript autosave path (/autosave <path> | /autosave off | /autosave)",
             "listeners": "List listeners registered with the RdDriver (/listeners [full])",
             "home": "home: Jog X and Y axes to the origin reference",
             "home_z": "home_z: Home Z axis",
@@ -1371,7 +1371,7 @@ class TuiAdapter(App):
             "  /gluescript load <path>                         Load a .cglu gluescript file and stage it\n"
             "  /gluescript edit                            Edit the gluescript in a full-screen editor\n"
             "  /gluescript list                             Display high-level gluescript commands\n"
-            "  /autosave <path>                          Set RPC gluescript autosave base path (saves .cglu/.rds/.rd/-plot.html on RPC stage)\n"
+            "  /autosave <path>                          Set gluescript autosave base path (saves .cglu/.rds/.rd/-plot.html on gluescript stage)\n"
             "  /autosave off                             Disable autosave\n"
             "  /autosave                                 Show current autosave setting\n"
         )
@@ -2996,6 +2996,7 @@ class TuiAdapter(App):
                 gluescript, require_complete
             )
             self._copy_staged_rpascript_to_loaded()
+            self._plot_source = "[RPC]"
             self._autosave_gluescript()
             return sig
 
@@ -3213,7 +3214,7 @@ class TuiAdapter(App):
             )
 
     def _autosave_gluescript(self) -> None:
-        """Save gluescript, rpascript, and .rd files after an RPC full stage."""
+        """Save gluescript, rpascript, and .rd files after a gluescript stage."""
         if self._autosave_path is None:
             return
         driver = self._ruida_driver
@@ -3270,7 +3271,7 @@ class TuiAdapter(App):
             from protocols.ruida.rpa_plotter import RpaPlotter
 
             ns = argparse.Namespace(
-                input_file="[RPC]",
+                input_file=self._plot_source or "<gluescript>",
                 output_file=None,
                 bokeh_port=5006,
                 quiet=True,
@@ -3377,16 +3378,13 @@ class TuiAdapter(App):
                     self._log_info(f"  {listener!r}")
 
     def _cmd_autosave(self, args: str) -> None:
-        """Set, show, or disable the RPC gluescript autosave path."""
-        if self._rpyc_server is None:
-            self._log_error("RPC server not running. Start it with 'server start' first.")
-            return
+        """Set, show, or disable the gluescript autosave path."""
         args = args.strip()
         if not args:
             if self._autosave_path:
                 self._log_info(
                     f"Autosave: {self._autosave_path}-<version>.<ext> "
-                    "(saves .cglu/.rds/.rd/-plot.html on RPC stage)"
+                    "(saves .cglu/.rds/.rd/-plot.html on gluescript stage)"
                 )
             else:
                 self._log_info("Autosave: not set")
@@ -3399,7 +3397,7 @@ class TuiAdapter(App):
         self._autosave_path = path
         self._log_info(
             f"Autosave set: {path}-<version>.<ext> "
-            "(saves .cglu/.rds/.rd/-plot.html on RPC stage)"
+            "(saves .cglu/.rds/.rd/-plot.html on gluescript stage)"
         )
 
     def _cmd_gluescript(self, args: str) -> None:
@@ -3468,6 +3466,7 @@ class TuiAdapter(App):
                     return
                 driver.stage_gluescript()
                 self._copy_staged_rpascript_to_loaded()
+                self._autosave_gluescript()
                 self._log_info(
                     f"GlueScript: Staged {len(driver.rpascript)} rpascript lines."
                 )
@@ -3480,6 +3479,7 @@ class TuiAdapter(App):
                     return
                 driver.stage_gluescript()
                 self._copy_staged_rpascript_to_loaded()
+                self._autosave_gluescript()
                 driver.run_job()
                 self._gluescript_was_run = True
                 self._log_info(f"GlueScript: Executed job ({len(driver.rpascript)} rpascript lines).")
@@ -3654,6 +3654,7 @@ class TuiAdapter(App):
             self._log_error("Cannot apply gluescript lines while a job is running.")
             return None
         self._copy_staged_rpascript_to_loaded()
+        self._autosave_gluescript()
         return kept_lines, len(driver.rpascript)
 
     def _handle_live_command(self, line: str) -> None:

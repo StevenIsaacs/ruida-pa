@@ -270,7 +270,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/edit`               | Open the loaded rpascript in a full-screen text editor (Ctrl+S saves, Esc cancels). |
 | `/gluescript <sub>`   | GlueScript high-level scripting (`new`, `show`, `stage`, `run`, `save`, `load`, `edit`, `list`, ...). See the [GlueScript guide](gluescript-guide.md). |
 | `/save job\|script\|as <path>` | Save the pure job body (`/save job`, START_JOB to EOF, no head/tail) or the full loaded script (`/save script`; `/save as` is an alias). Bare `/save <path>` defaults to script save. |
-| `/autosave <path>`    | Set RPC gluescript autosave base path (saves `.cglu`/`.rds`/`.rd`/`-plot.html` on RPC stage). `/autosave off` disables; `/autosave` shows current setting. Requires RPC server (`server start` first). |
+| `/autosave <path>`    | Set gluescript autosave base path (saves `.cglu`/`.rds`/`.rd`/`-plot.html` on every gluescript stage). `/autosave off` disables; `/autosave` shows current setting. |
 | `/list`               | Show the composed job with section markers (`# --- Head ---` / `# --- Job ---` / `# --- Tail ---`). |
 | `/list auto [on\|off]`| Auto-display of RPC scripts.                                                  |
 | `/list job`           | Same as `/list`.                                                             |
@@ -307,7 +307,6 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/run` with no script loaded                        | `No script loaded. Use /load <path> first.`                           |
 | `/run` with no session                              | `No active session. Use 'session start udp=...' first.`               |
 | `/run` with no job markers                          | `No job commands found (no START_JOB/EOF markers).`               |
-| `/autosave` without RPC server                       | `RPC server not running. Start it with 'server start' first.`          |
 | `/frame` with no script loaded                       | `No script loaded. Use /load <path> first.`                           |
 | `/frame` with no session                             | `No active session. Use 'session start udp=<IP>' first.`               |
 | `/dryrun` bad arg                                    | `Usage: /dryrun on\|off`                                                |
@@ -563,7 +562,7 @@ Both modes require an active session.
 - `/save as <path>` — alias for `/save script`.
 - Bare `/save <path>` — defaults to `/save script`.
 
-### RPC Autosave
+### Autosave
 
 ```
 /autosave my-job
@@ -571,16 +570,18 @@ Both modes require an active session.
 /autosave            # Show current setting
 ```
 
-The RPC autosave workflow captures gluescript jobs staged by an RPC client:
+The autosave workflow captures gluescript jobs staged through any path:
 
-1. Start the RPC server (`server start` or launch with `--rpc`).
-2. Set the base path with `/autosave <path>`.
-3. An RPC client stages a gluescript job (full stage).
-4. The TUI writes `<path>-<version>.cglu`, `<path>-<version>.rds`,
-   `<path>-<version>.rd`, and `<path>-<version>-plot.html` on each full stage.
+1. Set the base path with `/autosave <path>`.
+2. Stage a gluescript job — either from an RPC client (full stage) or from
+   the TUI itself (`/gluescript stage`, `/gluescript run`, `/gluescript load`,
+   or `/gluescript edit`).
+3. The TUI writes `<path>-<version>.cglu`, `<path>-<version>.rds`,
+   `<path>-<version>.rd`, and `<path>-<version>-plot.html` on each stage.
 
 `/autosave off` disables autosave; `/autosave` with no argument shows the
-current setting. Requires the RPC server to be running first.
+current setting. The RPC server is not required — autosave works for TUI
+staging too. Autosave does not fire on RPC delta stages.
 
 ### Plotting
 
