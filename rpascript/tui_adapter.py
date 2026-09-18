@@ -53,6 +53,7 @@ from rpalib.rpa_swizzler import RpaSwizzler
 
 from textual import on
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Callback, Key
 from textual.markup import escape
@@ -346,6 +347,20 @@ class ScriptEditor(ModalScreen):
         end_loc = self._compute_location(text, end)
         textarea.move_cursor(start_loc, select=False)
         textarea.move_cursor(end_loc, select=True, center=True)
+
+
+class CommandInput(Input):
+    """Command input with Ctrl+A bound to select-all.
+
+    Textual's stock Input binds Ctrl+A to "go to start" (home). Override
+    so Ctrl+A selects all text; Ctrl+Shift+A keeps the stock select-all.
+    """
+
+    BINDINGS = [
+        Binding("ctrl+shift+a", "select_all", "Select all", show=False),
+        Binding("home", "home", "Go to start", show=False),
+        Binding("ctrl+a", "select_all", "Select all", show=False),
+    ]
 
 
 def _deep_getsizeof(obj: Any, seen: set[int] | None = None, _depth: int = 500, _level: int = 0) -> tuple[int, int]:
@@ -737,9 +752,10 @@ class TuiAdapter(App):
                 yield RichLog(
                     id="log-area", highlight=True, markup=True, max_lines=1000
                 )
-                yield Input(
+                yield CommandInput(
                     id="command-input",
                     placeholder="> Enter command (session start/end, or rpascript)...",
+                    select_on_focus=False,
                 )
             with Vertical(id="side-panel"):
                 yield RichLog(
@@ -1133,14 +1149,41 @@ class TuiAdapter(App):
         elif event.key == "enter":
             """Confirm selection from suggest popup."""
             if self._suggest_popup.is_attached and self._suggest_matches:
+                if (
+                    not self._suggest_matches
+                    or not 0 <= self._suggest_selected < len(self._suggest_matches)
+                ):
+                    return
                 event.stop()
                 selected = self._suggest_matches[self._suggest_selected]
 
                 if self._suggest_mode == "file":
+                    _, typed_path = self._check_file_browse_trigger(inp.value)
+
+                    # Entering a highlighted directory rescans into it and
+                    # stays in file mode — unless the typed path is a real
+                    # file, in which case the typed path wins (Flow C).
+                    highlighted = self._selected_file_completion()
+                    if (
+                        highlighted is not None
+                        and highlighted[1]
+                        and not os.path.isfile(os.path.expanduser(typed_path))
+                    ):
+                        cwd = str(Path.cwd())
+                        display_dir = self._file_completion_dir
+                        if display_dir.startswith(cwd):
+                            display_dir = "." + display_dir[len(cwd):]
+                        new_path = self._file_new_path(display_dir, highlighted[0])
+                        self._enter_file_directory(new_path)
+                        # Suppress the Input's enter->submit binding so the
+                        # dir-enter state persists instead of running the
+                        # command (which would fail with IsADirectoryError).
+                        event.prevent_default()
+                        return
+
                     # If the user typed a path without navigating the popup,
                     # use the typed path directly instead of replacing it with
                     # a completion match.
-                    _, typed_path = self._check_file_browse_trigger(inp.value)
                     if (
                         typed_path
                         and not typed_path.endswith("/")
@@ -1162,10 +1205,8 @@ class TuiAdapter(App):
                     display_dir = self._file_completion_dir
                     if display_dir.startswith(cwd):
                         display_dir = "." + display_dir[len(cwd):]
-                    if display_dir and display_dir != ".":
-                        new_path = display_dir + "/" + selected
-                    else:
-                        new_path = selected
+
+                    new_path = self._file_new_path(display_dir, selected)
                     completed_val = self._file_completion_cmd + " " + new_path
                     self._suppress_popup = True
                     inp.focus()
@@ -1221,31 +1262,35 @@ class TuiAdapter(App):
                 if display_dir.startswith(cwd):
                     display_dir = "." + display_dir[len(cwd):]
 
+                # Entering a highlighted directory rescans into it and stays
+                # in file mode — unless the typed path is a real file, in
+                # which case the typed path wins and Tab falls through to the
+                # single-match/cycle logic (Flow C).
+                _, typed_path = self._check_file_browse_trigger(inp.value)
+                if (
+                    0 <= self._suggest_selected < len(filtered)
+                    and filtered[self._suggest_selected][1]
+                    and not os.path.isfile(os.path.expanduser(typed_path))
+                ):
+                    new_path = self._file_new_path(
+                        display_dir, filtered[self._suggest_selected][0]
+                    )
+                    self._enter_file_directory(new_path)
+                    return
+
                 if len(filtered) == 1:
-                    # Single match — auto-complete
-                    selected_name, is_dir = filtered[0]
-                    if display_dir and display_dir != ".":
-                        new_path = display_dir + "/" + selected_name
-                    else:
-                        new_path = selected_name
+                    # Single match — auto-complete (a directory match would
+                    # have been handled above, so this is always a file)
+                    selected_name, _ = filtered[0]
+                    new_path = self._file_new_path(display_dir, selected_name)
                     completed_val = self._file_completion_cmd + " " + new_path
                     self._suppress_popup = True
                     inp.value = completed_val
                     self.post_message(Key("end", None))
-
-                    if is_dir:
-                        # Directory: scan its contents and stay in file mode
-                        self._file_completions = self._get_file_completions(
-                            self._file_completion_cmd, new_path
-                        )
-                        self._file_completion_prefix = ""
-                        self._suggest_selected = 0
-                        self._render_suggest_popup()
-                    else:
-                        # File: complete and dismiss
-                        self._clear_file_completion_state()
-                        if self._suggest_popup.is_attached:
-                            self._suggest_popup.remove()
+                    # File: complete and dismiss
+                    self._clear_file_completion_state()
+                    if self._suggest_popup.is_attached:
+                        self._suggest_popup.remove()
                 else:
                     # Multiple matches — cycle to next
                     self._suggest_selected = (
@@ -1256,6 +1301,11 @@ class TuiAdapter(App):
 
             # --- Slash/introspect Tab (popup visible, input has focus) ---
             if self._suggest_popup.is_attached and self._suggest_matches:
+                if (
+                    not self._suggest_matches
+                    or not 0 <= self._suggest_selected < len(self._suggest_matches)
+                ):
+                    return
                 event.stop()
                 selected = self._suggest_matches[self._suggest_selected]
                 prefix = "/" if self._suggest_mode == "slash" else "?"
@@ -3935,6 +3985,44 @@ class TuiAdapter(App):
             self._suggest_matches = []
             if self._suggest_popup.is_attached:
                 self._suggest_popup.remove()
+
+    def _selected_file_completion(self) -> tuple[str, bool] | None:
+        """Return the (name, is_dir) completion currently highlighted, or None.
+
+        Recomputes the prefix-filtered list so the selection is always valid
+        even if _suggest_selected is stale or out of range.
+        """
+        prefix = self._file_completion_prefix.lower()
+        filtered = [
+            (name, is_dir)
+            for name, is_dir in self._file_completions
+            if name.lower().startswith(prefix)
+        ]
+        if not filtered or not 0 <= self._suggest_selected < len(filtered):
+            return None
+        return filtered[self._suggest_selected]
+
+    @staticmethod
+    def _file_new_path(display_dir: str, name: str) -> str:
+        """Build a display path from the browsed directory and a completion name."""
+        if display_dir and display_dir != ".":
+            return display_dir + "/" + name
+        return name
+
+    def _enter_file_directory(self, new_path: str) -> None:
+        """Enter a highlighted directory: rescan its contents and stay in file mode."""
+        inp = self.query_one("#command-input", Input)
+        completed_val = self._file_completion_cmd + " " + new_path
+        self._suppress_popup = True
+        inp.focus()
+        inp.value = completed_val
+        self.post_message(Key("end", None))
+        self._file_completions = self._get_file_completions(
+            self._file_completion_cmd, new_path
+        )
+        self._file_completion_prefix = ""
+        self._suggest_selected = 0
+        self._render_suggest_popup()
 
     # ------------------------------------------------------------------
     # Session lifecycle
