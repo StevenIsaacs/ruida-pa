@@ -109,7 +109,7 @@
     "body": [
       "frequency(${1:30.0})"
     ],
-    "description": "Set the laser pulse frequency for the current layer (comment-only; expansion not yet wired into rpascript)"
+    "description": "Set the laser pulse frequency in kHz for the current layer (expands to a LAYER_FREQUENCY rpascript action)"
   },
   "pwm": {
     "prefix": "pwm",

@@ -302,7 +302,7 @@ class GlueScript:
         # re-arm the flag mid-replay and defeat the suppression.
         self._warn_inline: bool = True
         # Per-job flag: set when a comment-only layer action
-        # (move_speed/frequency/pwm) is used; cleared by
+        # (move_speed/pwm) is used; cleared by
         # new_gluescript() and the re-stage reset block.
         self._comment_only_used: bool = False
         # Caller-set toggle (per-instance): when False, the staging warning
@@ -846,7 +846,8 @@ class GlueScript:
             mode: Layer mode (VECTOR, RASTER, DITHER, IMAGE, DEPTHMAP).
             overscan: Overscan mode (NONE, X, X_BI, Y, Y_BI, XY).
             speed: Layer speed in mm/s.
-            frequency: Laser PWM frequency in KHz.
+            frequency: Laser PWM frequency in KHz; emitted as a
+                ``LAYER_FREQUENCY`` line in the layer's rpascript attributes.
             min_power_1: Minimum layer power percent for head 1.
             max_power_1: Maximum layer power percent for head 1.
 
@@ -949,6 +950,9 @@ class GlueScript:
             f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{max_power_1}%"
         )
         attrs.extend(power_warnings)
+        attrs.append(
+            f"LAYER_FREQUENCY Laser:1 Layer:{self._layer - 1} Freq:{frequency:.3f}KHz"
+        )
         attrs.append(f"LAYER_ATTRIBUTES Layer:{self._layer - 1} 0")
         self._layer_attributes[self._layer] = attrs
         self._layer_overscan[self._layer] = list(self._overscan_modes[resolved_overscan])
@@ -1593,15 +1597,15 @@ class GlueScript:
         self._comment_only_used = True
 
     def frequency(self, frequency: float) -> None:
-        """Set laser frequency for the current layer (comment-only for now).
+        """Set laser frequency for the current layer.
 
-        Expands to a ``# frequency(...)`` comment in the rpascript layer
-        actions — the frequency command is not yet wired into rpascript,
-        so the value is preserved in the transcript only.
+        Expands to a ``LAYER_FREQUENCY`` rpascript layer action carrying
+        the frequency value in KHz.
         """
         self.gluescript.append(f"frequency({frequency!r})")
-        self._layer_actions.setdefault(self._layer, []).append(f"# frequency({frequency!r})")
-        self._comment_only_used = True
+        self._layer_actions.setdefault(self._layer, []).append(
+            f"LAYER_FREQUENCY Laser:1 Layer:{self._layer - 1} Freq:{frequency:.3f}KHz"
+        )
 
     def pwm(self, duration: float) -> None:
         """Set laser pulse width in microseconds (comment-only for now).
@@ -1832,7 +1836,7 @@ class GlueScript:
         layer actions with SELECT_LAYER prefix, inline epilogue, END_JOB,
         EOF, then deferred-variable expansion. Sets ``_stage_complete``
         and fires the inline() staging warning when inline was used and
-        the comment-only warning when move_speed/frequency/pwm
+        the comment-only warning when move_speed/pwm
         were used.
         """
         self.rpascript = []
@@ -1886,8 +1890,8 @@ class GlueScript:
             )
         if self._comment_only_used and self._warn_comment_only:
             logger.warning(
-                "GlueScript used move_speed/frequency/pwm - these "
-                "expand to comments only; move speed/frequency will not change"
+                "GlueScript used move_speed/pwm - these "
+                "expand to comments only; move speed/pulse width will not change"
             )
 
     def stage_gluescript(

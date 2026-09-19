@@ -189,7 +189,7 @@ Each line is parsed as:
 | `LASER_ON_DELAY`   | `{:.3f}mS`      | Delay before laser fires             |
 | `LASER_OFF_DELAY`  | `{:.3f}mS`      | Delay after laser stops              |
 | `ADD_DELAY`        | `{:.3f}mS`      | Additional delay per segment         |
-| `FREQUENCY_LAYER`   | `Laser={n} Layer={n} Freq=KHz` | Frequency for a specific layer |
+| `FREQUENCY_LAYER`   | `Laser={n} Layer={n} Freq=KHz` | Frequency for a specific layer (CT mnemonic: `LAYER_FREQUENCY`) |
 
 ### 2.3 Speed
 
@@ -851,7 +851,7 @@ NOTES:
   to fire the laser. Power levels above 70% can reduce the life of the laser tube.
 - Grayscale pixel images may require power settings between move and cut commands.
   The actual commands for this case are currently unknown.
-- Frequency can be controlled but is currently the default (typically 30 KHz).
+- Frequency is controlled via `LAYER_FREQUENCY`; the default is typically 30 KHz.
 
 ### 10.9 Tail
 

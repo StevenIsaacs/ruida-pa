@@ -246,6 +246,10 @@ configuration rpascript commands.
   rpascript attributes (and logs a warning) — CO2 laser tube life is reduced
   at higher power settings.
 
+The `frequency` parameter is emitted as a `LAYER_FREQUENCY` line in the
+layer's rpascript attributes, e.g.
+`LAYER_FREQUENCY Laser:1 Layer:0 Freq:20.000KHz` for the default value.
+
 **Raises:** `ValueError` if mode or overscan is invalid.
 
 ```python
@@ -459,9 +463,9 @@ driver.cut_speed(80.0)
 
 The layer index is emitted 0-based (matching the controller and the layer
 attributes), and the speed is emitted with an `=` separator and no unit. The
-staging warning (`GlueScript used move_speed/frequency/pwm - these expand to
-comments only; move speed/frequency will not change`) informs the user when
-any of the three remaining comment-only actions are used; it fires once per
+staging warning (`GlueScript used move_speed/pwm - these expand to
+comments only; move speed/pulse width will not change`) informs the user when
+any of the two remaining comment-only actions are used; it fires once per
 stage (once per delta over RPC). `cut_speed()` is a **saved-job command** — it
 is persisted to, and replayed from, `.cglu` files (unlike jog/home commands,
 which are live-only).
@@ -484,17 +488,17 @@ stage, i.e. once per delta over RPC).
 #### `frequency(frequency: float)`
 
 Set the laser pulse frequency for the following cuts in the currently active
-layer. Expands to a `#` comment placeholder in the layer's action block:
+layer. Expands to a `LAYER_FREQUENCY` action in the layer's action block:
 
 ```python
 driver.frequency(30.0)
-# Produces: # frequency(30.0)
+# Produces: LAYER_FREQUENCY Laser:1 Layer:0 Freq:30.000KHz
 ```
 
-As with `move_speed`, the expansion is a `#` comment because the correct Ruida
-frequency command is not yet verified/supported in rpascript — the job's
-actual frequency will NOT change, and the same staging warning applies
-(once per stage, i.e. once per delta over RPC).
+The layer index is emitted 0-based (matching the controller and the layer
+attributes), and the frequency is emitted in KHz with three decimal places.
+`frequency()` is a **saved-job command** — it is persisted to, and replayed
+from, `.cglu` files (unlike jog/home commands, which are live-only).
 
 #### `pwm(duration: float)`
 
@@ -518,7 +522,7 @@ delta over RPC).
 #### `select_laser(laser: int)`
 
 Select the laser head used by the following actions in the currently active
-layer. The argument is 1-based. Unlike the three comment-only methods above,
+layer. The argument is 1-based. Unlike the two comment-only methods above,
 this one has a real expansion: `select_laser(1)` emits `LASER_DEVICE_1` in the
 layer's action block:
 
