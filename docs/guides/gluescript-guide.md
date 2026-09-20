@@ -248,7 +248,7 @@ configuration rpascript commands.
 
 The `frequency` parameter is emitted as a `LAYER_FREQUENCY` line in the
 layer's rpascript attributes, e.g.
-`LAYER_FREQUENCY Laser:1 Layer:0 Freq:20.000KHz` for the default value.
+`LAYER_FREQUENCY Laser:0 Layer:0 Freq:20.000KHz` for the default value.
 
 **Raises:** `ValueError` if mode or overscan is invalid.
 
@@ -492,7 +492,7 @@ layer. Expands to a `LAYER_FREQUENCY` action in the layer's action block:
 
 ```python
 driver.frequency(30.0)
-# Produces: LAYER_FREQUENCY Laser:1 Layer:0 Freq:30.000KHz
+# Produces: LAYER_FREQUENCY Laser:0 Layer:0 Freq:30.000KHz
 ```
 
 The layer index is emitted 0-based (matching the controller and the layer

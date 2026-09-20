@@ -951,7 +951,7 @@ class GlueScript:
         )
         attrs.extend(power_warnings)
         attrs.append(
-            f"LAYER_FREQUENCY Laser:1 Layer:{self._layer - 1} Freq:{frequency:.3f}KHz"
+            f"LAYER_FREQUENCY Laser:0 Layer:{self._layer - 1} Freq:{frequency:.3f}KHz"
         )
         attrs.append(f"LAYER_ATTRIBUTES Layer:{self._layer - 1} 0")
         self._layer_attributes[self._layer] = attrs
@@ -1604,7 +1604,7 @@ class GlueScript:
         """
         self.gluescript.append(f"frequency({frequency!r})")
         self._layer_actions.setdefault(self._layer, []).append(
-            f"LAYER_FREQUENCY Laser:1 Layer:{self._layer - 1} Freq:{frequency:.3f}KHz"
+            f"LAYER_FREQUENCY Laser:0 Layer:{self._layer - 1} Freq:{frequency:.3f}KHz"
         )
 
     def pwm(self, duration: float) -> None:
