@@ -462,7 +462,7 @@ CT = {
         0x51: ("THROUGH_POWER_2", POWER),
         0x55: ("THROUGH_POWER_3", POWER),
         0x56: ("THROUGH_POWER_4", POWER),
-        0x60: ("LAYER_FREQUENCY", LASER, LAYER, FREQUENCY),
+        0x60: ("LAYER_FREQUENCY", LASER, LAYER, FREQUENCY),  # Verified LightBurn
     },
     0xC7: ("IMD_POWER_1", POWER),
     0xC8: ("END_POWER_1", POWER),
