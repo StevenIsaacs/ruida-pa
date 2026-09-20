@@ -65,7 +65,11 @@ from rpascript.encoding import encode_command, is_resolvable_address, parse_valu
 from rpascript.interpreter import ScriptParser, reconstruct_script_line
 from ruidadriver.rd_status import RdStatusEvent
 from ruidadriver.ruida_driver import RdDriver, StatusDict
-from ruidadriver.rd_gluescript import GlueScript, JobRunningError
+from ruidadriver.rd_gluescript import (
+    GlueScript,
+    JobRunningError,
+    _join_continuation_lines,
+)
 
 from rpyc.utils.server import ThreadedServer
 
@@ -3729,6 +3733,8 @@ class TuiAdapter(App):
     ) -> tuple[list[str], int] | None:
         """Filter live-only lines, validate, and apply a gluescript to the driver.
 
+        Input lines are first joined via ``_join_continuation_lines``,
+        so multi-line parameter spans become single logical lines.
         Shared pipeline for ``/gluescript load`` and ``/gluescript edit``:
         drops live-only jog/home/job-control lines with a warning, requires at least one
         stageable command, validates on a throwaway GlueScript instance
@@ -3747,15 +3753,16 @@ class TuiAdapter(App):
         if driver is None:
             self._log_error("No active session. Use 'session start' first.")
             return None
+        lines = _join_continuation_lines(lines)
         gluescript_parser = GlueScript()
         kept_lines: list[str] = []
         live_only_dropped = False
         for line in lines:
-            if not line.strip() or line.lstrip().startswith("#"):
+            if not line.strip():
                 kept_lines.append(line)
                 continue
             try:
-                name, _args = gluescript_parser._parse_gluescript_line(line)
+                name, _args, _kwargs = gluescript_parser._parse_gluescript_line(line)
             except (ValueError, SyntaxError):
                 kept_lines.append(line)
                 continue
@@ -3766,7 +3773,7 @@ class TuiAdapter(App):
                 )
                 continue
             kept_lines.append(line)
-        if not [ln for ln in kept_lines if ln.strip() and not ln.lstrip().startswith("#")]:
+        if not [ln for ln in kept_lines if ln.strip()]:
             if live_only_dropped:
                 self._log_error(
                     f"GlueScript: no stageable commands {where_ctx} "

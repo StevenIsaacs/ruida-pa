@@ -1040,7 +1040,138 @@ GlueScript: Staged 28 rpascript lines.
 
 ---
 
-## 6. Status Bar Indicators
+## 6. Authoring GlueScript Files
+
+Sections 1–5 describe GlueScript from the Python API's perspective — the
+methods a program calls to build a job. This section covers the **author's
+perspective**: writing a gluescript by hand in a text editor and loading it
+through the TUI.
+
+### Author Workflow
+
+The `.cglu` file is the on-disk GlueScript format (the `.gs` extension was
+deliberately rejected — it conflicts with Google Apps Script). Authoring
+revolves around the external-editor loop:
+
+```
+write/edit a .cglu file in a text editor
+    ↓
+/gluescript load <file>
+    ↓
+TUI validates and stages it
+    ↓
+file is watched and auto-reloads on external edit (2s poll)
+```
+
+After a successful load the TUI **watches** the `.cglu` file and polls it
+every 2 seconds; an edit made in an external editor is automatically re-read,
+re-validated, and re-staged, so you can iterate on the file without
+re-issuing the load. (The watch stops when the file is deleted, on
+`/gluescript new`, `/clear`, session teardown, or app exit.)
+
+### What the Load Pipeline Does
+
+`/gluescript load <path>` reads the file, then runs the lines through the
+same pipeline as `edit` and re-staging: each line is parsed into a method
+name and arguments, looked up in the command registry, and replayed onto a
+throwaway `GlueScript` instance. Only if validation passes is the file applied
+via `driver.stage_gluescript(lines)` and the derived `.rds`/`.rd`/`-plot.html`
+autosave files written. Load errors fail loud without corrupting live state.
+
+**`end_job()` is required** to finalize the job. Load auto-stages the file —
+the rpascript is ready after a successful load — but the job is only marked
+complete when the replayed `end_job()` line is reached. A file saved mid-job
+without `end_job()` loads and restores fine but is not yet finalized.
+
+**Live-only commands are ignored with a warning.** Jog commands (`jog_*`,
+including the `jog_set_*` config setters), homing commands (`home`, `home_z`,
+`home_u`), and job-control commands (`pause`, `resume`, `stop_job`, `reset`)
+are live-only — they act immediately on the live session and are never part
+of a saved job. Lines naming them in a `.cglu` file are ignored with a
+warning on load (`ignoring live-only command line on load`) and are never
+used for position tracking.
+
+### Multi-Line Parameter Spans
+
+Parameters may span multiple physical lines. The parser joins physical lines
+until the brackets balance, so a call's argument list can be laid out across
+several lines:
+
+```
+inline([
+  "AIR_ASSIST_ON",
+  "LASER_ON"
+  ])
+```
+
+The bracket depth is tracked across lines; once all open brackets have closed
+and the argument list is complete, the joined span is parsed as a single call.
+
+**Mid-span rule:** blank lines and full-line `#` comments *inside* a
+multi-line span are allowed and included in the join — they are part of the
+span and do not terminate it. At depth zero (outside any open bracket), a
+blank line or full-line comment acts as a separator between calls.
+
+### Keyword Arguments
+
+Calls may use Python-style keyword arguments, which the parser maps to the
+method's named parameters:
+
+```
+declare_layer(
+  "Name",
+  "#000000",
+  mode="VECTOR",
+  overscan="NONE",
+  speed=120.0
+  )
+```
+
+Keyword arguments can be freely mixed with positional ones and combined with
+multi-line spans, as above.
+
+### Comments
+
+`#` starts a comment. Comment stripping is quote-aware — a `#` inside a
+quoted argument (e.g. a `'#00FF00'` color) is left intact — and `\#` escapes
+a literal `#`. Comments are stripped per physical line, before lines are
+joined into spans, so an inline comment always ends its line:
+
+```
+declare_layer("Cut", "#FF0000", speed=50.0)  # cut fast
+move_xy_to(100.0, 50.0)                      # position head
+```
+
+### Canonical Normalization
+
+After loading, the transcript is normalized to **canonical single-line
+positional form**. Regardless of how the authored file is laid out — multi-line
+spans, keyword arguments, whitespace — `/gluescript list` and the autosave
+show the canonical lines, not the authored formatting:
+
+```
+0: declare_job('My Job', 'MACHINE', [0.0, 0.0], 1, 1, 0.0, 0.0)
+1: declare_layer('Layer 1', '#000000', 'VECTOR', 'NONE', 300.0, 20.0, 15.0, 60.0)
+2: move_xy_to(100.0, 50.0)
+3: end_job()
+```
+
+A direct consequence: two differently-formatted files with the same semantics
+produce the same SHA-256 signature when staged. The signature is computed over
+the canonical transcript, so formatting differences do not change it.
+
+### Unsupported Constructs
+
+Two constructs are rejected with descriptive errors:
+
+- **`**kwargs` and `*args` expansion** — the parser does not unpack splat
+  operators; a call using them is rejected.
+- **Dotted command names** — e.g. `foo.bar(1)` is not a valid command name and
+  is rejected.
+
+---
+
+## 7. Status Bar Indicators
 
 In the TUI, the status bar displays GlueScript state when rpascript has been
 staged:
@@ -1061,7 +1192,7 @@ no rpascript has been generated.
 
 ---
 
-## 7. Near/Far Form Selection
+## 8. Near/Far Form Selection
 
 GlueScript automatically chooses between near and far movement forms based on
 the distance from the current head position.
@@ -1146,7 +1277,7 @@ to the controller-reported home position (0, 0, 0, 0 after homing).
 
 ---
 
-## 8. Limitations
+## 9. Limitations
 
 ### Z and U Axis Movement/Cut
 
@@ -1223,7 +1354,7 @@ raise — they are surfaced as warnings in the output.
 
 ---
 
-## 9. Dual Representation Example
+## 10. Dual Representation Example
 
 Each GlueScript method generates a corresponding line in both `gluescript`
 and `rpascript`. Here is a complete example showing both representations:
@@ -1288,7 +1419,7 @@ the last layer in the job.
 
 ---
 
-## 10. Complete Python Example
+## 11. Complete Python Example
 
 ```python
 from ruidadriver.ruida_driver import RdDriver
@@ -1327,7 +1458,7 @@ print(f"Generated {len(rpa)} rpascript lines")
 
 ---
 
-## 11. Deferred Variable Expansion
+## 12. Deferred Variable Expansion
 
 GlueScript uses deferred variable references in rpascript lines. These are
 expanded at stage time (when `stage_gluescript()` is called), not at generation
@@ -1357,7 +1488,7 @@ Floating point values are formatted with 3 decimal places. Other types use
 
 ---
 
-## 12. Command Registry
+## 13. Command Registry
 
 GlueScript maintains an internal command registry that maps method names to
 bound methods. This registry is used during re-staging to replay gluescript

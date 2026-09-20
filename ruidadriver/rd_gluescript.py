@@ -11,7 +11,7 @@ import functools
 import logging
 import re
 import shlex
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
@@ -104,20 +104,78 @@ def _strip_inline_comment(line: str) -> str:
     i = 0
     while i < len(line):
         ch = line[i]
-        # Track escaped hash: \# — skip it as a literal hash
-        if ch == "\\" and i + 1 < len(line) and line[i + 1] == "#" and not in_quote:
-            i += 2  # skip both \ and #
-            continue
-        if ch in ('"', "'") and not in_quote:
-            in_quote = True
-            quote_char = ch
-        elif ch == quote_char and in_quote:
-            in_quote = False
-            quote_char = None
-        elif ch == "#" and not in_quote:
-            return line[:i].rstrip()
+        if in_quote:
+            if ch == "\\":
+                i += 2  # skip escaped char (e.g. \", \\, \#)
+                continue
+            if ch == quote_char:
+                in_quote = False
+        else:
+            # Track escaped hash: \# — skip it as a literal hash
+            if ch == "\\" and i + 1 < len(line) and line[i + 1] == "#":
+                i += 2  # skip both \ and #
+                continue
+            if ch in ('"', "'"):
+                in_quote = True
+                quote_char = ch
+            elif ch == "#":
+                return line[:i].rstrip()
         i += 1
     return line
+
+
+def _bracket_depth_delta(line: str) -> int:
+    """Return the net bracket depth change of a line, ignoring quoted strings."""
+    depth = 0
+    in_quote = False
+    quote_char: str | None = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if in_quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote_char:
+                in_quote = False
+        else:
+            if ch in ('"', "'"):
+                in_quote = True
+                quote_char = ch
+            elif ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+        i += 1
+    return depth
+
+
+def _join_continuation_lines(lines: Iterable[str]) -> list[str]:
+    """Join physical lines into logical gluescript lines.
+
+    Inline comments are stripped per physical line first (via
+    ``_strip_inline_comment``). Physical lines are then joined with a
+    single space until bracket depth returns to zero, so multi-line
+    parameter spans become one logical line. Blank and comment-only
+    lines at depth zero are emitted as separate logical lines; inside
+    a span they are included in the join.
+    """
+    logical_lines: list[str] = []
+    parts: list[str] = []
+    depth = 0
+    for line in lines:
+        stripped = _strip_inline_comment(line)
+        if depth == 0 and not stripped.strip():
+            logical_lines.append(stripped)
+            continue
+        parts.append(stripped)
+        depth += _bracket_depth_delta(stripped)
+        if depth == 0:
+            logical_lines.append(" ".join(parts))
+            parts = []
+    if parts:
+        logical_lines.append(" ".join(parts))
+    return logical_lines
 
 
 def _format_time_token(value: str | int | float) -> str:
@@ -410,63 +468,43 @@ class GlueScript:
                 f"Only job-control commands are allowed: {allowed}"
             )
 
-    @staticmethod
-    def _count_top_level_commas(s: str) -> int:
-        """Count commas at the top level (not inside brackets/parens/quotes)."""
-        depth = 0
-        in_quote = False
-        quote_char: str | None = None
-        count = 0
-        i = 0
-        n = len(s)
-        while i < n:
-            c = s[i]
-            if in_quote:
-                if c == "\\":
-                    i += 2
-                    continue
-                if c == quote_char:
-                    in_quote = False
-            else:
-                if c in ("'", '"'):
-                    in_quote = True
-                    quote_char = c
-                elif c in ("[", "(", "{"):
-                    depth += 1
-                elif c in ("]", ")", "}"):
-                    depth -= 1
-                elif c == "," and depth == 0:
-                    count += 1
-            i += 1
-        return count
+    def _parse_gluescript_line(
+        self, line: str
+    ) -> tuple[str, list[Any], dict[str, Any]]:
+        """Parse a gluescript line into method name, positional args, and kwargs.
 
-    def _parse_gluescript_line(self, line: str) -> tuple[str, list[Any]]:
-        """Parse a gluescript line into method name and positional args.
-
-        Format: method_name(arg1, arg2, ...)
-        Each arg is a Python literal (via repr) parsed by ast.literal_eval.
+        Format: method_name(arg1, arg2, ..., kw1=val1, kw2=val2)
+        Each arg is a Python literal parsed by ast.literal_eval.
         """
         line = line.strip()
         line = _strip_inline_comment(line)
-        if "(" not in line:
+        try:
+            tree = ast.parse(line, mode="eval")
+        except SyntaxError as exc:
             raise ValueError(
-                f"Missing '(' in gluescript line: {line!r}. "
-                f"Expected format: method_name(arg1, arg2, ...)"
+                f"Malformed gluescript line: {line!r}: {exc}"
+            ) from exc
+        expr = tree.body
+        if not isinstance(expr, ast.Call) or not isinstance(expr.func, ast.Name):
+            raise ValueError(
+                f"Gluescript line must call a bare command name, got: {line!r}"
             )
-        idx = line.index("(")
-        name = line[:idx].strip()
-        args_str = line[idx + 1 :].rstrip(")").strip()
-        if not args_str:
-            return name, []
-        num_commas = self._count_top_level_commas(args_str)
-        if num_commas >= 1:
-            # Multiple comma-separated args — wrap in tuple for literal_eval
-            parsed = ast.literal_eval(f"({args_str})")
-            return name, list(parsed)
-        else:
-            # Single arg
-            parsed = ast.literal_eval(args_str)
-            return name, [parsed]
+        name = expr.func.id
+        args: list[Any] = []
+        kwargs: dict[str, Any] = {}
+        for node in expr.args:
+            if isinstance(node, ast.Starred):
+                raise ValueError(
+                    f"*args expansion is not supported in gluescript line: {line!r}"
+                )
+            args.append(ast.literal_eval(node))
+        for keyword in expr.keywords:
+            if keyword.arg is None:
+                raise ValueError(
+                    f"**kwargs expansion is not supported in gluescript line: {line!r}"
+                )
+            kwargs[keyword.arg] = ast.literal_eval(keyword.value)
+        return name, args, kwargs
 
     def _expand_deferred(self, rpascript: list[str]) -> list[str]:
         """Expand deferred {self.<var>} references in rpascript lines."""
@@ -1792,20 +1830,20 @@ class GlueScript:
     def _replay_lines(self, lines: list[str]) -> None:
         """Replay transcript lines through the command registry.
 
+        Input lines are first joined via ``_join_continuation_lines``,
+        so multi-line parameter spans become single logical lines.
         Shared by the full re-stage path (``stage_gluescript``) and the
-        incremental delta path (``stage_gluescript_delta``): blank lines
-        and ``#``-comment lines are skipped, live-only commands are
-        skipped with a warning, unknown commands and registry call
-        errors raise ``RuntimeError``. Behavior is identical for both
-        callers.
+        incremental delta path (``stage_gluescript_delta``): after
+        joining, blank lines and ``#``-comment lines are skipped,
+        live-only commands are skipped with a warning, unknown commands
+        and registry call errors raise ``RuntimeError``. Behavior is
+        identical for both callers.
         """
-        for line in lines:
+        for line in _join_continuation_lines(lines):
             if not line.strip():
                 continue
-            if line.lstrip().startswith("#"):
-                continue
             try:
-                name, args = self._parse_gluescript_line(line)
+                name, args, kwargs = self._parse_gluescript_line(line)
             except (ValueError, SyntaxError) as exc:
                 raise RuntimeError(
                     f"Failed to parse gluescript line: {line!r}: {exc}"
@@ -1822,10 +1860,11 @@ class GlueScript:
                 )
                 continue
             try:
-                self._command_registry[name](*args)
+                self._command_registry[name](*args, **kwargs)
             except Exception as exc:
                 raise RuntimeError(
-                    f"Error re-staging command {name!r} with args {args!r}: {exc}"
+                    f"Error re-staging command {name!r} with args {args!r} "
+                    f"and kwargs {kwargs!r}: {exc}"
                 ) from exc
 
     def _assemble_rpascript(self) -> None:

@@ -453,9 +453,14 @@ class RpcRdDriver(GlueScript):
         self._flushed_count = len(self._transcript)
         mode = "VECTOR"
         overscan = "NONE"
+        # The transcript is always canonical single-line positional:
+        # authoring methods emit repr()-based positional lines, and the
+        # server transcript is rebuilt canonically by ``_replay_lines``.
+        # kwargs are therefore intentionally ignored and ``len(args) >= 4``
+        # is safe.
         for line in self._transcript:
             try:
-                name, args = self._parse_gluescript_line(line)
+                name, args, _kwargs = self._parse_gluescript_line(line)
             except (ValueError, SyntaxError):
                 continue
             if name == "declare_layer" and len(args) >= 4:
