@@ -500,6 +500,7 @@ class TuiAdapter(App):
         "edit",
         "frame",
         "plot",
+        "power_scale",
         "protect",
         "rpclog",
         "gluescript",
@@ -669,6 +670,7 @@ class TuiAdapter(App):
             "dryrun": "Toggle dry-run mode (on|off). When on, /run runs normally but RPC driver.run() only logs to TUI.",
             "edit": "Open loaded rpascript in a full-screen editor",
             "protect": "Toggle protect mode (on|off|status). When on, SET_SETTING commands are blocked to prevent hardware damage.",
+            "power_scale": "Show or configure GlueScript effective-min power scaling (/power_scale [status|on|off|max_speed <v>|floor <v>])",
             "rpclog": r"Toggle RPC server logging: /rpclog \[on|off|status] (no args toggles)",
             "frame": "Frame job or layer boundaries. /frame job | /frame layer <N>",
             "plot": "Plot loaded script moves in a Bokeh visualization",
@@ -1484,6 +1486,8 @@ class TuiAdapter(App):
                 self._cmd_frame(args)
             elif cmd == "protect":
                 self._cmd_protect(args)
+            elif cmd == "power_scale":
+                self._cmd_power_scale(args)
             elif cmd == "rpclog":
                 self._cmd_rpclog(args)
             elif cmd == "plot":
@@ -2287,6 +2291,52 @@ class TuiAdapter(App):
         else:
             self._log_error("Usage: /protect on|off|status")
 
+    def _cmd_power_scale(self, args: str = "") -> None:
+        """Show or configure GlueScript effective-min power scaling.
+
+        Subcommands:
+            (no args) / status — show enabled/max_cut_speed/power_floor
+            on / off           — enable or disable scaling
+            max_speed <v>      — set the max cut speed (mm/s)
+            floor <v>          — set the power floor (%)
+
+        Every path ensures a driver exists (unlike /protect, which no-ops
+        without one): the config lives on the driver, so a session-less
+        status read must still create it.
+        """
+        tokens = args.strip().split()
+        sub = tokens[0].lower() if tokens else "status"
+        driver = self._ensure_gluescript_driver()
+        if sub == "status":
+            cfg = self.power_scale_config
+            state = "ON" if cfg["enabled"] else "OFF"
+            self._log_info(
+                f"Power scaling {state} — max_cut_speed={cfg['max_cut_speed']}mm/s, "
+                f"power_floor={cfg['power_floor']}%"
+            )
+        elif sub == "on":
+            driver.set_power_scaling_enabled(True)
+            self._log_info("Power scaling ON — effective min rises as cut speed decreases")
+        elif sub == "off":
+            driver.set_power_scaling_enabled(False)
+            self._log_info("Power scaling OFF — resolved min emitted unchanged")
+        elif sub == "max_speed" and len(tokens) > 1:
+            try:
+                driver.set_max_cut_speed(float(tokens[1]))
+            except ValueError as e:
+                self._log_error(f"Invalid max_speed: {e}")
+                return
+            self._log_info(f"Max cut speed set to {driver.max_cut_speed}mm/s")
+        elif sub == "floor" and len(tokens) > 1:
+            try:
+                driver.set_power_floor(float(tokens[1]))
+            except ValueError as e:
+                self._log_error(f"Invalid floor: {e}")
+                return
+            self._log_info(f"Power floor set to {driver.power_floor}%")
+        else:
+            self._log_error("Usage: /power_scale [status|on|off|max_speed <v>|floor <v>]")
+
     def _cmd_plot(self, args: str = "") -> None:
         """Plot the loaded script in a Bokeh visualization."""
         if not self._loaded_script:
@@ -2945,13 +2995,37 @@ class TuiAdapter(App):
         )
 
     def gluescript_power_range(
-        self, min: float | None = None, max: float | None = None
+        self, min_power: float | None = None, max_power: float | None = None
     ) -> None:
         """Set the min/max power ramp range for the current layer
         (session-less).
         """
         return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().power_range(min, max)
+            lambda: self._ensure_gluescript_driver().power_range(min_power, max_power)
+        )
+
+    def set_max_cut_speed(self, speed: float) -> None:
+        """Set the GlueScript max cut speed (mm/s) for effective-min power
+        scaling (session-less).
+        """
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().set_max_cut_speed(speed)
+        )
+
+    def set_power_floor(self, floor: float) -> None:
+        """Set the GlueScript power floor (%) for effective-min power
+        scaling (session-less).
+        """
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().set_power_floor(floor)
+        )
+
+    def set_power_scaling_enabled(self, enabled: bool) -> None:
+        """Enable or disable GlueScript effective-min power scaling
+        (session-less).
+        """
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().set_power_scaling_enabled(enabled)
         )
 
     def gluescript_set_mode(self, mode: str) -> None:
@@ -5166,6 +5240,26 @@ class TuiAdapter(App):
         if self._ruida_driver is None:
             return False
         return self._ruida_driver.protect_enabled
+
+    @property
+    def power_scale_config(self) -> dict[str, Any]:
+        """Return the GlueScript effective-min power scaling configuration.
+
+        Returns the defaults when no driver is active — reading never
+        creates a driver (the /power_scale command and the setters create
+        one explicitly via ``_ensure_gluescript_driver()``).
+        """
+        if self._ruida_driver is None:
+            return {
+                "enabled": True,
+                "max_cut_speed": 400.0,
+                "power_floor": 8.0,
+            }
+        return {
+            "enabled": self._ruida_driver.power_scaling_enabled,
+            "max_cut_speed": self._ruida_driver.max_cut_speed,
+            "power_floor": self._ruida_driver.power_floor,
+        }
 
     @property
     def is_connected(self) -> bool:

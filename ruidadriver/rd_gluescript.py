@@ -9,6 +9,7 @@ as a mixin for RdDriver: class RdDriver(GlueScript).
 import ast
 import functools
 import logging
+import math
 import re
 import shlex
 from typing import Any, Callable, Iterable
@@ -355,6 +356,18 @@ class GlueScript:
         # reset per layer.
         self._current_layer_frequency: float = 20.0
         self._frequency_changed: bool = False
+        # Effective-min power scaling configuration (per-instance, never
+        # reset by new_gluescript() or the re-stage reset block — mirrors
+        # the _warn_inline/_warn_comment_only pattern). power_range()
+        # raises the emitted minimum as the layer's cut speed decreases.
+        self.max_cut_speed: float = 400.0
+        self.power_floor: float = 8.0
+        self.power_scaling_enabled: bool = True
+        # Per-layer cut speed snapshot: declare_layer() and cut_speed()
+        # record the current layer's speed here; power_range() uses it to
+        # scale the effective minimum. Per-job state — reset by
+        # new_gluescript() and the re-stage reset block.
+        self._current_layer_speed: float = 100.0
 
         # Script output (assembled by stage_gluescript)
         self.rpascript: list[str] = []
@@ -585,6 +598,8 @@ class GlueScript:
         # Power-range fallbacks — defaults mirror the declare_layer() args.
         self._current_layer_min_power = 8.0
         self._current_layer_max_power = 70.0
+        # Per-layer cut speed snapshot — defaults mirror the declare_layer() args.
+        self._current_layer_speed = 100.0
         # Frequency change flag — defaults mirror the declare_layer() args.
         self._current_layer_frequency = 20.0
         self._frequency_changed = False
@@ -919,14 +934,14 @@ class GlueScript:
         # Validate power range — out-of-range values emit warning comments
         # into the rpascript output rather than raising.
         power_warnings: list[str] = []
-        if min_power_1 < 8.0:
+        if min_power_1 < self.power_floor:
             logger.warning(
-                "Minimum power %s%% is below 8%% — CO2 laser will not "
-                "reliably fire below this threshold", min_power_1
+                "Minimum power %s%% is below %s%% — CO2 laser will not "
+                "reliably fire below this threshold", min_power_1, self.power_floor
             )
             power_warnings.append(
                 f"# warning: min_power_1 {min_power_1}% is below the "
-                f"recommended minimum of 8%"
+                f"recommended minimum of {self.power_floor}%"
             )
         if max_power_1 > 70.0:
             logger.warning(
@@ -959,6 +974,9 @@ class GlueScript:
         self._layer += 1
         self._current_layer_mode = mode
         self._current_layer_overscan = resolved_overscan
+        # Snapshot the declared speed: power_range() scales the effective
+        # minimum from this value until cut_speed() overrides it.
+        self._current_layer_speed = speed
 
         # Reset per-layer bounding box
         self._layer_trx = float('inf')
@@ -1448,31 +1466,110 @@ class GlueScript:
         self._layer_actions.setdefault(self._layer, []).append(f"IMD_POWER_1 Power:{percent:.1f}%")
         self._layer_actions.setdefault(self._layer, []).append(f"IMD_POWER_3 Power:{percent:.1f}%")
 
+    def set_max_cut_speed(self, speed: float) -> None:
+        """Set the maximum cut speed (mm/s) used by effective-min power scaling.
+
+        Args:
+            speed: Maximum cut speed in mm/s.
+
+        Raises:
+            ValueError: If speed is not positive.
+        """
+        if not math.isfinite(speed) or speed <= 0:
+            raise ValueError(f"max_cut_speed must be > 0, got {speed}")
+        self.max_cut_speed = speed
+
+    def set_power_floor(self, floor: float) -> None:
+        """Set the minimum power percentage at which the laser fires.
+
+        The floor biases the effective-min power calculation and replaces
+        the hard-coded 8% warning threshold.
+
+        Args:
+            floor: Minimum firing power percentage (0-100).
+
+        Raises:
+            ValueError: If floor is outside 0-100.
+        """
+        if not 0 <= floor <= 100:
+            raise ValueError(f"power_floor must be between 0 and 100, got {floor}")
+        self.power_floor = floor
+
+    def set_power_scaling_enabled(self, enabled: bool) -> None:
+        """Enable or disable effective-min power scaling.
+
+        When enabled, ``power_range()`` raises the emitted minimum as the
+        current layer's cut speed decreases. When disabled, the resolved
+        minimum is emitted unchanged.
+        """
+        self.power_scaling_enabled = bool(enabled)
+
+    def _effective_min_power(
+        self, min_power: float, max_power: float, cut_speed: float
+    ) -> float:
+        """Compute the effective minimum power for a given cut speed.
+
+        As speed decreases toward zero the effective minimum rises toward
+        the maximum; at or above ``max_cut_speed`` the resolved minimum is
+        returned unchanged. The ``power_floor`` biases the calculation so
+        the laser's non-firing band is excluded from the ramp span.
+
+        Args:
+            min_power: Resolved minimum power percentage.
+            max_power: Resolved maximum power percentage.
+            cut_speed: Current layer cut speed in mm/s.
+
+        Returns:
+            float: The effective minimum power percentage.
+
+        Raises:
+            ValueError: If ``max_cut_speed`` is not positive.
+        """
+        if not math.isfinite(self.max_cut_speed) or self.max_cut_speed <= 0:
+            raise ValueError("max_cut_speed must be > 0")
+        max_cut_speed = self.max_cut_speed
+        power_floor = self.power_floor
+        eff_cut_speed = max(0.0, min(cut_speed, max_cut_speed))
+        unbiased_min_power = max(min_power - power_floor, 0)
+        unbiased_max_power = min(max_power, 100) - power_floor
+        span = unbiased_max_power - unbiased_min_power
+        return (unbiased_max_power - ((eff_cut_speed / max_cut_speed) * span)) + power_floor
+
     def power_range(
-        self, min: float | None = None, max: float | None = None
+        self, min_power: float | None = None, max_power: float | None = None
     ) -> None:
         """Set the min/max power ramp range for the current layer.
 
         Expands into the layer's action block in this order:
         ``LAYER_FREQUENCY`` (only when the frequency changed since the
         last ``power_range()`` call, then the change flag is cleared),
-        ``SELECT_LAYER``, ``MIN_POWER_1 Power:{min:.1f}%`` and
-        ``MAX_POWER_1 Power:{max:.1f}%``, overriding the previously
+        ``SELECT_LAYER``, ``MIN_POWER_1 Power:{min_power:.1f}%`` and
+        ``MAX_POWER_1 Power:{max_power:.1f}%``, overriding the previously
         active ramp range from that point onward.
 
         Args:
-            min: Minimum power percentage, or None to use the layer's
+            min_power: Minimum power percentage, or None to use the layer's
                 declared min_power_1 (default 8.0).
-            max: Maximum power percentage, or None to use the layer's
+            max_power: Maximum power percentage, or None to use the layer's
                 declared max_power_1 (default 70.0).
+
+        Effective-min scaling: when ``power_scaling_enabled`` is True (the
+        default), the emitted minimum rises as the layer's cut speed
+        decreases — at ``max_cut_speed`` or above the resolved minimum is
+        emitted unchanged, and at zero speed the emitted minimum equals the
+        maximum. The emitted minimum is clamped to at most the maximum.
+        When scaling is disabled the resolved minimum is emitted unchanged
+        (no clamp — ``power_range(70, 50)`` still emits ``[70, 50]`` with a
+        warning). The layer's declared minimum is never scaled; only the
+        ``power_range()`` emission is.
 
         Constraints:
             - A layer must be declared first (raises ValueError).
-            - min exceeding max emits a ``# warning:`` comment into the
-              layer's action block (no longer raises).
-            - min below 8% emits a ``# warning:`` comment into the layer's
-              action block (no longer raises).
-            - max above 70% logs a warning and emits a ``# warning:``
+            - min_power exceeding max_power emits a ``# warning:`` comment
+              into the layer's action block (no longer raises).
+            - min_power below the power floor emits a ``# warning:``
+              comment into the layer's action block (no longer raises).
+            - max_power above 70% logs a warning and emits a ``# warning:``
               comment, mirroring declare_layer().
 
         May be called multiple times per layer, including between jog,
@@ -1488,10 +1585,13 @@ class GlueScript:
         power change, and a power change requires a preceding layer
         selection.
 
-        Error surfaces: this method raises ValueError only when no layer
-        has been declared; when re-staging wraps a replay of a persisted
+        Error surfaces: this method raises ValueError when no layer has
+        been declared; when re-staging wraps a replay of a persisted
         transcript, that violation surfaces as RuntimeError ("Error
-        re-staging command ...") wrapping the ValueError.
+        re-staging command ...") wrapping the ValueError. When power
+        scaling is enabled, a corrupted ``max_cut_speed`` (non-finite or
+        <= 0, e.g. via direct attribute assignment) also raises
+        ValueError("max_cut_speed must be > 0").
         """
         if self._layer < 1:
             raise ValueError(
@@ -1501,40 +1601,60 @@ class GlueScript:
         # Transcript must preserve the caller's own args (None falls back
         # to the declared layer powers on replay), while the rpascript
         # lines carry the resolved values.
-        orig_min, orig_max = min, max
-        resolved_min = self._current_layer_min_power if min is None else min
-        resolved_max = self._current_layer_max_power if max is None else max
+        orig_min_power, orig_max_power = min_power, max_power
+        resolved_min_power = (
+            self._current_layer_min_power if min_power is None else min_power
+        )
+        resolved_max_power = (
+            self._current_layer_max_power if max_power is None else max_power
+        )
         # Out-of-range values emit warning comments into the rpascript
         # output rather than raising.
         power_warnings: list[str] = []
-        if resolved_min > resolved_max:
+        if resolved_min_power > resolved_max_power:
             logger.warning(
                 "Minimum power %s%% exceeds maximum power %s%%",
-                resolved_min, resolved_max,
+                resolved_min_power, resolved_max_power,
             )
             power_warnings.append(
-                f"# warning: min_power_1 {resolved_min}% exceeds "
-                f"max_power_1 {resolved_max}%"
+                f"# warning: min_power_1 {resolved_min_power}% exceeds "
+                f"max_power_1 {resolved_max_power}%"
             )
-        if resolved_min < 8.0:
+        if resolved_min_power < self.power_floor:
             logger.warning(
-                "Minimum power %s%% is below 8%% — CO2 laser will not "
-                "reliably fire below this threshold", resolved_min
+                "Minimum power %s%% is below %s%% — CO2 laser will not "
+                "reliably fire below this threshold",
+                resolved_min_power, self.power_floor,
             )
             power_warnings.append(
-                f"# warning: min_power_1 {resolved_min}% is below the "
-                f"recommended minimum of 8%"
+                f"# warning: min_power_1 {resolved_min_power}% is below the "
+                f"recommended minimum of {self.power_floor}%"
             )
-        if resolved_max > 70.0:
+        if resolved_max_power > 70.0:
             logger.warning(
                 "Maximum power %s%% exceeds 70%% — CO2 laser tube life "
-                "is reduced at higher power settings", resolved_max
+                "is reduced at higher power settings", resolved_max_power
             )
             power_warnings.append(
-                f"# warning: max_power_1 {resolved_max}% exceeds the "
+                f"# warning: max_power_1 {resolved_max_power}% exceeds the "
                 f"recommended maximum of 70%"
             )
-        self.gluescript.append(f"power_range({orig_min!r}, {orig_max!r})")
+        # Effective-min power scaling: as the layer's cut speed decreases,
+        # the emitted minimum rises toward the maximum. The clamp keeps the
+        # emitted minimum at or below the maximum even when the resolved
+        # minimum already exceeds it (e.g. power_range(70, 50) with scaling
+        # on). When scaling is disabled the resolved minimum is emitted
+        # unchanged — no clamp.
+        if self.power_scaling_enabled:
+            effective = self._effective_min_power(
+                resolved_min_power, resolved_max_power, self._current_layer_speed
+            )
+            emitted_min = min(effective, resolved_max_power)
+        else:
+            emitted_min = resolved_min_power
+        self.gluescript.append(
+            f"power_range({orig_min_power!r}, {orig_max_power!r})"
+        )
         emission: list[str] = []
         if self._frequency_changed:
             emission.append(
@@ -1544,10 +1664,10 @@ class GlueScript:
             self._frequency_changed = False
         emission.append(f"SELECT_LAYER Layer:{self._layer - 1}")
         emission.append(
-            f"LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{resolved_min}%"
+            f"LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{emitted_min}%"
         )
         emission.append(
-            f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{resolved_max}%"
+            f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{resolved_max_power}%"
         )
         emission.extend(power_warnings)
         self._layer_actions.setdefault(self._layer, []).extend(emission)
@@ -1652,9 +1772,12 @@ class GlueScript:
         """Set cut speed for the current layer.
 
         Expands to a ``CUT_SPEED_LASER_1`` rpascript layer action carrying
-        the speed value.
+        the speed value. Also records the speed for effective-min power
+        scaling: the next ``power_range()`` call scales its emitted minimum
+        from this value.
         """
         self.gluescript.append(f"cut_speed({speed!r})")
+        self._current_layer_speed = speed
         self._layer_actions.setdefault(self._layer, []).append(
             f"CUT_SPEED_LASER_1 Layer:{self._layer - 1} Speed={speed}"
         )
@@ -2019,6 +2142,8 @@ class GlueScript:
             # Power-range fallbacks — defaults mirror the declare_layer() args.
             self._current_layer_min_power = 8.0
             self._current_layer_max_power = 70.0
+            # Per-layer cut speed snapshot — defaults mirror the declare_layer() args.
+            self._current_layer_speed = 100.0
             # Frequency change flag — defaults mirror the declare_layer() args.
             self._current_layer_frequency = 20.0
             self._frequency_changed = False

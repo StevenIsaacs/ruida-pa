@@ -754,7 +754,7 @@ session is required.
 | `cut_x_to` | `(x)` | `None` | No |
 | `cut_y_to` | `(y)` | `None` | No |
 | `power` | `(percent=None)` | `None` | No |
-| `power_range` | `(min=None, max=None)` | `None` | No |
+| `power_range` | `(min_power=None, max_power=None)` | `None` | No |
 | `set_mode` | `(mode)` | `None` | No |
 | `set_overscan` | `(overscan)` | `None` | No |
 | `air_assist_on` | `()` | `None` | No |
@@ -775,6 +775,10 @@ session is required.
 | `jog_set_xy_rel` | `(delta)` | `None` | No |
 | `jog_set_z_rel` | `(delta)` | `None` | No |
 | `jog_set_u_rel` | `(delta)` | `None` | No |
+| `set_max_cut_speed` | `(speed)` | `None` | No |
+| `set_power_floor` | `(floor)` | `None` | No |
+| `set_power_scaling_enabled` | `(enabled)` | `None` | No |
+| `power_scale_config` | `(property)` | `dict` | No |
 | **Movement jogs (live)** | | | |
 | `jog_xy_to` | `(x, y)` | `list[str] \| None` | Yes |
 | `jog_x_to` | `(x)` | `list[str] \| None` | Yes |
@@ -816,6 +820,12 @@ composes head + staged + tail scripts around the job — when `job` is omitted
 it runs the rpascript most recently staged by `stage_gluescript()`. A job
 authored over RPC is retained in the driver and can be executed after
 `rpc_driver.start()`.
+
+**Speed tracking:** `declare_layer()` records its `speed` argument as the
+current layer's cut speed; each `cut_speed()` call overrides it. The next
+`power_range()` call scales its emitted minimum from this value (see
+§3.8/§4.4) until overridden. `move_speed()` does NOT update the tracked cut
+speed.
 
 **Loaded-script slot stays in sync:** staging through the RPC path —
 `stage_gluescript()` or `stage_gluescript_delta()` on the TUI's `gluescript_*`
@@ -936,13 +946,13 @@ never reaches the server.
 methods from `GlueScript` (as the direct driver does), validation now
 happens at call time, exactly as on the direct driver. `declare_layer`
 raises `ValueError` for an invalid mode/overscan only — out-of-range power
-(`min_power_1 < 8`, `max_power_1 > 70`) emits a `# warning:` comment into
+(`min_power_1 < floor`, `max_power_1 > 70`) emits a `# warning:` comment into
 the emitted rpascript instead of raising; `power_range` raises `ValueError`
-only for no declared layer — `min > max` or `min < 8%` emit `# warning:`
-comments instead; `power()` itself only warns (on a wrong layer mode or a
-`None` percentage). `declare_layer` and `power_range` also keep their
-`_job_complete` fail-fast guards, raising `RuntimeError` when called
-after `end_job()`.
+only for no declared layer — `min_power > max_power` or `min_power` below the
+power floor emit `# warning:` comments instead; `power()` itself only warns
+(on a wrong layer mode or a `None` percentage). `declare_layer` and
+`power_range` also keep their `_job_complete` fail-fast guards, raising
+`RuntimeError` when called after `end_job()`.
 
 **Drift guard:** after each flush the wrapper compares the SHA-256 signature
 returned by the staging call with a locally computed signature of its
@@ -1057,16 +1067,16 @@ before switching.
 | `gluescript` / `rpascript` visibility | Live mutable list attributes; the adapter can read them at any time | `gluescript` is the client's live local transcript (including unflushed lines); `rpascript` is a read-only snapshot of the server's last-flushed state |
 | `job_complete` | Local property | Local property (set by `end_job()`), consistent with the direct driver |
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
-| Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min > max`, `min < 8%`) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard |
+| Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min_power > max_power`, `min_power` below the power floor) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard |
 | `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
 `power_range` constraint violations (no declared layer) raise `ValueError`
-at call time over RPC, exactly as on the direct driver; `min > max` and
-`min < 8%` emit `# warning:` comments into the emitted rpascript instead of
-raising. `power_range` also keeps its `_job_complete` fail-fast
-guard: a post-`end_job()` call raises `RuntimeError` immediately rather
-than silently dropping the action.
+at call time over RPC, exactly as on the direct driver; `min_power > max_power`
+and `min_power` below the power floor emit `# warning:` comments into the
+emitted rpascript instead of raising. `power_range` also keeps its
+`_job_complete` fail-fast guard: a post-`end_job()` call raises
+`RuntimeError` immediately rather than silently dropping the action.
 
 RpcRdDriver buffers structural calls and flushes deltas at
 `declare_layer`/`end_job` boundaries — see §3.8 — reducing round trips;

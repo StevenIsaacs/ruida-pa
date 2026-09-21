@@ -239,9 +239,9 @@ configuration rpascript commands.
 
 **Power validation:**
 
-- `min_power_1` below 8% emits a `# warning:` comment into the layer's
-  rpascript attributes (and logs a warning) — CO2 lasers will not reliably
-  fire below this threshold.
+- `min_power_1` below the power floor (default 8%) emits a `# warning:`
+  comment into the layer's rpascript attributes (and logs a warning) — CO2
+  lasers will not reliably fire below this threshold.
 - `max_power_1` above 70% emits a `# warning:` comment into the layer's
   rpascript attributes (and logs a warning) — CO2 laser tube life is reduced
   at higher power settings.
@@ -249,6 +249,12 @@ configuration rpascript commands.
 The `frequency` parameter is emitted as a `LAYER_FREQUENCY` line in the
 layer's rpascript attributes, e.g.
 `LAYER_FREQUENCY Laser:0 Layer:0 Freq:20.000KHz` for the default value.
+
+**Speed tracking:** `declare_layer()` records its `speed` argument as the
+current layer's cut speed. The next `power_range()` call scales its emitted
+minimum from this value (see §4.4) until `cut_speed()` overrides it. The
+layer's declared `min_power_1` is emitted unchanged — only the
+`power_range()` emission is scaled.
 
 **Raises:** `ValueError` if mode or overscan is invalid.
 
@@ -320,7 +326,7 @@ driver.power(45.0)
 # Produces: IMD_POWER_1 Power:45.0%
 ```
 
-#### `power_range(min: float | None = None, max: float | None = None)`
+#### `power_range(min_power: float | None = None, max_power: float | None = None)`
 
 Set the min/max power range percentages used to ramp laser power during
 accel/decel for the currently active layer. Expands to rpascript lines in the
@@ -330,7 +336,7 @@ is cleared), `SELECT_LAYER`, `MIN_POWER_1`, `MAX_POWER_1`:
 
 ```python
 driver.frequency(30.0)                    # saves 30.0 and sets the change flag
-driver.power_range(min=15.0, max=80.0)    # ramps power between 15% and 80% during accel/decel
+driver.power_range(min_power=15.0, max_power=80.0)  # ramps power between 15% and 80% during accel/decel
 # Produces:
 #   LAYER_FREQUENCY Laser:0 Layer:0 Freq:30.000KHz
 #   SELECT_LAYER Layer:0
@@ -341,11 +347,36 @@ driver.power_range(min=15.0, max=80.0)    # ramps power between 15% and 80% duri
 Values are formatted with one decimal (e.g. `MIN_POWER_1 Power:10.0%`).
 Omitted arguments fall back to the current layer's declared
 `min_power_1`/`max_power_1` from `declare_layer()` (defaults 8.0/70.0), so
-`power_range()`, `power_range(max=85)`, and `power_range(10)` are all valid.
+`power_range()`, `power_range(max_power=85)`, and `power_range(10)` are all
+valid.
 
 `power_range()` is a **saved-job command** — it is persisted to, and replayed
 from, `.cglu` files (unlike jog/home commands, which are live-only). It may
 be used in `IMAGE`/`DEPTHMAP` layers as well.
+
+**Effective-min power scaling:** when `power_scaling_enabled` is True (the
+default), the emitted minimum rises as the layer's cut speed decreases. The
+speed is tracked from `declare_layer()`'s `speed` argument and overridden by
+each `cut_speed()` call. At `max_cut_speed` (default 400 mm/s) or above the
+resolved minimum is emitted unchanged; at zero speed the emitted minimum
+equals the maximum. The emitted minimum is clamped to at most the maximum.
+When scaling is disabled the resolved minimum is emitted unchanged (no clamp
+— `power_range(70, 50)` still emits `[70, 50]` with a warning). The layer's
+declared minimum is never scaled; only the `power_range()` emission is.
+
+**Configuration** (per-instance, never reset by `new_gluescript()` or
+re-staging; setters are exposed over RPC and via the `/power_scale` TUI
+command):
+
+- `max_cut_speed` (default `400.0` mm/s) — the maximum cut speed supported
+  by the hardware; `set_max_cut_speed(speed)` raises `ValueError` unless
+  `speed > 0`.
+- `power_floor` (default `8.0`%) — the minimum power at which the laser
+  fires; biases the scaling calculation and replaces the hard-coded 8%
+  warning threshold; `set_power_floor(floor)` raises `ValueError` unless
+  `0 <= floor <= 100`.
+- `power_scaling_enabled` (default `True`) — master switch;
+  `set_power_scaling_enabled(enabled)` coerces to `bool`.
 
 **Frequency gating:** `frequency()` only saves the value and sets a change
 flag; the `LAYER_FREQUENCY` line is emitted by the next `power_range()` call
@@ -359,11 +390,11 @@ transcript; the power constraints below emit `# warning:` comments instead
 of raising):
 
 - A layer must be declared first.
-- `min` exceeding `max` emits a `# warning:` comment into the layer's action
-  block.
-- `min` below 8% emits a `# warning:` comment into the layer's action block
-  (mirroring `declare_layer`); `max` above 70% logs a warning and emits a
-  `# warning:` comment.
+- `min_power` exceeding `max_power` emits a `# warning:` comment into the
+  layer's action block.
+- `min_power` below the power floor emits a `# warning:` comment into the
+  layer's action block (mirroring `declare_layer`); `max_power` above 70%
+  logs a warning and emits a `# warning:` comment.
 
 `power_range()` may be called **multiple times per layer**, including between
 `jog_*`/`move_*`/`cut_*` actions: each call emits `SELECT_LAYER`,
@@ -481,6 +512,12 @@ any of the two remaining comment-only actions are used; it fires once per
 stage (once per delta over RPC). `cut_speed()` is a **saved-job command** — it
 is persisted to, and replayed from, `.cglu` files (unlike jog/home commands,
 which are live-only).
+
+**Speed tracking:** `cut_speed()` records its value as the current layer's
+cut speed, overriding the speed declared by `declare_layer()`. The next
+`power_range()` call scales its emitted minimum from this value (see §4.4).
+`move_speed()` does NOT update the tracked cut speed — only `declare_layer()`
+and `cut_speed()` do.
 
 #### `move_speed(speed: float)`
 
@@ -1364,17 +1401,18 @@ only meaningful when processing raster image data between moves.
 
 ### Power Range Warnings
 
-- Minimum power below 8% emits a `# warning:` comment into the emitted
-  rpascript (and logs a warning) — CO2 lasers will not reliably fire below
-  this threshold.
+- Minimum power below the power floor (default 8%) emits a `# warning:`
+  comment into the emitted rpascript (and logs a warning) — CO2 lasers will
+  not reliably fire below this threshold.
 - Maximum power above 70% emits a `# warning:` comment into the emitted
   rpascript (and logs a warning) — operating above 70% reduces CO2 laser
   tube life.
 
-The same rules apply to `power_range()`: a `min` below 8% or a `min` that
-exceeds `max` emits a `# warning:` comment, and a `max` above 70% logs a
-warning and emits a `# warning:` comment. Out-of-range power settings never
-raise — they are surfaced as warnings in the output.
+The same rules apply to `power_range()`: a `min_power` below the power floor
+or a `min_power` that exceeds `max_power` emits a `# warning:` comment, and a
+`max_power` above 70% logs a warning and emits a `# warning:` comment.
+Out-of-range power settings never raise — they are surfaced as warnings in
+the output.
 
 ---
 

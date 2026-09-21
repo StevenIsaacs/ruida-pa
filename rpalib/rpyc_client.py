@@ -671,22 +671,25 @@ class RpcRdDriver(GlueScript):
     # ------------------------------------------------------------------ #
 
     def power_range(
-        self, min: float | None = None, max: float | None = None
+        self, min_power: float | None = None, max_power: float | None = None
     ) -> None:
         """Buffer a min/max power ramp range (flushed at next boundary).
 
         Delegates to the base method, which validates at call time
-        (``ValueError`` for no declared layer, min > max, or min < 8%;
-        a warning for max > 70%) and mirrors the line into the local
-        transcript, preserving ``None`` defaults verbatim (the server
-        resolves them from the layer's declared powers when the delta is
-        staged).
+        (``ValueError`` for no declared layer; min > max or min below the
+        power floor emit ``# warning:`` comments; a warning for max > 70%)
+        and mirrors the line into the local transcript, preserving ``None``
+        defaults verbatim (the server resolves them from the layer's
+        declared powers when the delta is staged).
 
         Raises:
             RuntimeError: If the job is complete — after end_job() no
                 flush boundary remains, so fail fast instead of silently
                 dropping the action.
-            ValueError: If no layer is declared, min > max, or min < 8%.
+            ValueError: If no layer is declared. When power scaling is
+                enabled, a corrupted ``max_cut_speed`` (non-finite or
+                <= 0, e.g. via direct attribute assignment) also raises
+                ValueError("max_cut_speed must be > 0").
         """
         # Deliberate fail-fast asymmetry: the sibling buffered actions
         # (move_xy_to / cut_xy_to / air_assist_on) silently buffer forever
@@ -698,7 +701,7 @@ class RpcRdDriver(GlueScript):
                 "power_range() called after end_job() — no flush boundary "
                 "remains to stage it"
             )
-        super().power_range(min, max)
+        super().power_range(min_power, max_power)
 
     def set_mode(self, mode: str) -> None:
         """Buffer a layer mode switch (flushed at next boundary).
@@ -972,6 +975,44 @@ class RpcRdDriver(GlueScript):
         Mirrors the direct driver's ``protect_enabled`` attribute.
         """
         return bool(self._svc.protect_enabled())
+
+    def set_max_cut_speed(self, speed: float) -> None:
+        """Set the GlueScript max cut speed (mm/s) on the server-side driver.
+
+        Forwarded only — the server is authoritative for effective-min
+        power scaling configuration.
+        """
+        self._svc.set_max_cut_speed(speed)
+
+    def set_power_floor(self, floor: float) -> None:
+        """Set the GlueScript power floor (%) on the server-side driver.
+
+        Forwarded only — the server is authoritative for effective-min
+        power scaling configuration.
+        """
+        self._svc.set_power_floor(floor)
+
+    def set_power_scaling_enabled(self, enabled: bool) -> None:
+        """Enable or disable GlueScript effective-min power scaling on the
+        server-side driver.
+
+        Forwarded only — the server is authoritative for effective-min
+        power scaling configuration.
+        """
+        self._svc.set_power_scaling_enabled(enabled)
+
+    @property
+    def power_scale_config(self) -> dict[str, Any]:
+        """Return the server-side GlueScript power scaling configuration.
+
+        Mirrors the direct driver's ``max_cut_speed``/``power_floor``/
+        ``power_scaling_enabled`` attributes. The client keeps no local
+        mirror — the server is authoritative. The netref dict is copied
+        via ``dict(raw.items())`` (a single round trip; ``dict(netref)``
+        cannot unpack rpyc netref keys).
+        """
+        raw = self._svc.power_scale_config()
+        return dict(raw.items())
 
     # ------------------------------------------------------------------ #
     #  GlueScript hooks — batching boundary

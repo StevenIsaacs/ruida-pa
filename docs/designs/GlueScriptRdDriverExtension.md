@@ -594,7 +594,11 @@ Parameters:
 	- `Y`: Expands to `OVERSCAN_V_UNI`. Overscan on the Y axis in one direction.
 	- `Y_BI`: Expands to `OVERSCAN_V_BI`. Overscan on the Y axis in both directions.
 	- `XY`: Both the X and Y axis (diagonal). NOTE This also expands to `OVERSCAN_OFF` because the Ruida controller does not support diagonal overscan.
-- `speed`: Layer speed in mm/S.
+- `speed`: Layer speed in mm/S. Recorded as the current layer's cut speed:
+  the next `power_range()` call scales its emitted minimum from this value
+  (see `power_range(...)` below) until `cut_speed()` overrides it. The
+  layer's declared `min_power_1` is emitted unchanged — only the
+  `power_range()` emission is scaled.
 - `frequency`: Laser PWM frequency in KHz.
 - `min_power_1`: Minimum layer power percent for laser head 1.
 - `max_power_1`: Maximum layer power percent for laser head 1.
@@ -754,19 +758,19 @@ accel/decel for the current layer.
 
 Prototype:
 ```
-power_range(min: float=None, max: float=None)
+power_range(min_power: float=None, max_power: float=None)
 ```
 
 Parameters:
-- `min`: The minimum power percentage. If this is `None` then the current layer's declared `min_power_1` is used.
-- `max`: The maximum power percentage. If this is `None` then the current layer's declared `max_power_1` is used.
+- `min_power`: The minimum power percentage. If this is `None` then the current layer's declared `min_power_1` is used.
+- `max_power`: The maximum power percentage. If this is `None` then the current layer's declared `max_power_1` is used.
 
 Expands to (in this order):
 ```
 LAYER_FREQUENCY Laser:0 Layer:{layer} Freq:{freq:.3f}KHz   # only when the frequency changed
 SELECT_LAYER Layer:{layer}
-MIN_POWER_1 Power:{min:.1f}%
-MAX_POWER_1 Power:{max:.1f}%
+MIN_POWER_1 Power:{emitted_min:.1f}%
+MAX_POWER_1 Power:{max_power:.1f}%
 ```
 
 The `LAYER_FREQUENCY` line is emitted only when `frequency()` set the change
@@ -777,11 +781,35 @@ selection.
 
 Omitted arguments fall back to the current layer's declared
 `min_power_1`/`max_power_1` from `declare_layer()` (defaults 8.0/70.0), so
-`power_range()`, `power_range(max=85)`, and `power_range(10)` are all valid.
+`power_range()`, `power_range(max_power=85)`, and `power_range(10)` are all
+valid.
 
 `power_range()` is a **saved-job command** — it is persisted to, and replayed
 from, `.cglu` files (unlike jog/home commands, which are live-only). It may
 be used in `IMAGE`/`DEPTHMAP` layers as well.
+
+**Effective-min power scaling:** when `power_scaling_enabled` is True (the
+default), the emitted minimum (`emitted_min`) rises as the layer's cut speed
+decreases. The speed is tracked from `declare_layer()`'s `speed` argument and
+overridden by each `cut_speed()` call (`move_speed()` does not update it). At
+`max_cut_speed` (default 400 mm/s) or above the resolved minimum is emitted
+unchanged; at zero speed the emitted minimum equals the maximum. The emitted
+minimum is clamped to at most the maximum. When scaling is disabled the
+resolved minimum is emitted unchanged (no clamp — `power_range(70, 50)` still
+emits `[70, 50]` with a warning). The layer's declared minimum is never
+scaled; only the `power_range()` emission is.
+
+**Configuration** (per-instance, never reset by `new_gluescript()` or
+re-staging; setters are exposed over RPC and via the `/power_scale` TUI
+command):
+
+- `max_cut_speed` (default `400.0` mm/s) — `set_max_cut_speed(speed)` raises
+  `ValueError` unless `speed > 0`.
+- `power_floor` (default `8.0`%) — biases the scaling calculation and
+  replaces the hard-coded 8% warning threshold; `set_power_floor(floor)`
+  raises `ValueError` unless `0 <= floor <= 100`.
+- `power_scaling_enabled` (default `True`) — master switch;
+  `set_power_scaling_enabled(enabled)` coerces to `bool`.
 
 **Constraints** (a layer must be declared first — that raises `ValueError`
 on the direct path, surfacing as `RuntimeError` when re-staging a persisted
@@ -789,11 +817,11 @@ transcript; the power constraints below emit `# warning:` comments instead
 of raising):
 
 - A layer must be declared first.
-- `min` exceeding `max` emits a `# warning:` comment into the layer's action
-  block.
-- `min` below 8% emits a `# warning:` comment into the layer's action block
-  (mirroring `declare_layer`); `max` above 70% logs a warning and emits a
-  `# warning:` comment.
+- `min_power` exceeding `max_power` emits a `# warning:` comment into the
+  layer's action block.
+- `min_power` below the power floor emits a `# warning:` comment into the
+  layer's action block (mirroring `declare_layer`); `max_power` above 70%
+  logs a warning and emits a `# warning:` comment.
 
 `power_range()` may be called **multiple times per layer**, including between
 `jog_*`/`move_*`/`cut_*` actions: each call emits `SELECT_LAYER`,

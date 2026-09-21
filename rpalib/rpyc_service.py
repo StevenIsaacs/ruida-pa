@@ -476,10 +476,10 @@ class RpycTuiService(rpyc.Service):
         return self._exposed_gluescript("power", percent)
 
     def exposed_power_range(
-        self, min: float | None = None, max: float | None = None
+        self, min_power: float | None = None, max_power: float | None = None
     ) -> None:
-        self._rpc_info(f"[RPC] gluescript power_range({min}, {max})")
-        return self._exposed_gluescript("power_range", min, max)
+        self._rpc_info(f"[RPC] gluescript power_range({min_power}, {max_power})")
+        return self._exposed_gluescript("power_range", min_power, max_power)
 
     def exposed_set_mode(self, mode: str) -> None:
         self._rpc_info(f"[RPC] gluescript set_mode({mode!r})")
@@ -802,6 +802,23 @@ class RpycTuiService(rpyc.Service):
     def exposed_protect_enabled(self) -> bool:
         result = self._adapter.protect_enabled
         self._rpc_info(f"[RPC] RPC protect_enabled -> {result}")
+        return result
+
+    def exposed_set_max_cut_speed(self, speed: float) -> None:
+        self._rpc_info(f"[RPC] RPC set_max_cut_speed({speed})")
+        self._adapter.set_max_cut_speed(speed)
+
+    def exposed_set_power_floor(self, floor: float) -> None:
+        self._rpc_info(f"[RPC] RPC set_power_floor({floor})")
+        self._adapter.set_power_floor(floor)
+
+    def exposed_set_power_scaling_enabled(self, enabled: bool) -> None:
+        self._rpc_info(f"[RPC] RPC set_power_scaling_enabled({enabled})")
+        self._adapter.set_power_scaling_enabled(enabled)
+
+    def exposed_power_scale_config(self) -> dict[str, Any]:
+        result = self._adapter.power_scale_config
+        self._rpc_info(f"[RPC] RPC power_scale_config -> {result}")
         return result
 
     # --- Properties ---

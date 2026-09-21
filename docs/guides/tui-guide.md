@@ -278,6 +278,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/list tail`          | Show the tail script.                                                        |
 | `/listeners [full]`   | List listeners registered with the RdDriver; `full` shows each listener repr. Requires a session. |
 | `/plot`               | Open an interactive Bokeh visualization of the loaded script.                |
+| `/power_scale [status\|on\|off\|max_speed <v>\|floor <v>]` | Show or configure GlueScript effective-min power scaling. `status` (default) shows enabled/max_cut_speed/power_floor; `on`/`off` toggle the flag; `max_speed <v>`/`floor <v>` set the config. |
 | `/monitor [on\|off]`  | `/monitor` immediate update; `/monitor on` auto-update every 15s; `/monitor off` disable. |
 | `/protect on\|off\|status` | Toggle protect mode. When on, SET_SETTING commands are blocked to prevent hardware damage. |
 | `/scan_mem`           | Generate a GET_SETTING script for all MT memory addresses, staged into the loaded script; then `/run` to run or `/list` to review. |
@@ -310,6 +311,8 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/frame` with no session                             | `No active session. Use 'session start udp=<IP>' first.`               |
 | `/dryrun` bad arg                                    | `Usage: /dryrun on\|off`                                                |
 | `/protect` bad arg                                   | `Usage: /protect on\|off\|status`                                        |
+| `/power_scale` bad arg                               | `Usage: /power_scale [status\|on\|off\|max_speed <v>\|floor <v>]`        |
+| `/power_scale` invalid value                         | `Invalid max_speed: max_cut_speed must be > 0, got 0.0` / `Invalid floor: power_floor must be between 0 and 100, got 150.0` |
 | `/monitor` bad arg                                   | `Usage: /monitor \[on\|off]`                                            |
 | `/listeners` no driver                               | `No driver. Start a session first.`                                    |
 | `/save job` with no script loaded                    | `No script loaded. Use /load <path> first.`                           |
