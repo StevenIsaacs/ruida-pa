@@ -852,6 +852,9 @@ NOTES:
 - Grayscale pixel images may require power settings between move and cut commands.
   The actual commands for this case are currently unknown.
 - Frequency is controlled via `LAYER_FREQUENCY`; the default is typically 30 KHz.
+  A frequency change only takes effect when followed by a power change, and a
+  power change requires a preceding layer selection — so `LAYER_FREQUENCY` is
+  emitted immediately before `SELECT_LAYER` only when the frequency changed.
 
 ### 10.9 Tail
 

@@ -323,12 +323,17 @@ driver.power(45.0)
 #### `power_range(min: float | None = None, max: float | None = None)`
 
 Set the min/max power range percentages used to ramp laser power during
-accel/decel for the currently active layer. Expands to two rpascript lines in
-the layer's action block:
+accel/decel for the currently active layer. Expands to rpascript lines in the
+layer's action block in this order: `LAYER_FREQUENCY` (only when the
+frequency changed since the last `power_range()` call, then the change flag
+is cleared), `SELECT_LAYER`, `MIN_POWER_1`, `MAX_POWER_1`:
 
 ```python
-driver.power_range(min=15.0, max=80.0)   # ramps power between 15% and 80% during accel/decel
+driver.frequency(30.0)                    # saves 30.0 and sets the change flag
+driver.power_range(min=15.0, max=80.0)    # ramps power between 15% and 80% during accel/decel
 # Produces:
+#   LAYER_FREQUENCY Laser:0 Layer:0 Freq:30.000KHz
+#   SELECT_LAYER Layer:0
 #   MIN_POWER_1 Power:15.0%
 #   MAX_POWER_1 Power:80.0%
 ```
@@ -341,6 +346,12 @@ Omitted arguments fall back to the current layer's declared
 `power_range()` is a **saved-job command** — it is persisted to, and replayed
 from, `.cglu` files (unlike jog/home commands, which are live-only). It may
 be used in `IMAGE`/`DEPTHMAP` layers as well.
+
+**Frequency gating:** `frequency()` only saves the value and sets a change
+flag; the `LAYER_FREQUENCY` line is emitted by the next `power_range()` call
+(before `SELECT_LAYER`) only when the frequency changed. A frequency change
+therefore only takes effect when followed by a power change, and a power
+change requires a preceding layer selection.
 
 **Constraints** (a layer must be declared first — that raises `ValueError`
 on the direct path, surfacing as `RuntimeError` when re-staging a persisted
@@ -355,11 +366,12 @@ of raising):
   `# warning:` comment.
 
 `power_range()` may be called **multiple times per layer**, including between
-`jog_*`/`move_*`/`cut_*` actions: each call emits `MIN_POWER_1`/`MAX_POWER_1`
-into the layer's action block at its call position, overriding the ramp range
-from that point onward. Omitted args always resolve from the layer's declared
-powers (not the previous `power_range()` call). Ordering is not constrained
-against raw injection via `inline()`/`add_layer_action()` either.
+`jog_*`/`move_*`/`cut_*` actions: each call emits `SELECT_LAYER`,
+`MIN_POWER_1`/`MAX_POWER_1` into the layer's action block at its call
+position, overriding the ramp range from that point onward. Omitted args
+always resolve from the layer's declared powers (not the previous
+`power_range()` call). Ordering is not constrained against raw injection via
+`inline()`/`add_layer_action()` either.
 
 #### `set_mode(mode: str)`
 
@@ -488,14 +500,26 @@ stage, i.e. once per delta over RPC).
 #### `frequency(frequency: float)`
 
 Set the laser pulse frequency for the following cuts in the currently active
-layer. Expands to a `LAYER_FREQUENCY` action in the layer's action block:
+layer. `frequency()` only saves the value and sets a change flag; it does NOT
+emit a `LAYER_FREQUENCY` action directly. The next `power_range()` call emits
+the `LAYER_FREQUENCY` line (before `SELECT_LAYER`) only when the frequency
+changed — a frequency change only takes effect when followed by a power
+change:
 
 ```python
-driver.frequency(30.0)
-# Produces: LAYER_FREQUENCY Laser:0 Layer:0 Freq:30.000KHz
+driver.frequency(30.0)                    # saves 30.0 and sets the change flag
+driver.power_range(15.0, 80.0)            # emits LAYER_FREQUENCY before SELECT_LAYER
+# Produces:
+#   LAYER_FREQUENCY Laser:0 Layer:0 Freq:30.000KHz
+#   SELECT_LAYER Layer:0
+#   MIN_POWER_1 Power:15.0%
+#   MAX_POWER_1 Power:80.0%
 ```
 
-The layer index is emitted 0-based (matching the controller and the layer
+Calling `frequency()` with the layer's current frequency (the value declared
+in `declare_layer()`, or the last saved value) does not set the change flag,
+so no `LAYER_FREQUENCY` line is emitted by the next `power_range()` call. The
+layer index is emitted 0-based (matching the controller and the layer
 attributes), and the frequency is emitted in KHz with three decimal places.
 `frequency()` is a **saved-job command** — it is persisted to, and replayed
 from, `.cglu` files (unlike jog/home commands, which are live-only).

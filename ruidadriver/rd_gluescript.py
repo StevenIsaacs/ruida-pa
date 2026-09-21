@@ -348,6 +348,13 @@ class GlueScript:
         # arguments and are reset per layer.
         self._current_layer_min_power: float = 8.0
         self._current_layer_max_power: float = 70.0
+        # Per-layer frequency: frequency() saves the value here and sets
+        # _frequency_changed; the LAYER_FREQUENCY line is emitted by the
+        # next power_range() call (before SELECT_LAYER) only when the flag
+        # is set. Default mirrors the declare_layer() argument and is
+        # reset per layer.
+        self._current_layer_frequency: float = 20.0
+        self._frequency_changed: bool = False
 
         # Script output (assembled by stage_gluescript)
         self.rpascript: list[str] = []
@@ -578,6 +585,9 @@ class GlueScript:
         # Power-range fallbacks — defaults mirror the declare_layer() args.
         self._current_layer_min_power = 8.0
         self._current_layer_max_power = 70.0
+        # Frequency change flag — defaults mirror the declare_layer() args.
+        self._current_layer_frequency = 20.0
+        self._frequency_changed = False
         # rpascript is assembled by stage_gluescript() — clear to empty
         self.rpascript = []
 
@@ -960,6 +970,12 @@ class GlueScript:
         # resolves omitted args from these snapshots.
         self._current_layer_min_power = min_power_1
         self._current_layer_max_power = max_power_1
+        # Snapshot the declared frequency for this layer: frequency()
+        # saves into this snapshot and sets _frequency_changed; the
+        # LAYER_FREQUENCY line is emitted by the next power_range() call.
+        # Each layer starts with a clean (unchanged) frequency state.
+        self._current_layer_frequency = frequency
+        self._frequency_changed = False
 
         # gluescript (positional args only — matches _parse_gluescript_line)
         self.gluescript.append(
@@ -1437,10 +1453,12 @@ class GlueScript:
     ) -> None:
         """Set the min/max power ramp range for the current layer.
 
-        Expands to ``MIN_POWER_1 Power:{min:.1f}%`` and
-        ``MAX_POWER_1 Power:{max:.1f}%`` in the layer's action block,
-        overriding the previously active ramp range from that point
-        onward.
+        Expands into the layer's action block in this order:
+        ``LAYER_FREQUENCY`` (only when the frequency changed since the
+        last ``power_range()`` call, then the change flag is cleared),
+        ``SELECT_LAYER``, ``MIN_POWER_1 Power:{min:.1f}%`` and
+        ``MAX_POWER_1 Power:{max:.1f}%``, overriding the previously
+        active ramp range from that point onward.
 
         Args:
             min: Minimum power percentage, or None to use the layer's
@@ -1462,6 +1480,13 @@ class GlueScript:
         the layer's action block at its call position, overriding the ramp
         range from that point onward. Omitted args always resolve from the
         layer's declared powers (not the previous power_range() call).
+
+        Frequency gating: ``frequency()`` only saves the value and sets a
+        change flag; this method emits the ``LAYER_FREQUENCY`` line (before
+        ``SELECT_LAYER``) only when that flag is set, then clears it. A
+        frequency change therefore only takes effect when followed by a
+        power change, and a power change requires a preceding layer
+        selection.
 
         Error surfaces: this method raises ValueError only when no layer
         has been declared; when re-staging wraps a replay of a persisted
@@ -1510,11 +1535,22 @@ class GlueScript:
                 f"recommended maximum of 70%"
             )
         self.gluescript.append(f"power_range({orig_min!r}, {orig_max!r})")
-        self._layer_actions.setdefault(self._layer, []).extend([
-            f"LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{resolved_min}%",
-            f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{resolved_max}%",
-            *power_warnings,
-        ])
+        emission: list[str] = []
+        if self._frequency_changed:
+            emission.append(
+                f"LAYER_FREQUENCY Laser:0 Layer:{self._layer - 1} "
+                f"Freq:{self._current_layer_frequency:.3f}KHz"
+            )
+            self._frequency_changed = False
+        emission.append(f"SELECT_LAYER Layer:{self._layer - 1}")
+        emission.append(
+            f"LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{resolved_min}%"
+        )
+        emission.append(
+            f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{resolved_max}%"
+        )
+        emission.extend(power_warnings)
+        self._layer_actions.setdefault(self._layer, []).extend(emission)
 
     def set_mode(self, mode: str) -> None:
         """Switch the current layer to another layer mode mid-stream.
@@ -1637,13 +1673,17 @@ class GlueScript:
     def frequency(self, frequency: float) -> None:
         """Set laser frequency for the current layer.
 
-        Expands to a ``LAYER_FREQUENCY`` rpascript layer action carrying
-        the frequency value in KHz.
+        Saves the frequency value and marks it as changed; the
+        ``LAYER_FREQUENCY`` rpascript line is NOT emitted here. The next
+        ``power_range()`` call emits it (before ``SELECT_LAYER``) only
+        when the frequency differs from the layer's declared frequency —
+        a frequency change only takes effect when followed by a power
+        change.
         """
         self.gluescript.append(f"frequency({frequency!r})")
-        self._layer_actions.setdefault(self._layer, []).append(
-            f"LAYER_FREQUENCY Laser:0 Layer:{self._layer - 1} Freq:{frequency:.3f}KHz"
-        )
+        if frequency != self._current_layer_frequency:
+            self._frequency_changed = True
+        self._current_layer_frequency = frequency
 
     def pwm(self, duration: float) -> None:
         """Set laser pulse width in microseconds (comment-only for now).
@@ -1979,6 +2019,9 @@ class GlueScript:
             # Power-range fallbacks — defaults mirror the declare_layer() args.
             self._current_layer_min_power = 8.0
             self._current_layer_max_power = 70.0
+            # Frequency change flag — defaults mirror the declare_layer() args.
+            self._current_layer_frequency = 20.0
+            self._frequency_changed = False
             self._assembling = True
 
             try:

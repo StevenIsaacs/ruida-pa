@@ -761,11 +761,19 @@ Parameters:
 - `min`: The minimum power percentage. If this is `None` then the current layer's declared `min_power_1` is used.
 - `max`: The maximum power percentage. If this is `None` then the current layer's declared `max_power_1` is used.
 
-Expands to:
+Expands to (in this order):
 ```
+LAYER_FREQUENCY Laser:0 Layer:{layer} Freq:{freq:.3f}KHz   # only when the frequency changed
+SELECT_LAYER Layer:{layer}
 MIN_POWER_1 Power:{min:.1f}%
 MAX_POWER_1 Power:{max:.1f}%
 ```
+
+The `LAYER_FREQUENCY` line is emitted only when `frequency()` set the change
+flag (i.e. the frequency differs from the layer's declared/last-saved value),
+then the flag is cleared. A frequency change therefore only takes effect when
+followed by a power change, and a power change requires a preceding layer
+selection.
 
 Omitted arguments fall back to the current layer's declared
 `min_power_1`/`max_power_1` from `declare_layer()` (defaults 8.0/70.0), so
@@ -788,11 +796,12 @@ of raising):
   `# warning:` comment.
 
 `power_range()` may be called **multiple times per layer**, including between
-`jog_*`/`move_*`/`cut_*` actions: each call emits `MIN_POWER_1`/`MAX_POWER_1`
-into the layer's action block at its call position, overriding the ramp range
-from that point onward. Omitted args always resolve from the layer's declared
-powers (not the previous `power_range()` call). Ordering is not constrained
-against raw injection via `inline()`/`add_layer_action()` either.
+`jog_*`/`move_*`/`cut_*` actions: each call emits `SELECT_LAYER`,
+`MIN_POWER_1`/`MAX_POWER_1` into the layer's action block at its call
+position, overriding the ramp range from that point onward. Omitted args
+always resolve from the layer's declared powers (not the previous
+`power_range()` call). Ordering is not constrained against raw injection via
+`inline()`/`add_layer_action()` either.
 
 **Transcript preserves original args:** the gluescript line keeps the caller's
 arguments (e.g. `power_range(None, 85)`), while the rpascript lines carry the
