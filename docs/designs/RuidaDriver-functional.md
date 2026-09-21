@@ -867,9 +867,9 @@ All TUI meta-commands use the `/` prefix to distinguish them from Ruida controll
 |---|---|---|
 | `/help` or `?` | `_handle_help()` | Display formatted help text covering all three command categories |
 | `/load <path>` | `_cmd_load(path)` | Load a `.rds` script file from disk into `_loaded_script` |
-| `/head <path>` | `_cmd_head(path)` | Load a `.rds` script file to prepend to the job on `/run` |
-| `/tail <path>` | `_cmd_tail(path)` | Load a `.rds` script file to append to the job on `/run` |
-| `/run [script]` | `_cmd_exec(args)` | Execute via `run_job()`: filtered job (no args) or raw script with `script` argument |
+| `/head <path>` | `_cmd_head(path)` | Load a `.rds` script file to prepend to the composed job (head + job + tail) at the driver level |
+| `/tail <path>` | `_cmd_tail(path)` | Load a `.rds` script file to append to the composed job (head + job + tail) at the driver level |
+| `/run [<file>]` | `_cmd_exec(args)` | If `<file>` is given, load it first (via `_cmd_load`, which now returns bool), then execute the whole loaded script via `driver.run()` |
 | `/list [job\|script]` | `_cmd_list(args)` | Display composed job (head+job+tail) or loaded script in the main log |
 | `/save job <path>` | `_cmd_save(args)` | Write composed job (head+job+tail) to a file |
 | `/clear` | `_cmd_clear()` | Clear all log panels, loaded script, head, and tail |
@@ -885,8 +885,6 @@ All TUI meta-commands use the `/` prefix to distinguish them from Ruida controll
 - `/load` / `/head` / `/tail` empty file: `"File is empty or contains only blank lines: <path>"`
 - `/run` with no script loaded: `"No script loaded. Use /load <path> first."`
 - `/run` with no session: `"No active session. Use 'session start udp=...' first."`
-- `/run` with no job markers: `"No job commands found (no START_JOB/EOF markers)."`
-- `/run` with unknown argument: `"Unknown run action: '<action>'. Usage: /run \[script]"`
 - `/list` with unknown subcommand: `"Usage: /list [job|script]"`
 - `/list script` with no script loaded: `"No script loaded. Use /load <path> first."`
 - `/list job` with no script loaded: `"No script loaded. Use /load <path> first."`
@@ -899,7 +897,7 @@ All TUI meta-commands use the `/` prefix to distinguish them from Ruida controll
 
 **Case sensitivity:** All command names are case-insensitive (`/HELP`, `/Help`, `/help` all work).
 
-**Job composition:** Head and tail scripts are now owned by `RdDriver`, not the TUI. The `/run` command calls `driver.run_job(job, auto_checksum=True)` which composes `head + job + tail` atomically at queue time. The `/list job` command uses `_format_job_with_markers()` to display the composed script with `# --- Head ---`, `# --- Job ---`, and `# --- Tail ---` section markers.
+**Job composition:** Head and tail scripts are now owned by `RdDriver`, not the TUI. Job composition (`head + job + tail`, via `driver.run_job(job, auto_checksum=True)`) still happens at the driver level for callers that use the composed-job path (e.g. the exposed RPC `run_job`). The `/run` command does **not** extract or compose a job — it executes the whole loaded script as-is via `driver.run()`. The `/list job` command uses `_format_job_with_markers()` to display the composed script with `# --- Head ---`, `# --- Job ---`, and `# --- Tail ---` section markers.
 
 **Save behavior:** `/save job` saves only the pure job body (START_JOB → EOF) as determined by `_filter_job_commands()`. Head and tail scripts are **not** included in the saved file, making the output round-trippable. Head/tail are applied at execution time by the driver.
 
@@ -907,7 +905,7 @@ All TUI meta-commands use the `/` prefix to distinguish them from Ruida controll
 
 **RPC access:** Five new exposed methods on `RpycTuiService` provide remote access: `exposed_set_head_script`, `exposed_set_tail_script`, `exposed_get_head_script`, `exposed_get_tail_script`, and `exposed_run_job`. These follow the same delegate-to-adapter pattern as existing RPC methods.
 
-If no START_JOB/EOF markers are found, `run_job` receives an empty job and reports the error at the call site.
+If no START_JOB/EOF markers are found, `run_job` receives an empty job and reports the error at the call site. `/run` is unaffected by job markers — it always runs the whole loaded script.
 
 #### 6.2.6 Thread Bridge
 

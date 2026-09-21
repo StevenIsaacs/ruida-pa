@@ -652,7 +652,7 @@ class TuiAdapter(App):
         self._cmd_descriptions: dict[str, str] = {
             "help": "Show help text",
             "load": "Load a script file from disk",
-            "run": "Execute job from loaded script (/run script for all lines)",
+            "run": "Execute the loaded script as raw commands (/run <file> to load and run a .rds file)",
             "clear": "Clear all log panels, loaded script, head, and tail",
             "quit": "Exit the TUI",
             "status": r"Toggle logging: /status \[on|off|status] for status/reply, /status connection \[on|off|status] for transport events",
@@ -1695,31 +1695,39 @@ class TuiAdapter(App):
         self._log_info(f"Imported {len(script)} lines from {path}")
         self._plot_source = os.path.basename(path)
 
-    def _cmd_load(self, path: str) -> None:
-        """Load a script file into memory."""
+    def _cmd_load(self, path: str) -> bool:
+        """Load a script file into memory.
+
+        Returns True on success, False on any failure (the error is logged).
+        """
         if not path:
             self._log_error("Usage: /load <path>")
-            return
+            return False
         path = os.path.expanduser(path)
-        self._loaded_script_path = path
         try:
             with open(path, "r") as f:
                 content = f.read()
             lines = [line for line in content.splitlines() if line.strip()]
             if not lines:
                 self._log_error(f"File is empty or contains only blank lines: {path}")
-                return
+                return False
             self._loaded_script = lines
+            self._loaded_script_path = path
             self._log_info(f"Loaded {len(lines)} lines from {path}")
             self._plot_source = os.path.basename(path)
+            return True
         except FileNotFoundError:
             self._log_error(f"File not found: {path}")
+            return False
         except PermissionError:
             self._log_error(f"Permission denied: {path}")
+            return False
         except UnicodeDecodeError:
             self._log_error(f"File is not a valid text file: {path}")
+            return False
         except Exception as e:
             self._log_error(f"Error reading {path}: {type(e).__name__}: {e}")
+            return False
 
     def _cmd_head(self, path: str) -> None:
         """Load a script file to prepend to job on execution."""
@@ -1774,14 +1782,15 @@ class TuiAdapter(App):
             self._log_error(f"Error reading {path}: {type(e).__name__}: {e}")
 
     def _cmd_exec(self, args: str = "") -> None:
-        """Execute the loaded script.
+        """Execute the loaded script as raw commands.
 
-        Defaults to executing only the job portion (START_JOB to EOF).
-        Uses driver.run_job(job) — the extracted job body is passed
-        explicitly, so the staged-rpascript default never applies here —
-        which composes head + job + tail at runtime.
-        Use '/run script' to execute all loaded commands.
+        /run executes the whole loaded script; /run <file> loads the .rds
+        file first (like /load) then executes it.
         """
+        path = args.strip()
+        if path:
+            if not self._cmd_load(path):
+                return
         if not self._loaded_script:
             self._log_error("No script loaded. Use /load <path> first.")
             return
@@ -1790,25 +1799,11 @@ class TuiAdapter(App):
                 "No active session. Use 'session start udp=<IP> usb=<device>' first."
             )
             return
-        action = args.strip().lower()
-        if action == "":
-            job = self._filter_job_commands(self._loaded_script)
-            if not job:
-                self._log_error("No job commands found (no START_JOB/EOF markers).")
-                return
-            self._log_info(f"Executing {len(job)} job commands...")
-            try:
-                self._ruida_driver.run_job(job, auto_checksum=True)
-            except RuntimeError as e:
-                self._log_error(f"Run failed: {e}")
-        elif action == "script":
-            self._log_info(f"Executing {len(self._loaded_script)} lines...")
-            try:
-                self._ruida_driver.run(self._loaded_script)
-            except RuntimeError as e:
-                self._log_error(f"Run failed: {e}")
-        else:
-            self._log_error(f"Unknown run action: '{action}'. Usage: /run \\[script]")
+        self._log_info(f"Executing {len(self._loaded_script)} lines...")
+        try:
+            self._ruida_driver.run(self._loaded_script)
+        except RuntimeError as e:
+            self._log_error(f"Run failed: {e}")
 
     @staticmethod
     def _filter_job_commands(lines: list[str]) -> list[str]:
@@ -2661,7 +2656,7 @@ class TuiAdapter(App):
                     lines.append(f"GET_SETTING {entry[0]}")
         self._loaded_script = lines
         self._log_info(f"Scan script: {len(lines)} GET_SETTING commands staged")
-        self._log_info("Use /run script to run, or review with /list")
+        self._log_info("Use /run to run, or review with /list")
 
     def _finalize_gluescript_job(self, driver) -> bool:
         """Auto-finalize the current gluescript job.
@@ -3877,7 +3872,7 @@ class TuiAdapter(App):
 
         Returns None to allow all extensions, or a set of lowercase extensions.
         """
-        if cmd in ("/load", "/head", "/tail"):
+        if cmd in ("/load", "/head", "/tail", "/run"):
             return {".rds"}
         if cmd == "/import":
             return {".log", ".txt", ".rd"}
@@ -3927,8 +3922,8 @@ class TuiAdapter(App):
         cmd = value[:space_idx]
         rest = value[space_idx:].strip()
 
-        # Simple path-taking commands: /load, /head, /tail, /import
-        simple_cmds = {"/load", "/head", "/tail", "/import", "/export"}
+        # Simple path-taking commands: /load, /head, /tail, /import, /export, /run
+        simple_cmds = {"/load", "/head", "/tail", "/import", "/export", "/run"}
         if cmd in simple_cmds:
             return (cmd, rest)
 

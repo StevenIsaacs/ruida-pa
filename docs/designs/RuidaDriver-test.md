@@ -357,7 +357,7 @@ These tests require no controller. They verify the core wire-format logic using 
 | **Objective** | Verify that a pre-recorded `.rds` file can be loaded via `/load` and executed via `/run`. |
 | **Prerequisites** | Active session. A pre-recorded `.rds` file available (e.g., at `tmp/test-script.rds`). |
 | **Steps** | 1. With active TUI, type `/load tmp/test-script.rds` and press Enter.<br>2. Observe the log — should show `Loaded N lines from tmp/test-script.rds`.<br>3. Type `/run` and press Enter.<br>4. Observe the TUI log and machine behavior. |
-| **Expected result** | The script loads without error. Execution produces expected commands in the log. Machine behaves as expected. |
+| **Expected result** | The script loads without error. `/run` executes the whole loaded script as raw commands. Execution produces expected commands in the log. Machine behaves as expected. |
 
 ---
 
@@ -581,7 +581,7 @@ These tests require no controller. They verify the core wire-format logic using 
 | **Objective** | Verify that `/run` with no prior `/load` shows an error message |
 | **Prerequisites** | TUI running. No script loaded via `/load`. |
 | **Steps** | 1. Type `/run` and press Enter |
-| **Expected result** | Log shows `No script loaded` error message. |
+| **Expected result** | Log shows `No script loaded` error message. No script is executed. |
 
 #### Test 5.4.8 — `/run` With No Active Session
 - [ ] Test 5.4.8
@@ -591,7 +591,7 @@ These tests require no controller. They verify the core wire-format logic using 
 | **Objective** | Verify that `/run` requires an active session |
 | **Prerequisites** | TUI running. Script loaded via `/load tmp/test-script.rds`. Session NOT started (no `session start`). |
 | **Steps** | 1. Type `/load tmp/test-script.rds` and press Enter (succeeds).<br>2. Type `/run` and press Enter. |
-| **Expected result** | Log shows `No active session` error message. No commands are sent to the controller. |
+| **Expected result** | Log shows `No active session` error message. The whole loaded script is not executed; no commands are sent to the controller. |
 
 #### Test 5.4.9 — `/clear` Clears Logs
 - [x] Test 5.4.9 ✅ 2026-06-06

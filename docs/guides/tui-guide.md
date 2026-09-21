@@ -261,8 +261,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/load <path>`        | Load a `.rds` script file into memory for editing or execution.              |
 | `/head <path>`        | Load a `.rds` file as head (prepended to future `/run` and `/list job`).  |
 | `/tail <path>`        | Load a `.rds` file as tail (appended to future `/run` and `/list job`).   |
-| `/run`                | Execute the composed job (head + job + tail) as a batch.                     |
-| `/run script`        | Execute the loaded script as raw commands (no job extraction).               |
+| `/run [<file>]`      | Execute the whole loaded script as raw commands. With an optional `<file>`, first load that `.rds` file (like `/load`), then execute it. A space activates the `.rds` file selector. |
 | `/dryrun on\|off`    | Toggle dry-run mode. When on, `/run` runs normally but RPC `driver.run()` only logs to TUI. |
 | `/frame job \| /frame layer <N>` | Frame job or layer boundaries via jog moves at 600 mm/S (top-right then bottom-left), relative to the job's detected reference point. Requires loaded script + active session. |
 | `/export <path> [magic=0xNN]` | Export the loaded script as a binary `.rd` file. Default path: `<source>.rd`. Supports `magic=0xNN` to override swizzle byte. |
@@ -281,7 +280,7 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 | `/plot`               | Open an interactive Bokeh visualization of the loaded script.                |
 | `/monitor [on\|off]`  | `/monitor` immediate update; `/monitor on` auto-update every 15s; `/monitor off` disable. |
 | `/protect on\|off\|status` | Toggle protect mode. When on, SET_SETTING commands are blocked to prevent hardware damage. |
-| `/scan_mem`           | Generate a GET_SETTING script for all MT memory addresses, staged into the loaded script; then `/run script` to run or `/list` to review. |
+| `/scan_mem`           | Generate a GET_SETTING script for all MT memory addresses, staged into the loaded script; then `/run` to run or `/list` to review. |
 | `/clear`              | Clear all log panels, loaded script, head/tail, and monitor totals.          |
 | `/stop`               | Cancel pending session connection or stop script execution. Also on Escape.  |
 | `/status on`          | Enable reply logging (controller responses shown in log).                    |
@@ -327,10 +326,10 @@ wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
 Head and tail scripts are stored by `RdDriver` and applied at execution time.
 Each command has a different role:
 
-- **`/run`** — extracts the job body (START_JOB → EOF), then calls
-  `driver.run_job(job)` passing the extracted job body explicitly, which
-  composes `head + job_body + tail` atomically and queues the result for
-  execution. The composition happens inside the driver, not in the TUI.
+- **`/run [<file>]`** — executes the whole loaded script as raw commands via
+  `driver.run()`. With an optional `<file>`, it first loads that `.rds` file
+  (like `/load`) and then executes it. No job extraction is performed; the
+  entire script is sent as-is.
 - **`/list job`** — uses `_format_job_with_markers()` to display the composed
   script with section comment markers:
   ```
@@ -349,8 +348,9 @@ Each command has a different role:
 
 If no `START_JOB`/`EOF` markers exist in the loaded script, the job body
 is empty. This allows modular workflow: separate head (homing, initialization),
-job body, and tail (cleanup, shutdown) scripts. Use `/run script` to run
-scripts that don't follow the job-marker structure.
+job body, and tail (cleanup, shutdown) scripts. `/run` executes the whole loaded
+script as-is, regardless of job markers; job extraction is only used by
+`/save job` and the job-composition display (`/list job`).
 
 ---
 
@@ -501,9 +501,10 @@ For modular workflow, you can split your script into three parts:
 /tail cleanup.rds        # Commands to append (e.g., shutdown, air assist off)
 ```
 
-Head and tail are automatically included in `/run` and `/list job`.
-`/save job` saves only the pure job body — head/tail are applied at
-execution time by the driver.
+Head and tail are shown in `/list job`. `/run` executes the whole loaded
+script as raw commands — head/tail are **not** auto-applied to it. `/save job`
+saves only the pure job body; head/tail are applied at execution time by the
+driver's `run_job()`.
 
 ### Viewing
 
@@ -528,21 +529,18 @@ transcript.
 ### Executing
 
 ```bash
-/run             # Execute the composed job as a batch
-/run script     # Execute the loaded script as raw commands
+/run             # Execute the whole loaded script as raw commands
+/run my-script.rds   # Load my-script.rds, then execute it immediately
 ```
 
-`/run` extracts only the portion between `START_JOB` and end-of-file
-markers (or `BLOCK_END`), then delegates to `driver.run_job(job)` passing the
-extracted job body explicitly, which composes head + job + tail atomically at
-queue time. This ensures only the job commands are sent, with setup/teardown
-wrapped around them.
+`/run` executes the entire loaded script as-is via `driver.run()`, without
+job extraction or head/tail wrapping. This works for any script, whether or
+not it follows the `START_JOB`/`BLOCK_END` structure. With an optional
+`<file>`, `/run <file>` first loads that `.rds` file (like `/load`) and then
+executes it. A space following `/run` opens the file selector (filtered to
+`.rds` files).
 
-`/run script` sends the entire loaded script as-is, without job extraction
-or head/tail wrapping. Use this for scripts that don't follow the
-START_JOB/BLOCK_END structure.
-
-Both modes require an active session.
+`/run` requires an active session.
 
 ### Saving
 
@@ -730,7 +728,7 @@ session start udp=192.168.1.100
 [STATUS] CONNECTED
 
 /run
-[SCRIPT] Executing composed job (478 lines)...
+[SCRIPT] Executing loaded script (478 lines)...
 [replies appear as controller processes]
 ```
 
