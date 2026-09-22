@@ -351,9 +351,9 @@ class GlueScript:
         self._current_layer_max_power: float = 70.0
         # Per-layer frequency: frequency() saves the value here and sets
         # _frequency_changed; the LAYER_FREQUENCY line is emitted by the
-        # next power_range() call (before SELECT_LAYER) only when the flag
-        # is set. Default mirrors the declare_layer() argument and is
-        # reset per layer.
+        # next flush (before SELECT_LAYER) only when the flag is set.
+        # Default mirrors the declare_layer() argument and is reset per
+        # layer.
         self._current_layer_frequency: float = 20.0
         self._frequency_changed: bool = False
         # Effective-min power scaling configuration (per-instance, never
@@ -364,10 +364,20 @@ class GlueScript:
         self.power_floor: float = 8.0
         self.power_scaling_enabled: bool = True
         # Per-layer cut speed snapshot: declare_layer() and cut_speed()
-        # record the current layer's speed here; power_range() uses it to
+        # record the current layer's speed here; the flush uses it to
         # scale the effective minimum. Per-job state — reset by
         # new_gluescript() and the re-stage reset block.
         self._current_layer_speed: float = 100.0
+        # Deferred power/speed settings: power_range() and cut_speed()
+        # save their settings here (with dirty flags) instead of emitting
+        # rpascript; the next cut_* action flushes them via
+        # _flush_layer_settings(). Per-layer state — reset by
+        # new_gluescript(), the re-stage reset block, and declare_layer().
+        self._pending_min_power: float = 8.0
+        self._pending_max_power: float = 70.0
+        self._pending_warnings: list[str] = []
+        self._speed_dirty: bool = False
+        self._power_dirty: bool = False
 
         # Script output (assembled by stage_gluescript)
         self.rpascript: list[str] = []
@@ -603,6 +613,13 @@ class GlueScript:
         # Frequency change flag — defaults mirror the declare_layer() args.
         self._current_layer_frequency = 20.0
         self._frequency_changed = False
+        # Deferred power/speed settings — defaults mirror the
+        # declare_layer() args.
+        self._pending_min_power = 8.0
+        self._pending_max_power = 70.0
+        self._pending_warnings = []
+        self._speed_dirty = False
+        self._power_dirty = False
         # rpascript is assembled by stage_gluescript() — clear to empty
         self.rpascript = []
 
@@ -990,10 +1007,18 @@ class GlueScript:
         self._current_layer_max_power = max_power_1
         # Snapshot the declared frequency for this layer: frequency()
         # saves into this snapshot and sets _frequency_changed; the
-        # LAYER_FREQUENCY line is emitted by the next power_range() call.
+        # LAYER_FREQUENCY line is emitted by the next flush.
         # Each layer starts with a clean (unchanged) frequency state.
         self._current_layer_frequency = frequency
         self._frequency_changed = False
+        # Deferred power/speed settings are dropped at the layer boundary:
+        # pending power_range()/cut_speed() settings only flush when a
+        # cut_* action follows within the same layer.
+        self._pending_min_power = 8.0
+        self._pending_max_power = 70.0
+        self._pending_warnings = []
+        self._speed_dirty = False
+        self._power_dirty = False
 
         # gluescript (positional args only — matches _parse_gluescript_line)
         self.gluescript.append(
@@ -1538,13 +1563,20 @@ class GlueScript:
     def power_range(
         self, min_power: float | None = None, max_power: float | None = None
     ) -> None:
-        """Set the min/max power ramp range for the current layer.
+        """Save the min/max power ramp range for the current layer.
 
-        Expands into the layer's action block in this order:
+        The settings are NOT emitted here: they are saved as pending state
+        (with a dirty flag) and flushed by the next ``cut_*`` action —
+        ``_flush_layer_settings()`` emits the rpascript immediately before
+        the ``CUT_*`` line. Pending settings with no following cut are
+        dropped (``declare_layer()`` boundary or end-of-job).
+
+        The flush emits, in this order: ``CUT_SPEED_LASER_1`` (only when
+        ``cut_speed()`` was called since the last flush),
         ``LAYER_FREQUENCY`` (only when the frequency changed since the
-        last ``power_range()`` call, then the change flag is cleared),
-        ``SELECT_LAYER``, ``MIN_POWER_1 Power:{min_power:.1f}%`` and
-        ``MAX_POWER_1 Power:{max_power:.1f}%``, overriding the previously
+        last flush, then the change flag is cleared),
+        ``SELECT_LAYER``, ``MIN_POWER_1 Power:{emitted_min}%`` and
+        ``MAX_POWER_1 Power:{max_power}%``, overriding the previously
         active ramp range from that point onward.
 
         Args:
@@ -1573,13 +1605,13 @@ class GlueScript:
               comment, mirroring declare_layer().
 
         May be called multiple times per layer, including between jog,
-        move, or cut actions: each call emits MIN_POWER_1/MAX_POWER_1 into
-        the layer's action block at its call position, overriding the ramp
-        range from that point onward. Omitted args always resolve from the
-        layer's declared powers (not the previous power_range() call).
+        move, or cut actions: each call replaces the pending range, so only
+        the LAST call before a cut is flushed. Omitted args always resolve
+        from the layer's declared powers (not the previous power_range()
+        call).
 
         Frequency gating: ``frequency()`` only saves the value and sets a
-        change flag; this method emits the ``LAYER_FREQUENCY`` line (before
+        change flag; the flush emits the ``LAYER_FREQUENCY`` line (before
         ``SELECT_LAYER``) only when that flag is set, then clears it. A
         frequency change therefore only takes effect when followed by a
         power change, and a power change requires a preceding layer
@@ -1590,8 +1622,9 @@ class GlueScript:
         transcript, that violation surfaces as RuntimeError ("Error
         re-staging command ...") wrapping the ValueError. When power
         scaling is enabled, a corrupted ``max_cut_speed`` (non-finite or
-        <= 0, e.g. via direct attribute assignment) also raises
-        ValueError("max_cut_speed must be > 0").
+        <= 0, e.g. via direct attribute assignment) raises
+        ValueError("max_cut_speed must be > 0") at the flush — i.e. at the
+        next ``cut_*`` action, only when a cut follows.
         """
         if self._layer < 1:
             raise ValueError(
@@ -1608,8 +1641,10 @@ class GlueScript:
         resolved_max_power = (
             self._current_layer_max_power if max_power is None else max_power
         )
-        # Out-of-range values emit warning comments into the rpascript
-        # output rather than raising.
+        # Out-of-range values log immediately and are saved as pending
+        # warning comments, emitted with the flush. Each call REPLACES the
+        # pending warnings (never extends) so only the last range's
+        # warnings reach the rpascript.
         power_warnings: list[str] = []
         if resolved_min_power > resolved_max_power:
             logger.warning(
@@ -1639,38 +1674,16 @@ class GlueScript:
                 f"# warning: max_power_1 {resolved_max_power}% exceeds the "
                 f"recommended maximum of 70%"
             )
-        # Effective-min power scaling: as the layer's cut speed decreases,
-        # the emitted minimum rises toward the maximum. The clamp keeps the
-        # emitted minimum at or below the maximum even when the resolved
-        # minimum already exceeds it (e.g. power_range(70, 50) with scaling
-        # on). When scaling is disabled the resolved minimum is emitted
-        # unchanged — no clamp.
-        if self.power_scaling_enabled:
-            effective = self._effective_min_power(
-                resolved_min_power, resolved_max_power, self._current_layer_speed
-            )
-            emitted_min = min(effective, resolved_max_power)
-        else:
-            emitted_min = resolved_min_power
         self.gluescript.append(
             f"power_range({orig_min_power!r}, {orig_max_power!r})"
         )
-        emission: list[str] = []
-        if self._frequency_changed:
-            emission.append(
-                f"LAYER_FREQUENCY Laser:0 Layer:{self._layer - 1} "
-                f"Freq:{self._current_layer_frequency:.3f}KHz"
-            )
-            self._frequency_changed = False
-        emission.append(f"SELECT_LAYER Layer:{self._layer - 1}")
-        emission.append(
-            f"LAYER_MIN_POWER_1 Layer:{self._layer - 1} Power:{emitted_min}%"
-        )
-        emission.append(
-            f"LAYER_MAX_POWER_1 Layer:{self._layer - 1} Power:{resolved_max_power}%"
-        )
-        emission.extend(power_warnings)
-        self._layer_actions.setdefault(self._layer, []).extend(emission)
+        # Save the resolved settings as pending state; the next cut_*
+        # action flushes them, scaling the minimum against the current
+        # layer speed at flush time.
+        self._pending_min_power = resolved_min_power
+        self._pending_max_power = resolved_max_power
+        self._pending_warnings = power_warnings
+        self._power_dirty = True
 
     def set_mode(self, mode: str) -> None:
         """Switch the current layer to another layer mode mid-stream.
@@ -1771,16 +1784,17 @@ class GlueScript:
     def cut_speed(self, speed: float) -> None:
         """Set cut speed for the current layer.
 
-        Expands to a ``CUT_SPEED_LASER_1`` rpascript layer action carrying
-        the speed value. Also records the speed for effective-min power
-        scaling: the next ``power_range()`` call scales its emitted minimum
-        from this value.
+        The speed is NOT emitted here: it is saved as pending state (with
+        a dirty flag) and flushed by the next ``cut_*`` action —
+        ``_flush_layer_settings()`` emits ``CUT_SPEED_LASER_1`` immediately
+        before the ``CUT_*`` line. Pending settings with no following cut
+        are dropped (``declare_layer()`` boundary or end-of-job). Also
+        records the speed for effective-min power scaling: the flush scales
+        the pending power minimum from this value.
         """
         self.gluescript.append(f"cut_speed({speed!r})")
         self._current_layer_speed = speed
-        self._layer_actions.setdefault(self._layer, []).append(
-            f"CUT_SPEED_LASER_1 Layer:{self._layer - 1} Speed={speed}"
-        )
+        self._speed_dirty = True
 
     def move_speed(self, speed: float) -> None:
         """Set move speed for the current layer (comment-only for now).
@@ -1797,11 +1811,10 @@ class GlueScript:
         """Set laser frequency for the current layer.
 
         Saves the frequency value and marks it as changed; the
-        ``LAYER_FREQUENCY`` rpascript line is NOT emitted here. The next
-        ``power_range()`` call emits it (before ``SELECT_LAYER``) only
-        when the frequency differs from the layer's declared frequency —
-        a frequency change only takes effect when followed by a power
-        change.
+        ``LAYER_FREQUENCY`` rpascript line is NOT emitted here. The flush
+        emits it (before ``SELECT_LAYER``) only when the frequency differs
+        from the layer's declared frequency — a frequency change only
+        takes effect when followed by a power change.
         """
         self.gluescript.append(f"frequency({frequency!r})")
         if frequency != self._current_layer_frequency:
@@ -1903,8 +1916,77 @@ class GlueScript:
         """U-axis moves are not implemented in the initial release."""
         raise NotImplementedError("U-axis moves not yet implemented")
 
+    def _flush_layer_settings(self) -> None:
+        """Emit deferred power/speed settings before a cut action.
+
+        ``power_range()`` and ``cut_speed()`` only save their settings and
+        mark them dirty; this helper emits the pending rpascript into the
+        current layer's action block immediately before the next ``cut_*``
+        action and clears the dirty flags. Emits only what changed:
+        ``CUT_SPEED_LASER_1`` when ``cut_speed()`` was called, and the
+        power block (``LAYER_FREQUENCY``-if-changed, ``SELECT_LAYER``,
+        ``LAYER_MIN_POWER_1``, ``LAYER_MAX_POWER_1``, pending warnings)
+        when ``power_range()`` was called. Pending settings with no
+        following cut are dropped (``declare_layer()`` boundary or
+        end-of-job).
+
+        Raises:
+            ValueError: When power scaling is enabled and ``max_cut_speed``
+                is corrupted (non-finite or <= 0) — the corrupted-config
+                error surfaces here, at the cut, not at ``power_range()``.
+        """
+        if not (self._speed_dirty or self._power_dirty):
+            return
+        layer = self._layer
+        speed_dirty = self._speed_dirty
+        power_dirty = self._power_dirty
+        emitted: list[str] = []
+        if speed_dirty:
+            emitted.append(
+                f"CUT_SPEED_LASER_1 Layer:{layer - 1} "
+                f"Speed={self._current_layer_speed}"
+            )
+        if power_dirty:
+            if self._frequency_changed:
+                emitted.append(
+                    f"LAYER_FREQUENCY Laser:0 Layer:{layer - 1} "
+                    f"Freq:{self._current_layer_frequency:.3f}KHz"
+                )
+            emitted.append(f"SELECT_LAYER Layer:{layer - 1}")
+            if self.power_scaling_enabled:
+                effective = self._effective_min_power(
+                    self._pending_min_power,
+                    self._pending_max_power,
+                    self._current_layer_speed,
+                )
+                emitted_min = min(effective, self._pending_max_power)
+            else:
+                emitted_min = self._pending_min_power
+            emitted.append(
+                f"LAYER_MIN_POWER_1 Layer:{layer - 1} Power:{emitted_min}%"
+            )
+            emitted.append(
+                f"LAYER_MAX_POWER_1 Layer:{layer - 1} "
+                f"Power:{self._pending_max_power}%"
+            )
+            emitted.extend(self._pending_warnings)
+        # declare_layer() does NOT pre-create _layer_actions[self._layer] —
+        # use setdefault, never direct indexing. Commit the assembled block
+        # and clear the dirty flags only after the append succeeds: a
+        # corrupted-config ValueError from _effective_min_power() must leave
+        # every pending flag intact, so a later (fixed) cut still emits the
+        # complete block instead of silently dropping the speed/frequency.
+        self._layer_actions.setdefault(layer, []).extend(emitted)
+        if speed_dirty:
+            self._speed_dirty = False
+        if power_dirty:
+            self._frequency_changed = False
+            self._power_dirty = False
+            self._pending_warnings = []
+
     def cut_xy_to(self, x: float, y: float) -> None:
         """Cut to absolute XY coordinate relative to job reference point."""
+        self._flush_layer_settings()
         delta_x = x - self._current_x
         delta_y = y - self._current_y
         form_x = self._choose_move_form(delta_x)
@@ -1925,6 +2007,7 @@ class GlueScript:
         This is a layer action: the emitted command is recorded in the
         current layer's action list.
         """
+        self._flush_layer_settings()
         delta_x = x - self._current_x
         form = self._choose_move_form(delta_x)
         self.gluescript.append(f"cut_x_to({x!r})")
@@ -1944,6 +2027,7 @@ class GlueScript:
         This is a layer action: the emitted command is recorded in the
         current layer's action list.
         """
+        self._flush_layer_settings()
         delta_y = y - self._current_y
         form = self._choose_move_form(delta_y)
         self.gluescript.append(f"cut_y_to({y!r})")
@@ -2147,6 +2231,13 @@ class GlueScript:
             # Frequency change flag — defaults mirror the declare_layer() args.
             self._current_layer_frequency = 20.0
             self._frequency_changed = False
+            # Deferred power/speed settings — defaults mirror the
+            # declare_layer() args.
+            self._pending_min_power = 8.0
+            self._pending_max_power = 70.0
+            self._pending_warnings = []
+            self._speed_dirty = False
+            self._power_dirty = False
             self._assembling = True
 
             try:

@@ -329,22 +329,30 @@ driver.power(45.0)
 #### `power_range(min_power: float | None = None, max_power: float | None = None)`
 
 Set the min/max power range percentages used to ramp laser power during
-accel/decel for the currently active layer. Expands to rpascript lines in the
-layer's action block in this order: `LAYER_FREQUENCY` (only when the
-frequency changed since the last `power_range()` call, then the change flag
-is cleared), `SELECT_LAYER`, `MIN_POWER_1`, `MAX_POWER_1`:
+accel/decel for the currently active layer. The settings are **deferred**:
+`power_range()` saves the resolved range (with a dirty flag) and the next
+`cut_*` action flushes it — the rpascript lines are emitted immediately
+before the `CUT_*` line, in this order: `CUT_SPEED_LASER_1` (only when
+`cut_speed()` was called since the last flush), `LAYER_FREQUENCY` (only
+when the frequency changed since the last `power_range()` call, then the
+change flag is cleared), `SELECT_LAYER`, `MIN_POWER_1`, `MAX_POWER_1`:
 
 ```python
 driver.frequency(30.0)                    # saves 30.0 and sets the change flag
-driver.power_range(min_power=15.0, max_power=80.0)  # ramps power between 15% and 80% during accel/decel
-# Produces:
+driver.power_range(min_power=15.0, max_power=80.0)  # saves the range (pending)
+driver.cut_xy_to(10.0, 10.0)              # flushes the pending settings, then cuts
+# Produces (immediately before the CUT_* line):
 #   LAYER_FREQUENCY Laser:0 Layer:0 Freq:30.000KHz
 #   SELECT_LAYER Layer:0
-#   MIN_POWER_1 Power:15.0%
+#   MIN_POWER_1 Power:63.75%
 #   MAX_POWER_1 Power:80.0%
+#   # warning: max_power_1 80.0% exceeds the recommended maximum of 70%
+#   CUT_FAR_XY X=10.000mm Y=10.000mm
 ```
 
-Values are formatted with one decimal (e.g. `MIN_POWER_1 Power:10.0%`).
+Values are formatted with Python's default float formatting (e.g.
+`MIN_POWER_1 Power:10.0%`); a scaled minimum may carry more decimals (e.g.
+`MIN_POWER_1 Power:63.75%`).
 Omitted arguments fall back to the current layer's declared
 `min_power_1`/`max_power_1` from `declare_layer()` (defaults 8.0/70.0), so
 `power_range()`, `power_range(max_power=85)`, and `power_range(10)` are all
@@ -354,6 +362,13 @@ valid.
 from, `.cglu` files (unlike jog/home commands, which are live-only). It may
 be used in `IMAGE`/`DEPTHMAP` layers as well.
 
+**Emission timing (flush at cut):** pending settings are emitted only by a
+following `cut_*` action. Pending settings with no following cut are
+dropped at the `declare_layer()` boundary or at end-of-job — they never
+reach the rpascript. When both `cut_speed()` and `power_range()` are
+pending, the flush emits `CUT_SPEED_LASER_1` first, then the power block,
+so the power minimum is scaled against the speed that is about to be cut.
+
 **Effective-min power scaling:** when `power_scaling_enabled` is True (the
 default), the emitted minimum rises as the layer's cut speed decreases. The
 speed is tracked from `declare_layer()`'s `speed` argument and overridden by
@@ -362,7 +377,14 @@ resolved minimum is emitted unchanged; at zero speed the emitted minimum
 equals the maximum. The emitted minimum is clamped to at most the maximum.
 When scaling is disabled the resolved minimum is emitted unchanged (no clamp
 — `power_range(70, 50)` still emits `[70, 50]` with a warning). The layer's
-declared minimum is never scaled; only the `power_range()` emission is.
+declared minimum is never scaled; only the `power_range()` emission is. The
+scaling is computed at flush time from the pending range and the current
+layer speed.
+
+**Sticky scaling:** a mid-layer `cut_speed()` change WITHOUT a subsequent
+`power_range()` does not re-scale already-emitted power. The power lines
+were flushed (and scaled) at the previous cut; only a new `power_range()`
+re-emits them, scaled against the speed at that flush.
 
 **Configuration** (per-instance, never reset by `new_gluescript()` or
 re-staging; setters are exposed over RPC and via the `/power_scale` TUI
@@ -379,8 +401,8 @@ command):
   `set_power_scaling_enabled(enabled)` coerces to `bool`.
 
 **Frequency gating:** `frequency()` only saves the value and sets a change
-flag; the `LAYER_FREQUENCY` line is emitted by the next `power_range()` call
-(before `SELECT_LAYER`) only when the frequency changed. A frequency change
+flag; the `LAYER_FREQUENCY` line is emitted by the flush (before
+`SELECT_LAYER`) only when the frequency changed. A frequency change
 therefore only takes effect when followed by a power change, and a power
 change requires a preceding layer selection.
 
@@ -397,9 +419,10 @@ of raising):
   logs a warning and emits a `# warning:` comment.
 
 `power_range()` may be called **multiple times per layer**, including between
-`jog_*`/`move_*`/`cut_*` actions: each call emits `SELECT_LAYER`,
-`MIN_POWER_1`/`MAX_POWER_1` into the layer's action block at its call
-position, overriding the ramp range from that point onward. Omitted args
+`jog_*`/`move_*`/`cut_*` actions: each call replaces the pending range, so
+only the LAST call before a cut is flushed (emitting `SELECT_LAYER`,
+`MIN_POWER_1`/`MAX_POWER_1` into the layer's action block at the cut
+position, overriding the ramp range from that point onward). Omitted args
 always resolve from the layer's declared powers (not the previous
 `power_range()` call). Ordering is not constrained against raw injection via
 `inline()`/`add_layer_action()` either.
@@ -496,12 +519,17 @@ driver.air_assist_off()
 #### `cut_speed(speed: float)`
 
 Set the cut speed for the currently active layer, in mm/s, dynamically
-varying the cut speed between cuts. Expands to a `CUT_SPEED_LASER_1` action in
-the layer's action block:
+varying the cut speed between cuts. The speed is **deferred**: `cut_speed()`
+saves the value (with a dirty flag) and the next `cut_*` action flushes it —
+the `CUT_SPEED_LASER_1` action is emitted immediately before the `CUT_*`
+line:
 
 ```python
 driver.cut_speed(80.0)
-# Produces: CUT_SPEED_LASER_1 Layer:0 Speed=80.0
+driver.cut_xy_to(10.0, 10.0)   # flushes the pending speed, then cuts
+# Produces (immediately before the CUT_* line):
+#   CUT_SPEED_LASER_1 Layer:0 Speed=80.0
+#   CUT_NEAR_XY nearX=10.000mm nearY=10.000mm
 ```
 
 The layer index is emitted 0-based (matching the controller and the layer
@@ -513,9 +541,16 @@ stage (once per delta over RPC). `cut_speed()` is a **saved-job command** — it
 is persisted to, and replayed from, `.cglu` files (unlike jog/home commands,
 which are live-only).
 
+**Emission timing (flush at cut):** pending settings are emitted only by a
+following `cut_*` action. Pending settings with no following cut are dropped
+at the `declare_layer()` boundary or at end-of-job — they never reach the
+rpascript. When both `cut_speed()` and `power_range()` are pending, the
+flush emits `CUT_SPEED_LASER_1` first, then the power block, so the power
+minimum is scaled against the speed that is about to be cut.
+
 **Speed tracking:** `cut_speed()` records its value as the current layer's
-cut speed, overriding the speed declared by `declare_layer()`. The next
-`power_range()` call scales its emitted minimum from this value (see §4.4).
+cut speed, overriding the speed declared by `declare_layer()`. The flush
+scales the pending power minimum from this value (see §4.4).
 `move_speed()` does NOT update the tracked cut speed — only `declare_layer()`
 and `cut_speed()` do.
 
@@ -538,28 +573,31 @@ stage, i.e. once per delta over RPC).
 
 Set the laser pulse frequency for the following cuts in the currently active
 layer. `frequency()` only saves the value and sets a change flag; it does NOT
-emit a `LAYER_FREQUENCY` action directly. The next `power_range()` call emits
-the `LAYER_FREQUENCY` line (before `SELECT_LAYER`) only when the frequency
-changed — a frequency change only takes effect when followed by a power
-change:
+emit a `LAYER_FREQUENCY` action directly. The next `cut_*` action flushes it —
+the `LAYER_FREQUENCY` line is emitted (before `SELECT_LAYER`) only when the
+frequency changed, and only when a `power_range()` is also pending — a
+frequency change only takes effect when followed by a power change:
 
 ```python
 driver.frequency(30.0)                    # saves 30.0 and sets the change flag
-driver.power_range(15.0, 80.0)            # emits LAYER_FREQUENCY before SELECT_LAYER
-# Produces:
+driver.power_range(15.0, 80.0)            # saves the range (pending)
+driver.cut_xy_to(10.0, 10.0)              # flushes the pending settings, then cuts
+# Produces (immediately before the CUT_* line):
 #   LAYER_FREQUENCY Laser:0 Layer:0 Freq:30.000KHz
 #   SELECT_LAYER Layer:0
-#   MIN_POWER_1 Power:15.0%
+#   MIN_POWER_1 Power:63.75%
 #   MAX_POWER_1 Power:80.0%
+#   # warning: max_power_1 80.0% exceeds the recommended maximum of 70%
+#   CUT_FAR_XY X=10.000mm Y=10.000mm
 ```
 
 Calling `frequency()` with the layer's current frequency (the value declared
 in `declare_layer()`, or the last saved value) does not set the change flag,
-so no `LAYER_FREQUENCY` line is emitted by the next `power_range()` call. The
-layer index is emitted 0-based (matching the controller and the layer
-attributes), and the frequency is emitted in KHz with three decimal places.
-`frequency()` is a **saved-job command** — it is persisted to, and replayed
-from, `.cglu` files (unlike jog/home commands, which are live-only).
+so no `LAYER_FREQUENCY` line is emitted by the flush. The layer index is
+emitted 0-based (matching the controller and the layer attributes), and the
+frequency is emitted in KHz with three decimal places. `frequency()` is a
+**saved-job command** — it is persisted to, and replayed from, `.cglu` files
+(unlike jog/home commands, which are live-only).
 
 #### `pwm(duration: float)`
 

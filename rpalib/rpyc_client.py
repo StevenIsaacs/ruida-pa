@@ -682,14 +682,25 @@ class RpcRdDriver(GlueScript):
         defaults verbatim (the server resolves them from the layer's
         declared powers when the delta is staged).
 
+        The base method now SAVES the settings (with a dirty flag) instead
+        of emitting rpascript: the server emits them at the next ``cut_*``
+        action (flush-at-cut), immediately before the ``CUT_*`` line.
+        Pending settings with no following cut are dropped
+        (``declare_layer()`` boundary or end-of-job). Note the
+        ``cut_speed()`` asymmetry: it inherits the same save-and-dirty
+        model but has no flush boundary after ``end_job()``, so a
+        post-``end_job`` ``cut_speed()`` silently sets ``_speed_dirty``
+        with no cut left to flush it — inherited behavior, unchanged.
+
         Raises:
             RuntimeError: If the job is complete — after end_job() no
                 flush boundary remains, so fail fast instead of silently
                 dropping the action.
             ValueError: If no layer is declared. When power scaling is
                 enabled, a corrupted ``max_cut_speed`` (non-finite or
-                <= 0, e.g. via direct attribute assignment) also raises
-                ValueError("max_cut_speed must be > 0").
+                <= 0, e.g. via direct attribute assignment) raises
+                ValueError("max_cut_speed must be > 0") at the flush —
+                i.e. at the next ``cut_*`` action, only when a cut follows.
         """
         # Deliberate fail-fast asymmetry: the sibling buffered actions
         # (move_xy_to / cut_xy_to / air_assist_on) silently buffer forever

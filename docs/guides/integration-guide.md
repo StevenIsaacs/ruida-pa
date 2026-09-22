@@ -822,10 +822,9 @@ authored over RPC is retained in the driver and can be executed after
 `rpc_driver.start()`.
 
 **Speed tracking:** `declare_layer()` records its `speed` argument as the
-current layer's cut speed; each `cut_speed()` call overrides it. The next
-`power_range()` call scales its emitted minimum from this value (see
-§3.8/§4.4) until overridden. `move_speed()` does NOT update the tracked cut
-speed.
+current layer's cut speed; each `cut_speed()` call overrides it. The flush
+scales the pending power minimum from this value (see §3.8/§4.4) until
+overridden. `move_speed()` does NOT update the tracked cut speed.
 
 **Loaded-script slot stays in sync:** staging through the RPC path —
 `stage_gluescript()` or `stage_gluescript_delta()` on the TUI's `gluescript_*`
@@ -954,6 +953,17 @@ power floor emit `# warning:` comments instead; `power()` itself only warns
 `power_range` also keep their `_job_complete` fail-fast guards, raising
 `RuntimeError` when called after `end_job()`.
 
+**Deferred power/speed emission (flush at cut):** `power_range()` and
+`cut_speed()` save their settings (with dirty flags) instead of emitting
+rpascript; the server emits them at the next `cut_*` action, immediately
+before the `CUT_*` line. Pending settings with no following cut are dropped
+at the `declare_layer()` boundary or at end-of-job. When both are pending,
+`CUT_SPEED_LASER_1` is emitted first, then the power block, so the power
+minimum is scaled against the speed that is about to be cut. A corrupted
+`max_cut_speed` (non-finite or <= 0 via direct assignment) therefore raises
+`ValueError("max_cut_speed must be > 0")` at the cut, not at
+`power_range()` — and only when a cut follows.
+
 **Drift guard:** after each flush the wrapper compares the SHA-256 signature
 returned by the staging call with a locally computed signature of its
 transcript; `rpc_driver.get_gluescript()` is read back ONLY when the signatures
@@ -1038,7 +1048,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Surface area | Methods | Notes |
 | ------------ | ------- | ----- |
 | Job authoring | `new_gluescript`, `comment`, `inline`, `delay`, `wait`, `declare_job`, `declare_layer`, `end_job` | Buffered locally over RPC; flushed at layer/job boundaries (see §3.8) |
-| Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `set_mode`, `set_overscan`, `air_assist_on`, `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`, `select_laser` | Same buffering note; `power_range` sets the min/max power ramp range for the layer (accel/decel), emitting `LAYER_FREQUENCY`-if-changed then `SELECT_LAYER` then `MIN_POWER_1`/`MAX_POWER_1`; `set_mode`/`set_overscan` switch the layer mode / overscan mid-stream (change-gated); `cut_speed` expands to `CUT_SPEED_LASER_1`; `frequency` only saves the value and defers its `LAYER_FREQUENCY` to the next `power_range()` (emitted only when the frequency changed); `move_speed`/`pwm` expand to comments only; `select_laser(1)` emits `LASER_DEVICE_1` |
+| Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `set_mode`, `set_overscan`, `air_assist_on`, `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`, `select_laser` | Same buffering note; `power_range`/`cut_speed` save their settings and the next `cut_*` action flushes them (emitting `CUT_SPEED_LASER_1`-if-changed, then `LAYER_FREQUENCY`-if-changed, `SELECT_LAYER`, `MIN_POWER_1`/`MAX_POWER_1` immediately before the `CUT_*` line); `set_mode`/`set_overscan` switch the layer mode / overscan mid-stream (change-gated); `frequency` only saves the value and defers its `LAYER_FREQUENCY` to the next power flush (emitted only when the frequency changed); `move_speed`/`pwm` expand to comments only; `select_laser(1)` emits `LASER_DEVICE_1` |
 | Staging & getters | `stage_gluescript`, `stage_gluescript_delta`, `gluescript`/`rpascript` attributes — plus RPC-only getters `get_gluescript()`/`get_rpascript()` on the wrapper | `stage_gluescript` returns a SHA-256 signature; the direct driver exposes the attributes directly |
 | Lifecycle & execution | `start`, `stop`, `run`, `run_job`, `cancel_script` | `start` returns bool |
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |
@@ -1067,7 +1077,7 @@ before switching.
 | `gluescript` / `rpascript` visibility | Live mutable list attributes; the adapter can read them at any time | `gluescript` is the client's live local transcript (including unflushed lines); `rpascript` is a read-only snapshot of the server's last-flushed state |
 | `job_complete` | Local property | Local property (set by `end_job()`), consistent with the direct driver |
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
-| Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min_power > max_power`, `min_power` below the power floor) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard |
+| Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min_power > max_power`, `min_power` below the power floor) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard; a corrupted `max_cut_speed` surfaces as `ValueError` at the next `cut_*` action (flush), not at `power_range()` |
 | `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
@@ -1076,7 +1086,10 @@ at call time over RPC, exactly as on the direct driver; `min_power > max_power`
 and `min_power` below the power floor emit `# warning:` comments into the
 emitted rpascript instead of raising. `power_range` also keeps its
 `_job_complete` fail-fast guard: a post-`end_job()` call raises
-`RuntimeError` immediately rather than silently dropping the action.
+`RuntimeError` immediately rather than silently dropping the action. The
+settings themselves are deferred: `power_range()`/`cut_speed()` save them
+and the next `cut_*` action flushes the rpascript (see §3.8), so a corrupted
+`max_cut_speed` surfaces as `ValueError` at the cut, not at `power_range()`.
 
 RpcRdDriver buffers structural calls and flushes deltas at
 `declare_layer`/`end_job` boundaries — see §3.8 — reducing round trips;
