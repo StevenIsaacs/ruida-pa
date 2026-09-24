@@ -34,20 +34,6 @@
     ],
     "description": "Emit a raw Ruida Script command into the transcript"
   },
-  "delay": {
-    "prefix": "delay",
-    "body": [
-      "delay(${1:0.5})"
-    ],
-    "description": "Insert a fixed delay in seconds"
-  },
-  "wait": {
-    "prefix": "wait",
-    "body": [
-      "wait('${1:MACHINE_STATUS_MOVING}', ${2:30})"
-    ],
-    "description": "Wait for a machine status with a timeout in seconds"
-  },
   "power": {
     "prefix": "power",
     "body": [

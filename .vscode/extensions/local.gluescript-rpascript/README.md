@@ -89,8 +89,8 @@ declaration lines in `protocols/ruida/ruida_protocol.py` are marked with a
 `# Verified <source>` comment and the names are added to the grammar rule.
 
 **Known limitation:** mnemonics on `CORE`/`CMD`-prefixed lines and names
-shadowed by other grammar rules (`session`/`server`/`new_packet`/`delay`/
-`wait`, `MACHINE_STATUS_*`, `MACHINE`/`CURRENT`/`ABSOLUTE`/`SET_POINT`)
+shadowed by other grammar rules (`session`/`server`/`new_packet`,
+`MACHINE_STATUS_*`, `MACHINE`/`CURRENT`/`ABSOLUTE`/`SET_POINT`)
 will not render green. `EOF` was previously shadowed by its own `\bEOF\b`
 keyword rule; it is no longer listed because the `verified` rule (patterns[0])
 now matches it first and renders it green.

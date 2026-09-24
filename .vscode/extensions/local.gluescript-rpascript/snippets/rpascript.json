@@ -36,20 +36,6 @@
     ],
     "description": "Move the head to an absolute (x, y) position"
   },
-  "delay": {
-    "prefix": "delay",
-    "body": [
-      "delay ${1:0.5}s"
-    ],
-    "description": "Insert a fixed delay in seconds"
-  },
-  "wait": {
-    "prefix": "wait",
-    "body": [
-      "wait ${1:MACHINE_STATUS_MOVING} to=${2:30}s"
-    ],
-    "description": "Wait for a machine status with a timeout in seconds"
-  },
   "end-job": {
     "prefix": "end-job",
     "body": [

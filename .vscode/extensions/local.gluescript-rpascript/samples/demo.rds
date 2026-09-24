@@ -1,5 +1,5 @@
 # Demo Ruida Script (.rds)
-# Commands are UPPERCASE mnemonics; session/delay/wait directives are lowercase.
+# Commands are UPPERCASE mnemonics; session/server directives are lowercase.
 
 """
 Block comments are stripped by the rpascript interpreter.
@@ -18,9 +18,6 @@ LAYER_COLOR Layer:0 Color:\#ff0000
 CUT_SPEED_LASER_1 Layer:0 Speed:100.0mm/S
 
 MOVE_FAR_XY X=10.0mm Y=10.0mm
-
-delay 0.5s
-wait MACHINE_STATUS_MOVING to=30s
 
 END_JOB
 EOF

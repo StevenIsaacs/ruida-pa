@@ -56,16 +56,16 @@ a closed driver must never be mistaken for an old server.
 Batching semantics
 ------------------
 - Structural calls are buffered locally and mirrored into ``_transcript``:
-  ``declare_job``, ``declare_layer``, ``comment``, ``inline``, ``delay``,
-  ``wait`` (until ``end_job()``), and the layer actions (``move_*_to``,
+  ``declare_job``, ``declare_layer``, ``comment``, ``inline``
+  (until ``end_job()``), and the layer actions (``move_*_to``,
   ``cut_*_to``, ``power``, ``power_range``, ``set_mode``, ``set_overscan``,
   ``air_assist_*``). Each flush — at
   ``declare_layer`` or ``end_job`` — sends ONLY the newly appended lines
   (the delta) to ``stage_gluescript_delta()``, which replays the suffix
   onto the server's existing state WITHOUT reset (O(Δ) per flush instead
   of O(L·N)).
-- ``new_gluescript`` and post-``end_job()`` ``comment``/``inline``/
-  ``delay``/``wait`` are forwarded immediately: ``new_gluescript`` resets
+- ``new_gluescript`` and post-``end_job()`` ``comment``/``inline``
+  are forwarded immediately: ``new_gluescript`` resets
   the server so its transcript length returns to 0 (matching
   ``_flushed_count``), and the post-``end_job`` epilogue is the only way
   lines reach the server after the last flush boundary (forwarded
@@ -330,7 +330,7 @@ class RpcRdDriver(GlueScript):
         ``_svc`` is the ``_ClosedService`` sentinel, so any member
         access raises ``RuntimeError("driver closed")`` and
         ``is_connected`` reads False. The buffered authoring methods
-        (``comment``, ``inline``, ``delay``, ``wait``, the ``move_*_to``
+        (``comment``, ``inline``, the ``move_*_to``
         and ``cut_*_to`` actions, ``power``, ``air_assist_*``) carry
         the same guard, so post-close buffered calls fail fast instead
         of silently buffering lines that never reach a server.
@@ -555,60 +555,6 @@ class RpcRdDriver(GlueScript):
         if self._job_complete:
             self._svc.inline(commands)
         super().inline(commands)
-
-    def delay(self, time: str | int | float) -> None:
-        """Append a runner-directive DELAY (mirrored; forwarded after end_job).
-
-        Emits a runner-directive DELAY line: the runner sleeps for the
-        given time inline during script execution — the command is never
-        encoded or sent to the controller. Unlike jog/home live commands,
-        DELAY is part of a saved job and is replayed from a persisted
-        gluescript.
-
-        Before ``end_job()`` the line is mirrored into the local
-        transcript (via the base method) and reaches the server with the
-        next boundary flush. After ``end_job()`` no flush boundary exists,
-        so the epilogue is forwarded immediately — the only way
-        post-``end_job`` lines reach the server.
-
-        Invalid values are rejected by the base method (via the shared
-        ``is_valid_time_value`` predicate) with a warn-and-no-op, so the
-        mirrored line stays byte-identical with what the server appends;
-        otherwise the SHA-256 drift check would break.
-        """
-        if self._job_complete:
-            self._svc.delay(time)
-        super().delay(time)
-
-    def wait(self, status: str, to: str | int | float | None = None) -> None:
-        """Append a runner-directive WAIT (mirrored; forwarded after end_job).
-
-        Emits a runner-directive WAIT line: the runner polls the live
-        machine status during script execution and blocks until the
-        status matches — the command is never encoded or sent to the
-        controller. Unlike jog/home live commands, WAIT is part of a
-        saved job and is replayed from a persisted gluescript.
-
-        ``status`` is a MACHINE_STATUS_* name passed through verbatim; a
-        leading '!' waits for the full active→inactive lifecycle. The
-        name is validated at run time by the runner, not here. The
-        optional ``to=`` timeout accepts numeric seconds or a
-        unit-suffixed string.
-
-        Before ``end_job()`` the line is mirrored into the local
-        transcript (via the base method) and reaches the server with the
-        next boundary flush. After ``end_job()`` no flush boundary exists,
-        so the epilogue is forwarded immediately — the only way
-        post-``end_job`` lines reach the server.
-
-        Invalid values are rejected by the base method (via the shared
-        ``is_valid_time_value`` predicate) with a warn-and-no-op, so the
-        mirrored line stays byte-identical with what the server appends;
-        otherwise the SHA-256 drift check would break.
-        """
-        if self._job_complete:
-            self._svc.wait(status, to)
-        super().wait(status, to)
 
     def declare_layer(
         self,

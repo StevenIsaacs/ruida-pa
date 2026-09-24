@@ -235,22 +235,6 @@ CUT_FAR_XY X=200mm Y=100mm
 
 Sent to the controller as a single-line script. Requires an active session.
 
-### 5.5 Flow Control Commands
-
-These are special directives recognized within loaded scripts:
-
-```
-delay 5s              # Pause execution for 5 seconds
-wait !MACHINE_STATUS_MOVING to=30s   # Wait for move to complete (30s timeout)
-wait !MACHINE_STATUS_JOB_RUNNING     # Wait for job to finish (no timeout)
-```
-
-- `DELAY` — blocks the script runner for the specified duration (interruptible).
-- `WAIT` — polls a status bit until it matches. Prefix `!` means "wait for
-  active, then wait for inactive" (full lifecycle). Optional `to=` timeout.
-- Available status bits: `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`,
-  `MACHINE_STATUS_JOB_RUNNING`.
-
 ---
 
 ## 6. Slash Commands

@@ -17,7 +17,6 @@ from typing import Any, Callable, Iterable
 from rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
     gluescript_signature,
-    is_valid_time_value,
 )
 from rpalib.version import __version__
 
@@ -41,8 +40,6 @@ REGISTRY_METHODS = [
     "new_gluescript",
     "comment",
     "inline",
-    "delay",
-    "wait",
     "declare_job",
     "end_job",
     "declare_layer",
@@ -179,30 +176,6 @@ def _join_continuation_lines(lines: Iterable[str]) -> list[str]:
     return logical_lines
 
 
-def _format_time_token(value: str | int | float) -> str:
-    """Normalize a time value into a rpascript DELAY/WAIT time token.
-
-    Numeric seconds (int/float, excluding bool) become a unit-suffixed
-    token (e.g. 30 -> "30s", 0.5 -> "0.5s"). Strings must carry a unit
-    suffix accepted by the runner (e.g. "500ms", "30s") and are emitted
-    as a single whitespace-free token (e.g. "30 s" -> "30s"). Anything
-    else, and any non-positive or non-finite value, is invalid.
-
-    Raises:
-        ValueError: If value cannot be represented as a time token.
-    """
-    if not is_valid_time_value(value):
-        raise ValueError(
-            f"time value must be a positive finite number or a "
-            f"unit-suffixed string, got {value!r}"
-        )
-    if isinstance(value, str):
-        # Emit the whitespace-free token ("30 s" -> "30s"); the shared
-        # predicate already verified the compacted form.
-        return "".join(value.split())
-    return f"{value:g}s"
-
-
 class GlueScript:
     """High-level job scripting methods for Ruida laser controllers.
 
@@ -275,7 +248,7 @@ class GlueScript:
         JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS
     )
     # Every registry command except the job-control commands, plus the
-    # staging/run entry points — 48 commands total (48 registry methods
+    # staging/run entry points — 46 commands total (46 registry methods
     # − 4 JOB_CONTROL + 4 extra). The move_z_to/move_u_to/cut_z_to/
     # cut_u_to stubs are unguarded but moot: they raise
     # NotImplementedError before any guard could matter.
@@ -691,107 +664,6 @@ class GlueScript:
                 )
             self.gluescript.append(f"inline({[cmd]!r})")
             self._route_positional(cmd)
-
-    # ------------------------------------------------------------------ #
-    #  Phase 1 Flow Control (runner directives)
-    # ------------------------------------------------------------------ #
-
-    def delay(self, time: str | int | float) -> None:
-        """Append a pause between rpascript commands at the call point.
-
-        Emits a runner-directive DELAY line: the runner sleeps for the
-        given time inline during script execution — the command is never
-        encoded or sent to the controller. Unlike jog/home live commands,
-        DELAY is part of a saved job and is replayed from a persisted
-        gluescript.
-
-        The time is accepted as numeric seconds (e.g. 30, 0.5) or a
-        unit-suffixed string (e.g. '500ms', '30s') and normalized into
-        the rpascript directive (e.g. ``delay 30s``). Invalid values log
-        a warning and no-op.
-
-        Positional routing matches inline(): before any layer is declared
-        the DELAY lands right after the job header; inside a declared
-        layer it lands in that layer's action block at the call position;
-        after end_job() it lands just before END_JOB.
-
-        Note: delay() called before declare_job() is discarded by the job
-        reset — declare_job() calls new_gluescript(), which wipes both the
-        transcript and the prelude buffer.
-
-        Args:
-            time: Seconds as a number, or a unit-suffixed string
-                (e.g. '500ms', '30s').
-        """
-        try:
-            token = _format_time_token(time)
-        except ValueError:
-            logger.warning(
-                "delay() requires a time value (e.g. 5s, 500ms) — got %r", time
-            )
-            return
-        self.gluescript.append(f"delay({time!r})")
-        # The interpreter matches the flow-control mnemonic case-
-        # sensitively in lowercase (rpascript/interpreter.py); the
-        # runner's DELAY directive type is derived from that token.
-        line = f"delay {token}"
-        self._route_positional(line)
-
-    def wait(self, status: str, to: str | int | float | None = None) -> None:
-        """Wait for a machine status bit at the call point.
-
-        Emits a runner-directive WAIT line: the runner polls the live
-        machine status during script execution and blocks until the
-        status matches — the command is never encoded or sent to the
-        controller. Unlike jog/home live commands, WAIT is part of a
-        saved job and is replayed from a persisted gluescript.
-
-        ``status`` is a MACHINE_STATUS_* name passed through verbatim; a
-        leading '!' waits for the full active→inactive lifecycle (the
-        status must first become active, then clear — with the optional
-        timeout). The name is validated at run time by the runner, not
-        here (mirrors how move/cut methods do not validate coordinates).
-        The optional ``to=`` timeout accepts numeric seconds or a
-        unit-suffixed string and is normalized into the rpascript token
-        (e.g. ``to=30s``).
-
-        Positional routing matches inline(): before any layer is declared
-        the WAIT lands right after the job header; inside a declared
-        layer it lands in that layer's action block at the call position;
-        after end_job() it lands just before END_JOB.
-
-        Note: wait() called before declare_job() is discarded by the job
-        reset — declare_job() calls new_gluescript(), which wipes both the
-        transcript and the prelude buffer.
-
-        Args:
-            status: MACHINE_STATUS_* name, optionally prefixed with '!'.
-            to: Optional timeout in seconds (number) or as a
-                unit-suffixed string (e.g. '30s', '500ms').
-        """
-        if not isinstance(status, str) or not status.strip():
-            logger.warning(
-                "wait() requires a MACHINE_STATUS_* name — got %r", status
-            )
-            return
-        token = None
-        if to is not None:
-            try:
-                token = _format_time_token(to)
-            except ValueError:
-                logger.warning(
-                    "wait() to= requires a time value (e.g. 30s) — got %r", to
-                )
-                return
-        if token is None:
-            self.gluescript.append(f"wait({status!r})")
-            line = f"wait {status}"
-        else:
-            # RAW to in transcript — the client-side RPC mirror is
-            # byte-identical and the SHA-256 drift check depends on it.
-            self.gluescript.append(f"wait({status!r}, {to!r})")
-            line = f"wait {status} to={token}"
-        self._route_positional(line)
 
     # ------------------------------------------------------------------ #
     #  Phase 2: Reference Points & Job Management

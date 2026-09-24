@@ -396,14 +396,6 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info(f"[RPC] gluescript inline({len(commands)} lines)")
         return self._exposed_gluescript("inline", commands)
 
-    def exposed_delay(self, time: str | int | float) -> None:
-        self._rpc_info(f"[RPC] gluescript delay({time!r})")
-        return self._exposed_gluescript("delay", time)
-
-    def exposed_wait(self, status: str, to: str | int | float | None = None) -> None:
-        self._rpc_info(f"[RPC] gluescript wait({status!r}, to={to!r})")
-        return self._exposed_gluescript("wait", status, to)
-
     def exposed_declare_job(
         self,
         label: str,

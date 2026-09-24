@@ -10,9 +10,6 @@ comment(['Setup complete'])
 comment(['Starting vector outline pass'])
 inline(['LAYER_COLOR Layer:0 Color:\\#336699'])
 
-wait('MACHINE_STATUS_MOVING', 30)
-delay(0.5)
-
 # --- Layer 1: vector outline ---
 declare_layer('Outline', '#336699', 'VECTOR', 'NONE', 100.0, 20.0, 8.0, 70.0)
 

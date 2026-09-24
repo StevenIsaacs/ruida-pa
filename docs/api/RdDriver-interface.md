@@ -86,20 +86,7 @@ LASER_ON Power=80%
 MOVE_FAR_XY X=200mm Y=300mm
 LASER_OFF
 END_JOB
-DELAY 5s
-WAIT MACHINE_STATUS_MOVING
-WAIT !MACHINE_STATUS_JOB_RUNNING to=30s
 ```
-
-### 3.2 Flow-Control Commands
-
-In addition to standard controller commands, scripts support flow-control:
-
-| Command | Syntax | Description |
-|---------|--------|-------------|
-| `DELAY` | `DELAY 5s` or `DELAY 500ms` | Blocking sleep in the runner thread. Interruptible by `stop()`. |
-| `WAIT` | `WAIT MACHINE_STATUS_MOVING` | Poll machine status bit until active (set). |
-| `WAIT !` | `WAIT !MACHINE_STATUS_JOB_RUNNING to=30s` | Wait for full lifecycle: active → then inactive. Optional `to=` timeout. |
 
 ### 3.3 Checksum Handling
 
@@ -277,11 +264,11 @@ While the controller is running a job, every GlueScript command except the
 job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
 `JobRunningError` — a `RuntimeError` subclass — instead of executing.
 
-**Guarded commands (48).** `GlueScript._GUARDED_COMMANDS` is every registry
+**Guarded commands (46).** `GlueScript._GUARDED_COMMANDS` is every registry
 command except `JOB_CONTROL_COMMANDS`, plus the staging/run entry points:
 
-- All authoring commands: `new_gluescript`, `comment`, `inline`, `delay`,
-  `wait`, `declare_job`, `end_job`, `declare_layer`, `move_*_to`,
+- All authoring commands: `new_gluescript`, `comment`, `inline`,
+  `declare_job`, `end_job`, `declare_layer`, `move_*_to`,
   `cut_*_to`, `power`, `power_range`, `set_mode`, `set_overscan`,
   `air_assist_on`/`air_assist_off`, `cut_speed`, `move_speed`, `frequency`,
   `pwm`, `select_laser`.
@@ -460,7 +447,6 @@ class StatusDict(TypedDict, total=False):
 │  - dequeues scripts from queue   │
 │  - encodes to binary             │
 │  - calls transport.write()       │
-│  - handles DELAY/WAIT commands   │
 ├──────────────────────────────────┤
 │    Handshake Thread (L4)         │  ← daemon thread, inside RdTransport
 │  - ACK/REPLY state machine       │

@@ -163,14 +163,6 @@ After `stage_gluescript()` returns the SHA-256 signature of the staged
 transcript, the staged rpascript is available
 via `driver.rpascript` (or `get_rpascript()` over RPC).
 
-**Flow-control commands** are processed inline by the driver (not sent to the controller):
-
-| Command | Syntax | Description |
-|---------|--------|-------------|
-| `DELAY` | `delay 5s` or `delay 500ms` | Blocking sleep in the runner thread. Interruptible by `stop()`. |
-| `WAIT` | `wait MACHINE_STATUS_MOVING` | Poll machine status bit until active (set). |
-| `WAIT !` | `wait !MACHINE_STATUS_JOB_RUNNING to=30s` | Wait for full lifecycle: active → then inactive. Optional `to=` timeout. |
-
 ### 2.5 Properties
 
 | Property | Type | Description |
@@ -198,7 +190,6 @@ These pure formatting functions can be called without a driver instance:
 │  - dequeues scripts from queue   │
 │  - encodes to binary             │
 │  - calls transport.write()       │
-│  - handles DELAY/WAIT commands   │
 ├──────────────────────────────────┤
 │    Handshake Thread (L4)         │  ← daemon thread, inside RdTransport
 │  - ACK/REPLY state machine       │
@@ -411,7 +402,7 @@ enc = RdEncoder()
 raw = bytearray()
 for cmd in commands:
     cmd_type = cmd.get("type")
-    if cmd_type in ("new_packet", "SESSION_START", "SESSION_END", "DELAY", "WAIT"):
+    if cmd_type in ("new_packet", "SESSION_START", "SESSION_END"):
         continue
     mnemonic = cmd.get("mnemonic")
     if not mnemonic or mnemonic.startswith("GET_"):
@@ -467,7 +458,7 @@ to `.cglu`.
 While the controller is running a job, every GlueScript command except the
 job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
 `JobRunningError` — a `RuntimeError` subclass — instead of executing. The
-guarded set (48 commands) covers authoring (`declare_job`, `declare_layer`,
+guarded set (46 commands) covers authoring (`declare_job`, `declare_layer`,
 move/cut, `power`, ...), staging (`stage_gluescript`,
 `stage_gluescript_delta`), execution (`run`, `run_job`), jogs, and homing.
 
@@ -742,8 +733,6 @@ session is required.
 | `new_gluescript` | `()` | `None` | No |
 | `comment` | `(comments: list[str])` | `None` | No |
 | `inline` | `(commands: list[str])` | `None` | No |
-| `delay` | `(time: str\|int\|float)` | `None` | No |
-| `wait` | `(status: str, to: str\|int\|float\|None=None)` | `None` | No |
 | `declare_job` | `(label, ref_point="MACHINE", abs_xy=None, columns=1, rows=1, xstep=0.0, ystep=0.0)` | `None` | No |
 | `end_job` | `()` | `None` | No |
 | `declare_layer` | `(label, color, mode="VECTOR", overscan="NONE", speed=100.0, frequency=20.0, min_power_1=8.0, max_power_1=70.0)` | `None` | No |
@@ -1047,7 +1036,7 @@ Both classes implement the same surface; the table summarizes the groups.
 
 | Surface area | Methods | Notes |
 | ------------ | ------- | ----- |
-| Job authoring | `new_gluescript`, `comment`, `inline`, `delay`, `wait`, `declare_job`, `declare_layer`, `end_job` | Buffered locally over RPC; flushed at layer/job boundaries (see §3.8) |
+| Job authoring | `new_gluescript`, `comment`, `inline`, `declare_job`, `declare_layer`, `end_job` | Buffered locally over RPC; flushed at layer/job boundaries (see §3.8) |
 | Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `set_mode`, `set_overscan`, `air_assist_on`, `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`, `select_laser` | Same buffering note; `power_range`/`cut_speed` save their settings and the next `cut_*` action flushes them (emitting `CUT_SPEED_LASER_1`-if-changed, then `LAYER_FREQUENCY`-if-changed, `SELECT_LAYER`, `MIN_POWER_1`/`MAX_POWER_1` immediately before the `CUT_*` line); `set_mode`/`set_overscan` switch the layer mode / overscan mid-stream (change-gated); `frequency` only saves the value and defers its `LAYER_FREQUENCY` to the next power flush (emitted only when the frequency changed); `move_speed`/`pwm` expand to comments only; `select_laser(1)` emits `LASER_DEVICE_1` |
 | Staging & getters | `stage_gluescript`, `stage_gluescript_delta`, `gluescript`/`rpascript` attributes — plus RPC-only getters `get_gluescript()`/`get_rpascript()` on the wrapper | `stage_gluescript` returns a SHA-256 signature; the direct driver exposes the attributes directly |
 | Lifecycle & execution | `start`, `stop`, `run`, `run_job`, `cancel_script` | `start` returns bool |
@@ -1234,51 +1223,6 @@ rpa = driver.rpascript
 
 Head/tail composition via `set_head_script`/`set_tail_script` remains available
 for optional pre/postamble around the staged job.
-
-### Pattern 4 — Flow Control
-
-Test `delay` and `wait` behavior by examining the driver's flow-control
-handlers. `DELAY`/`WAIT` are **runner-side directives**: the runner processes
-them inline in the runner thread — they are never encoded or sent to the
-controller. The rpascript interpreter matches the mnemonics case-sensitively
-in lowercase; uppercase `DELAY`/`WAIT` lines fall through to an "Unknown
-command mnemonic" warning and are dropped:
-
-```python
-script = [
-    "delay 500ms",
-    "wait MACHINE_STATUS_MOVING",
-    "wait !MACHINE_STATUS_JOB_RUNNING to=30s",
-    "MOVE_FAR_XY X=100mm Y=200mm",
-]
-# The driver processes these inline in the runner thread:
-# - delay: time.sleep(0.5)
-# - wait: polls machine status bit until set
-# - wait !: polls until bit is set then cleared (with timeout)
-```
-
-The GlueScript equivalents are `delay()` and `wait()`, and are identical over
-RPC via `RpcRdDriver`:
-
-```python
-from ruidadriver.rd_gluescript import GlueScript
-
-gs = GlueScript()
-gs.declare_job("Flow Control Demo")
-gs.declare_layer("Layer 1", "#ff0000")
-gs.delay(0.5)                            # pause 500ms (numeric seconds)
-gs.wait("MACHINE_STATUS_MOVING")         # wait for the moving status bit
-gs.wait("!MACHINE_STATUS_JOB_RUNNING", to=30)  # wait for job completion, 30s timeout
-gs.move_xy_to(100, 200)                  # emits MOVE_FAR_XY (auto-selected beyond 8.192mm)
-gs.end_job()
-gs.stage_gluescript()   # -> rpascript contains: delay 0.5s / wait MACHINE_STATUS_MOVING / wait !MACHINE_STATUS_JOB_RUNNING to=30s / MOVE_FAR_XY ...
-```
-
-`delay()`/`wait()` accept seconds as a number or a unit-suffixed string
-(`0.5`, `"500ms"`, `"30s"`); `wait()` status names are validated at run time
-by the runner. These directives are part of the saved job (persistable, unlike
-jog/home live commands), and the identical calls work over RPC via
-`RpcRdDriver` (`rpc_driver.delay(...)`, `rpc_driver.wait(...)`).
 
 ### Pattern 5 — Re-queue on Disconnect
 

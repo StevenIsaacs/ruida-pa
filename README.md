@@ -64,13 +64,13 @@ placeholders to fill in values.
 
 GlueScript method snippets (22) cover the persisted layer actions and
 job/layer declarations: `declare_job`, `declare_layer`, `end_job`, `comment`,
-`inline`, `delay`, `wait`, `power`, `power_range`, `air_assist_on`,
+`inline`, `power`, `power_range`, `air_assist_on`,
 `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`,
 `select_laser`, `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`,
 `cut_x_to`, `cut_y_to`.
 
-Ruida Script snippets (7) cover common script blocks: `session`,
-`job-header`, `layer-block`, `move`, `delay`, `wait`, `end-job`.
+Ruida Script snippets (5) cover common script blocks: `session`,
+`job-header`, `layer-block`, `move`, `end-job`.
 
 ### File Associations
 

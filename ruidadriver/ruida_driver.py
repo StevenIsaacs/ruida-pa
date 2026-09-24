@@ -13,7 +13,6 @@ from __future__ import annotations
 import queue
 import threading
 import logging
-import time
 from typing import Any, Callable, TypedDict
 
 import protocols.ruida.ruida_protocol as rdap
@@ -106,13 +105,6 @@ class RdDriver(GlueScript):
         "GET_SETTING MEM_BED_SIZE_X",
         "GET_SETTING MEM_BED_SIZE_Y",
     ]
-
-    # Machine status bit name → mask mapping (used by _handle_wait)
-    _STATUS_NAME_TO_BIT = {
-        "MACHINE_STATUS_MOVING": rdap.MACHINE_STATUS_MOVING[0],
-        "MACHINE_STATUS_PAUSED": rdap.MACHINE_STATUS_PAUSED[0],
-        "MACHINE_STATUS_JOB_RUNNING": rdap.MACHINE_STATUS_JOB_RUNNING[0],
-    }
 
     def __init__(self) -> None:
         """Initialize RdDriver. No session yet — call start() to connect."""
@@ -672,12 +664,6 @@ class RdDriver(GlueScript):
                 for cmd in parsed:
                     if cmd.get("type") == "new_packet":
                         continue
-                    if cmd.get("type") == "DELAY":
-                        self._handle_delay(cmd)
-                        continue
-                    if cmd.get("type") == "WAIT":
-                        self._handle_wait(cmd)
-                        continue
                     if self._protect and cmd.get("mnemonic") == "SET_SETTING":
                         logging.warning(
                             f"SET_SETTING blocked by protect mode "
@@ -861,127 +847,6 @@ class RdDriver(GlueScript):
                 listener(RdStatusEvent.DISCONNECTED)
             except Exception:
                 pass
-
-    # ---- Flow-Control Handlers ----
-
-    @staticmethod
-    def _parse_timeout(to_str: str) -> float:
-        """Parse time spec like '5s' or '5000ms' into seconds (float)."""
-        s = to_str.strip()
-        # Remove internal whitespace between number and unit
-        s = "".join(s.split())
-        if s.endswith("ms"):
-            seconds = float(s[:-2]) / 1000.0
-        elif s.endswith("s"):
-            seconds = float(s[:-1])
-        else:
-            raise ValueError(f"Invalid time format: '{to_str}'. Use e.g., 5s, 500ms")
-        if seconds <= 0:
-            raise ValueError(f"Timeout must be positive, got '{to_str}'")
-        return seconds
-
-    def _resolve_status_bit(self, status_name: str) -> int | None:
-        """Resolve a MACHINE_STATUS_* name to its bit mask.
-
-        Only MACHINE_STATUS_* names are supported.
-        """
-        return self._STATUS_NAME_TO_BIT.get(status_name)
-
-    def _handle_delay(self, cmd: dict) -> None:
-        """Handle a DELAY flow-control command: sleep for specified time."""
-        params = cmd.get("params", [])
-        if not params:
-            self._notify_script_error("DELAY requires a time argument")
-            return
-        try:
-            seconds = self._parse_timeout(params[0])
-        except ValueError as e:
-            self._notify_script_error(str(e))
-            return
-        # Sleep with shutdown check (interruptible)
-        deadline = time.monotonic() + seconds
-        while not self._shutdown.is_set():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            time.sleep(min(remaining, 0.1))
-
-    def _handle_wait(self, cmd: dict) -> None:
-        """Handle a WAIT flow-control command: poll machine status bit.
-
-        Wait for a MACHINE_STATUS_* bit to become active (set), or if
-        prefixed with ``!``, wait for the full lifecycle: active then inactive.
-
-        Supports optional to=<timeout> parameter (e.g. '30s', '5000ms').
-        """
-        params = cmd.get("params", [])
-        if not params:
-            self._notify_script_error("WAIT requires a status argument")
-            return
-
-        status_token = params[0]
-        invert = status_token.startswith("!")
-        status_name = status_token[1:] if invert else status_token
-
-        bit_mask = self._resolve_status_bit(status_name)
-        if bit_mask is None:
-            self._notify_script_error(
-                f"Unknown machine status: '{status_name}'. "
-                f"Use MACHINE_STATUS_MOVING, MACHINE_STATUS_PAUSED, "
-                f"or MACHINE_STATUS_JOB_RUNNING"
-            )
-            return
-
-        # Parse optional timeout
-        timeout = None
-        to_str = cmd.get("to")
-        if to_str is not None:
-            try:
-                timeout = self._parse_timeout(to_str)
-            except ValueError as e:
-                self._notify_script_error(str(e))
-                return
-
-        deadline = None if timeout is None else time.monotonic() + timeout
-
-        if invert:
-            # Invert mode: wait for bit to become ACTIVE, then INACTIVE
-            # First check if already active — if so, skip the 'wait for set' phase
-            with self._lock:
-                current = self._decoded_values.get(0x0400, 0)
-            if not (current & bit_mask):
-                # Phase 1: wait for 0→1 transition
-                while not self._shutdown.is_set():
-                    if deadline and time.monotonic() >= deadline:
-                        self._notify_script_error(f"Timeout waiting for {status_token}")
-                        return
-                    with self._lock:
-                        current = self._decoded_values.get(0x0400, 0)
-                    if current & bit_mask:
-                        break
-                    time.sleep(0.05)
-            # Phase 2: wait for 1→0 transition
-            while not self._shutdown.is_set():
-                if deadline and time.monotonic() >= deadline:
-                    # Not an error — the job had started and the deadline
-                    # applies to the total lifecycle
-                    return
-                with self._lock:
-                    current = self._decoded_values.get(0x0400, 0)
-                if not (current & bit_mask):
-                    break
-                time.sleep(0.05)
-        else:
-            # Normal mode: wait for bit to become SET
-            while not self._shutdown.is_set():
-                if deadline and time.monotonic() >= deadline:
-                    self._notify_script_error(f"Timeout waiting for {status_token}")
-                    return
-                with self._lock:
-                    current = self._decoded_values.get(0x0400, 0)
-                if current & bit_mask:
-                    break
-                time.sleep(0.05)
 
     def _job_running(self) -> bool:
         """Return True while the controller is running a job."""

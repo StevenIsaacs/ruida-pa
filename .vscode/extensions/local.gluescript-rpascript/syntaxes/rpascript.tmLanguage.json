@@ -20,7 +20,7 @@
       "name": "comment.block.rpascript"
     },
     {
-      "match": "^\\s*(session|server|new_packet|delay|wait)\\b",
+      "match": "^\\s*(session|server|new_packet)\\b",
       "name": "keyword.control.rpascript"
     },
     {

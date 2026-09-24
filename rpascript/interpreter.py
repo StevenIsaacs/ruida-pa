@@ -74,20 +74,6 @@ def reconstruct_script_line(cmd: dict) -> str:
     if cmd_type == "SERVER_STOP":
         return "server stop"
 
-    if cmd_type == "DELAY":
-        params = cmd.get("params", [])
-        return f"delay {params[0]}" if params else "delay 0s"
-
-    if cmd_type == "WAIT":
-        parts = ["wait"]
-        params = cmd.get("params", [])
-        if params:
-            parts.append(params[0])
-        to_val = cmd.get("to")
-        if to_val is not None:
-            parts.append(f"to={to_val}")
-        return " ".join(parts)
-
     # new_packet directive
     if cmd_type == "new_packet":
         return "new_packet"
@@ -319,55 +305,6 @@ class ScriptParser:
                 "type": "new_packet",
                 "mnemonic": "new_packet",
                 "params": [],
-                "expected": None,
-                "line_num": line_num,
-                "raw": raw,
-            }
-
-        # --- Flow-control: delay ---
-        if tokens[0] == "delay":
-            if len(tokens) < 2:
-                self._warning_callback(
-                    f'{line_num}: "delay" requires a time argument (e.g. 5s, 500ms)',
-                    'DELAY <time> (e.g. 5s, 500ms)'
-                )
-                return None
-            return {
-                "type": "DELAY",
-                "mnemonic": "DELAY",
-                "params": tokens[1:],
-                "expected": None,
-                "line_num": line_num,
-                "raw": raw,
-            }
-
-        # --- Flow-control: wait ---
-        if tokens[0] == "wait":
-            if len(tokens) < 2:
-                self._warning_callback(
-                    f'{line_num}: "wait" requires a status argument (e.g. MACHINE_STATUS_JOB_RUNNING)',
-                    'WAIT <STATUS> [to=<seconds>]'
-                )
-                return None
-            status = tokens[1]
-            kwargs = {}
-            for token in tokens[2:]:
-                key, _, val = token.partition("=")
-                kwargs[key.lower()] = None if val.lower() == "none" else val
-            # Validate recognized keyword parameters
-            valid_wait_keys = frozenset({"to"})
-            unknown = kwargs.keys() - valid_wait_keys
-            if unknown:
-                self._warning_callback(
-                    f"{line_num}: Unknown wait parameter(s): {', '.join(sorted(unknown))}. Valid: to=<timeout>",
-                    'WAIT <STATUS> [to=<seconds>]'
-                )
-                return None
-            return {
-                "type": "WAIT",
-                "mnemonic": "WAIT",
-                "params": [status],
-                "to": kwargs.get("to"),
                 "expected": None,
                 "line_num": line_num,
                 "raw": raw,

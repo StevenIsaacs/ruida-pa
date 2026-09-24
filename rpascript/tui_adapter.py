@@ -910,7 +910,7 @@ class TuiAdapter(App):
             self._script_count += 1
 
             # Pre-encode regular commands to show wire-format bytes in the log
-            if cmd["type"] not in ("SESSION_START", "SESSION_END", "SERVER_START", "SERVER_STOP", "DELAY", "WAIT"):
+            if cmd["type"] not in ("SESSION_START", "SESSION_END", "SERVER_START", "SERVER_STOP"):
                 try:
                     encoded = encode_command(
                         cmd,
@@ -1416,14 +1416,6 @@ class TuiAdapter(App):
             "    jog_set_u_rel <delta>       Set relative U jog distance (mm)\n"
             "  <rpascript command>       Send command to controller\n"
             "\n"
-            "[bold]Flow Control[/bold] (for loaded scripts):\n"
-            "  delay <time>              Pause execution (e.g. 5s, 100ms)\n"
-            "  wait <status> \\[to=...]    Wait for MACHINE_STATUS_* bit\n"
-            "  wait !<status> \\[to=...]   Wait for lifecycle (active then inactive)\n"
-            "  Statuses: MACHINE_STATUS_MOVING, MACHINE_STATUS_PAUSED,\n"
-            "            MACHINE_STATUS_JOB_RUNNING\n"
-            "  to=   Optional timeout (e.g. to=30s). Default: forever\n"
-            "\n"
             "[bold]GlueScript Commands[/bold] (prefix with /):\n"
             "  /gluescript new \\[label]                     Reset and declare a new job (MACHINE ref)\n"
             "  /gluescript show                             Display current gluescript state summary\n"
@@ -1874,7 +1866,7 @@ class TuiAdapter(App):
         raw = bytearray()
         for cmd in parsed:
             cmd_type = cmd.get("type")
-            if cmd_type in ("new_packet", "SESSION_START", "SESSION_END", "DELAY", "WAIT"):
+            if cmd_type in ("new_packet", "SESSION_START", "SESSION_END"):
                 continue
             mnemonic = cmd.get("mnemonic")
             if not mnemonic:
@@ -2375,7 +2367,7 @@ class TuiAdapter(App):
         cmd_id = 0
         for cmd in parsed:
             cmd_type = cmd.get("type")
-            if cmd_type in ("SESSION_START", "SESSION_END", "DELAY", "WAIT", "new_packet"):
+            if cmd_type in ("SESSION_START", "SESSION_END", "new_packet"):
                 continue
 
             mnemonic = cmd.get("mnemonic")
@@ -2896,18 +2888,6 @@ class TuiAdapter(App):
         """Append raw rpascript commands at the call point (session-less)."""
         return self._gluescript_bridge(
             lambda: self._ensure_gluescript_driver().inline(commands)
-        )
-
-    def gluescript_delay(self, time: str | int | float) -> None:
-        """Append a runner-directive DELAY at the call point (session-less)."""
-        return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().delay(time)
-        )
-
-    def gluescript_wait(self, status: str, to: str | int | float | None = None) -> None:
-        """Wait for a machine status bit at the call point (session-less)."""
-        return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().wait(status, to)
         )
 
     def gluescript_declare_job(
@@ -3493,7 +3473,7 @@ class TuiAdapter(App):
             cmd_id = 0
             for cmd in parsed:
                 cmd_type = cmd.get("type")
-                if cmd_type in ("SESSION_START", "SESSION_END", "DELAY", "WAIT", "new_packet"):
+                if cmd_type in ("SESSION_START", "SESSION_END", "new_packet"):
                     continue
 
                 mnemonic = cmd.get("mnemonic")
