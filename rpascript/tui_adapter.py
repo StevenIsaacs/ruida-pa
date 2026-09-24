@@ -51,6 +51,8 @@ from rpalib.rd_binary_reader import RdBinaryStream
 from rpascript.generator import ScriptGenerator
 from rpalib.rpa_swizzler import RpaSwizzler
 
+from rich.highlighter import ReprHighlighter
+
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -91,6 +93,15 @@ def _parse_timeout_spec(to_str: str) -> float:
     if unit == "ms":
         return value / 1000.0
     return value
+
+
+class _NoTagHighlighter(ReprHighlighter):
+    """ReprHighlighter without the greedy <...> tag regex (which swallows
+    multi-tag text like help placeholders)."""
+
+    highlights = [
+        h for h in ReprHighlighter.highlights if "tag_start" not in h
+    ]
 
 
 class ErrorScreen(ModalScreen):
@@ -509,12 +520,21 @@ class TuiAdapter(App):
         "scan_mem",
         "listeners",
     )
-    # Only _cmd_descriptions and the /help block (usage text) stay
-    # hand-maintained for live-only commands; recognition
-    # (GlueScript.LIVE_ONLY_COMMANDS = JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS) and
-    # this autocomplete list stay in sync automatically.
-    _NORMAL_COMMANDS: tuple[str, ...] = ("session", "server") + tuple(
-        sorted(GlueScript.LIVE_ONLY_COMMANDS)
+    # _HELP_CATEGORIES is the single source of truth for both /help and the
+    # autocomplete list. Recognition (GlueScript.LIVE_ONLY_COMMANDS =
+    # JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS) stays in sync
+    # automatically; only _cmd_descriptions (usage text) is hand-maintained.
+    _HELP_CATEGORIES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+        ("TUI Commands", "/", _SLASH_COMMANDS),
+        ("Ruida Commands", "", ("session", "server")),
+        (
+            "Jog, Home & Job-Control commands (live-only)",
+            "",
+            tuple(sorted(GlueScript.LIVE_ONLY_COMMANDS)),
+        ),
+    )
+    _NORMAL_COMMANDS: tuple[str, ...] = tuple(
+        cmd for _, prefix, cmds in _HELP_CATEGORIES for cmd in cmds if not prefix
     )
 
     CSS = """
@@ -648,6 +668,7 @@ class TuiAdapter(App):
         self._suggest_popup = RichLog(
             id="suggest-popup", highlight=True, markup=True, max_lines=10
         )
+        self._suggest_popup.highlighter = _NoTagHighlighter()
         # Square-bracket optionals are Rich markup escapes: \[ renders a literal [. Keep new optional-parameter segments escaped.
         # These strings must stay raw (r"...") so the \[ backslash is kept literally; a plain string triggers a SyntaxWarning (Python 3.12+) and would break if invalid escapes become a SyntaxError.
         self._cmd_descriptions: dict[str, str] = {
@@ -657,9 +678,12 @@ class TuiAdapter(App):
             "clear": "Clear all log panels, loaded script, head, and tail",
             "quit": "Exit the TUI",
             "status": r"Toggle logging: /status \[on|off|status] for status/reply, /status connection \[on|off|status] for transport events",
-            "session": "Start or end a controller session (start udp=<IP> usb=<device> to=<timeout> magic=0xNN / end)",
-            "server": "Start or stop the RPC server. "
-            "Server commands: start host=<IP> port=<N> cert=<path> key=<path> token=<token>, or stop",
+            "session": r"""session: Start or end a controller session
+  session start udp=<IP> usb=<device> to=<timeout> magic=0xNN  Connect to a controller (to: optional, e.g. 5s or 5000ms; magic: optional swizzle magic number, e.g. magic=0x88)
+  session end               Disconnect""",
+            "server": r"""server: Start or stop the RPC server
+  server start host=<IP> port=<N> cert=<path> key=<path> token=<token>  Start the RPC server
+  server stop                Stop the RPC server""",
             "head": "Load a script file to prepend to job on execution",
             "import": r"Import a tshark log (.log) or RDWorks (.rd) file \[magic=0xNN] as a script",
             "export": r"Export loaded script as .rd binary file (/export \[path])",
@@ -670,15 +694,26 @@ class TuiAdapter(App):
             "dryrun": "Toggle dry-run mode (on|off). When on, /run runs normally but RPC driver.run() only logs to TUI.",
             "edit": "Open loaded rpascript in a full-screen editor",
             "protect": "Toggle protect mode (on|off|status). When on, SET_SETTING commands are blocked to prevent hardware damage.",
-            "power_scale": "Show or configure GlueScript effective-min power scaling (/power_scale [status|on|off|max_speed <v>|floor <v>])",
+            "power_scale": r"Show or configure GlueScript effective-min power scaling (/power_scale \[status|on|off|max_speed <v>|floor <v>])",
             "rpclog": r"Toggle RPC server logging: /rpclog \[on|off|status] (no args toggles)",
             "frame": "Frame job or layer boundaries. /frame job | /frame layer <N>",
             "plot": "Plot loaded script moves in a Bokeh visualization",
             "monitor": "Monitor memory and GC stats. /monitor on|off to toggle auto-update (15s), /monitor for immediate update",
             "scan_mem": "Generate a GET_SETTING script for all MT memory addresses",
-            "gluescript": "GlueScript high-level scripting. Subcommands: new, show, stage, run, save, load, edit, list",
-            "autosave": "Set, show, or disable the gluescript autosave path (/autosave <path> | /autosave off | /autosave)",
-            "listeners": "List listeners registered with the RdDriver (/listeners [full])",
+            "gluescript": r"""gluescript: GlueScript high-level scripting
+  new \[label]               Reset and declare a new job (MACHINE ref)
+  show                       Display current gluescript state summary
+  stage                      Finalize (if needed) and generate rpascript from gluescript
+  run                        Finalize (if needed), stage, and execute the job
+  save <path>                Save gluescript to a .cglu file
+  load <path>                Load a .cglu gluescript file and stage it
+  edit                       Edit the gluescript in a full-screen editor
+  list                       Display high-level gluescript commands""",
+            "autosave": r"""autosave: Set, show, or disable the gluescript autosave path
+  <path>       Set gluescript autosave base path (saves .cglu/.rds/.rd/-plot.html on gluescript stage)
+  off          Disable autosave
+  (no args)    Show current autosave setting""",
+            "listeners": r"List listeners registered with the RdDriver (/listeners \[full])",
             "home": "home: Jog X and Y axes to the origin reference",
             "home_z": "home_z: Home Z axis",
             "home_u": "home_u: Home U axis (rotary)",
@@ -779,6 +814,7 @@ class TuiAdapter(App):
     def on_mount(self) -> None:
         """Widgets are ready — cache references, load history, and log startup message."""
         self._log_widget = self.query_one("#log-area", RichLog)
+        self._log_widget.highlighter = _NoTagHighlighter()
         self._status_log = self.query_one("#status-log", RichLog)
         self._reply_log = self.query_one("#reply-log", Static)
         self._status_bar = self.query_one("#status-bar", Static)
@@ -841,7 +877,7 @@ class TuiAdapter(App):
             self._suggest_popup.write("[bold]Commands:[/bold]")
             for i in range(start, end):
                 cmd = self._suggest_matches[i]
-                line = f"  /{cmd:<12} {self._cmd_descriptions[cmd]}"
+                line = f"  /{cmd:<12} {self._short_desc(cmd)}"
                 if i == self._suggest_selected:
                     self._suggest_popup.write(f"[reverse]{line}[/reverse]")
                 else:
@@ -1072,7 +1108,7 @@ class TuiAdapter(App):
                 self._suggest_popup.write("[bold]Commands:[/bold]")
                 for cmd in matches:
                     self._suggest_popup.write(
-                        f"  {cmd:<22} {self._cmd_descriptions[cmd]}"
+                        f"  {cmd:<22} {self._short_desc(cmd)}"
                     )
                 return
 
@@ -1370,65 +1406,47 @@ class TuiAdapter(App):
     # Slash-command handlers
     # ------------------------------------------------------------------
 
+    def _short_desc(self, cmd: str) -> str:
+        """First line of a command description, minus a redundant leading
+        command-name prefix (e.g. 'home: Jog X and Y axes...' → 'Jog X and Y axes...')."""
+        desc = self._cmd_descriptions.get(cmd, cmd)
+        first = desc.splitlines()[0]
+        if first.startswith(cmd + ":"):
+            return first[len(cmd) + 1:].strip()
+        return first
+
     def _handle_help(self) -> str:
         """Return formatted help text covering all command categories."""
-        cmd_list = "\n".join(
-            f"  /{cmd:<12} {self._cmd_descriptions[cmd]}"
-            for cmd in self._SLASH_COMMANDS
-        )
-        # Square-bracket optionals are Rich markup escapes: \[ renders a literal [. Keep new optional-parameter segments escaped.
-        return (
-            "[bold]TUI Commands[/bold] (prefix with /):\n"
-            f"{cmd_list}\n"
+        blocks = []
+        for name, prefix, cmds in self._HELP_CATEGORIES:
+            if prefix == "/":
+                header = f"[bold]{name}[/bold] (prefix with /):"
+            elif name == "Ruida Commands":
+                header = f"[bold]{name}[/bold] (no prefix):"
+            else:
+                header = f"[bold]{name}[/bold]"
+            lines = [header]
+            for cmd in cmds:
+                desc = self._cmd_descriptions.get(cmd, cmd)
+                if prefix == "/":
+                    desc_lines = desc.splitlines()
+                    lines.append(f"  /{cmd:<12} {self._short_desc(cmd)}")
+                    for cont in desc_lines[1:]:
+                        lines.append(f"{' ' * 16}{cont.strip()}")
+                else:
+                    lines.append(f"  {desc}")
+            if name == "Ruida Commands":
+                lines.append("  <rpascript command>       Send command to controller")
+            blocks.append("\n".join(lines))
+        # Introspection (prefix with ?) is hardcoded — not a _HELP_CATEGORIES entry.
+        blocks.insert(
+            1,
             "[bold]Introspection[/bold] (prefix with ?):\n"
-            "  ?<object>[.<attr>] \\[args...]  Inspect or call objects\n"
+            "  ?<object>\\[.<attr>] \\[args...]  Inspect or call objects\n"
             "  ?                 List available introspection objects\n"
-            "  Available: session, transport, driver, status, parser, decoder, rpc\n"
-            "\n"
-            "[bold]Ruida Commands[/bold] (no prefix):\n"
-            "  session start udp=<IP> usb=<device> to=<timeout> magic=0xNN  Connect to a controller (to: optional, e.g. 5s or 5000ms; magic: optional swizzle magic number, e.g. magic=0x88)\n"
-            "  session end               Disconnect\n"
-            "  server start host=<IP> port=<N>  Start the RPC server\n"
-            "  server stop                Stop the RPC server\n"
-            "  Jog, Home & Job-Control commands (live-only):\n"
-            "    home                        Jog X and Y axes to the origin reference\n"
-            "    home_z                      Home Z axis\n"
-            "    home_u                      Home U axis (rotary)\n"
-            "    pause                       Pause the current job\n"
-            "    resume                      Resume the paused job\n"
-            "    stop_job                    Stop the current job\n"
-            "    reset                       Stop the job and home the X/Y axes\n"
-            "    jog_xy_to <x> <y>           Jog XY to absolute position (mm)\n"
-            "    jog_x_to <x>                Jog X to absolute position (mm)\n"
-            "    jog_y_to <y>                Jog Y to absolute position (mm)\n"
-            "    jog_z_to <z>                Jog Z to absolute position (mm, max 2000)\n"
-            "    jog_u_to <u>                Jog U to absolute position (mm)\n"
-            "    jog_xy_rel \\[x] \\[y]          Jog XY relative (uses configured defaults)\n"
-            "    jog_x_rel \\[x]               Jog X relative (uses configured default)\n"
-            "    jog_y_rel \\[y]               Jog Y relative (uses configured default)\n"
-            "    jog_z_rel \\[z]               Jog Z relative (uses configured default)\n"
-            "    jog_u_rel \\[u]               Jog U relative (uses configured default)\n"
-            "    jog_set_xy_speed <speed>    Set XY jog speed (mm/s)\n"
-            "    jog_set_z_speed <speed>     Set Z jog speed (mm/s)\n"
-            "    jog_set_u_speed <speed>     Set U jog speed (mm/s)\n"
-            "    jog_set_xy_rel <delta>      Set relative XY jog distance (mm)\n"
-            "    jog_set_z_rel <delta>       Set relative Z jog distance (mm)\n"
-            "    jog_set_u_rel <delta>       Set relative U jog distance (mm)\n"
-            "  <rpascript command>       Send command to controller\n"
-            "\n"
-            "[bold]GlueScript Commands[/bold] (prefix with /):\n"
-            "  /gluescript new \\[label]                     Reset and declare a new job (MACHINE ref)\n"
-            "  /gluescript show                             Display current gluescript state summary\n"
-            "  /gluescript stage                            Finalize (if needed) and generate rpascript from gluescript\n"
-            "  /gluescript run                              Finalize (if needed), stage, and execute the job\n"
-            "  /gluescript save <path>                         Save gluescript to a .cglu file\n"
-            "  /gluescript load <path>                         Load a .cglu gluescript file and stage it\n"
-            "  /gluescript edit                            Edit the gluescript in a full-screen editor\n"
-            "  /gluescript list                             Display high-level gluescript commands\n"
-            "  /autosave <path>                          Set gluescript autosave base path (saves .cglu/.rds/.rd/-plot.html on gluescript stage)\n"
-            "  /autosave off                             Disable autosave\n"
-            "  /autosave                                 Show current autosave setting\n"
+            "  Available: session, transport, driver, status, parser, decoder, rpc",
         )
+        return "\n\n".join(blocks)
 
     async def _handle_slash_command(self, raw: str) -> None:
         """Dispatch a /-prefixed TUI command to its handler."""
