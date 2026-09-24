@@ -515,6 +515,7 @@ class TuiAdapter(App):
         "protect",
         "rpclog",
         "gluescript",
+        "gs",
         "autosave",
         "monitor",
         "scan_mem",
@@ -709,6 +710,7 @@ class TuiAdapter(App):
   load <path>                Load a .cglu gluescript file and stage it
   edit                       Edit the gluescript in a full-screen editor
   list                       Display high-level gluescript commands""",
+            "gs": "Alias for /gluescript — GlueScript high-level scripting",
             "autosave": r"""autosave: Set, show, or disable the gluescript autosave path
   <path>       Set gluescript autosave base path (saves .cglu/.rds/.rd/-plot.html on gluescript stage)
   off          Disable autosave
@@ -1507,6 +1509,8 @@ class TuiAdapter(App):
             elif cmd == "scan_mem":
                 self._cmd_scan_mem()
             elif cmd == "gluescript":
+                self._cmd_gluescript(args)
+            elif cmd == "gs":
                 self._cmd_gluescript(args)
             elif cmd == "autosave":
                 self._cmd_autosave(args)
@@ -3954,7 +3958,7 @@ class TuiAdapter(App):
             return None  # All files
         if cmd == "/export":
             return {".rd"}
-        if cmd in ("/gluescript save", "/gluescript load"):
+        if cmd in ("/gluescript save", "/gluescript load", "/gs save", "/gs load"):
             return {".cglu"}
         return set()  # Changed from None to set() — unknown commands show no files
 
@@ -4024,6 +4028,19 @@ class TuiAdapter(App):
                 if not path_part:
                     path_part = self._gluescript_cglu_path or ""
                 return ("/gluescript load", path_part)
+
+        # /gs save <path> or /gs load <path> (alias for /gluescript)
+        if cmd == "/gs":
+            if rest == "save" or rest.startswith("save "):
+                path_part = rest[4:].strip() if len(rest) > 4 else ""
+                if not path_part:
+                    path_part = self._gluescript_cglu_path or ""
+                return ("/gs save", path_part)
+            if rest == "load" or rest.startswith("load "):
+                path_part = rest[4:].strip() if len(rest) > 4 else ""
+                if not path_part:
+                    path_part = self._gluescript_cglu_path or ""
+                return ("/gs load", path_part)
 
         if cmd == "/autosave":
             return ("/autosave", rest)

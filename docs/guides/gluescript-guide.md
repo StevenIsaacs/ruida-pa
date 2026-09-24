@@ -893,7 +893,8 @@ no driver.
 
 ## 5. TUI Usage (`/gluescript`)
 
-The TUI provides interactive access to GlueScript via the `/gluescript` command.
+The TUI provides interactive access to GlueScript via the `/gluescript` command
+(`/gs` is a shorthand alias).
 
 Every GlueScript method documented below is also callable over RPyC — the
 server exposes all the authoring, config-setter, live-jog, homing, and getter

@@ -251,7 +251,7 @@ Sent to the controller as a single-line script. Requires an active session.
 | `/export <path> [magic=0xNN]` | Export the loaded script as a binary `.rd` file. Default path: `<source>.rd`. Supports `magic=0xNN` to override swizzle byte. |
 | `/import <path>`      | Import a tshark capture file (`.log`/`.txt`/`.rd`) and decode into a script. |
 | `/edit`               | Open the loaded rpascript in a full-screen text editor (Ctrl+S saves, Esc cancels). |
-| `/gluescript <sub>`   | GlueScript high-level scripting (`new`, `show`, `stage`, `run`, `save`, `load`, `edit`, `list`, ...). See the [GlueScript guide](gluescript-guide.md). Loaded `.cglu` files are watched and auto-reloaded when they change on disk (external-editor workflow); auto-reloads skip the `.cglu` autosave write but still write derived `.rds`/`.rd`/`-plot.html`. |
+| `/gluescript <sub>`   | GlueScript high-level scripting (`new`, `show`, `stage`, `run`, `save`, `load`, `edit`, `list`, ...). `/gs` is an alias. See the [GlueScript guide](gluescript-guide.md). Loaded `.cglu` files are watched and auto-reloaded when they change on disk (external-editor workflow); auto-reloads skip the `.cglu` autosave write but still write derived `.rds`/`.rd`/`-plot.html`. |
 | `/save job\|script\|as <path>` | Save the pure job body (`/save job`, START_JOB to EOF, no head/tail) or the full loaded script (`/save script`; `/save as` is an alias). Bare `/save <path>` defaults to script save. |
 | `/autosave <path>`    | Set gluescript autosave base path (saves `.cglu`/`.rds`/`.rd`/`-plot.html` on every gluescript stage). `/autosave off` disables; `/autosave` shows current setting. |
 | `/list`               | Show the composed job with section markers (`# --- Head ---` / `# --- Job ---` / `# --- Tail ---`). |
@@ -345,15 +345,15 @@ script as-is, regardless of job markers; job extraction is only used by
 
 Commands that take a file path (`/load`, `/head`, `/tail`, `/import`,
 `/save`, `/save job`, `/save script`, `/save as`, `/autosave`, `/export`,
-`/gluescript save`, `/gluescript load`) trigger an interactive file
-browser when you type a space after the command:
+`/gluescript save`, `/gluescript load`, `/gs save`, `/gs load`) trigger an
+interactive file browser when you type a space after the command:
 
 - The tree filters to show only matching file types:
   - `.rds` for `/load`, `/head`, `/tail`
   - `.log`, `.txt`, `.rd` for `/import`
   - All files for `/save`, `/save job`, `/save script`, `/save as`, `/autosave`
   - `.rd` for `/export`
-  - `.cglu` for `/gluescript save`, `/gluescript load`
+  - `.cglu` for `/gluescript save`, `/gluescript load`, `/gs save`, `/gs load`
 - **Tab** toggles focus between the command input and the file tree
 - **Enter** uses the path you've typed as-is when you haven't navigated the
   tree; otherwise it backfills the command with the selected file
