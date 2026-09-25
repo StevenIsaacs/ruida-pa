@@ -324,25 +324,32 @@ class RdStatus:
         query_retries = 0
 
         while not self._shutdown.is_set():
-            if state == "CONNECTING":
-                state = self._run_connecting()
-            elif state == "WAIT_TO_PING":
-                retries = self.PING_RETRY_COUNT
-                state = self._run_wait_to_ping()
-            elif state == "SEND_PING":
-                state = self._run_send_ping()
-            elif state == "PING_REPLY":
-                state, retries = self._run_ping_reply(retries)
-            elif state == "RESYNC":
-                state = self._run_resync()
-            elif state == "WAIT_TO_POLL":
-                state, query_retries = self._run_wait_to_poll()
-            elif state == "SEND_QUERY":
-                state = self._run_send_query()
-            elif state == "REPLY_PENDING":
-                state, query_retries = self._run_reply_pending(query_retries)
-            else:
-                # Unknown state — fall back to CONNECTING
+            try:
+                if state == "CONNECTING":
+                    state = self._run_connecting()
+                elif state == "WAIT_TO_PING":
+                    retries = self.PING_RETRY_COUNT
+                    state = self._run_wait_to_ping()
+                elif state == "SEND_PING":
+                    state = self._run_send_ping()
+                elif state == "PING_REPLY":
+                    state, retries = self._run_ping_reply(retries)
+                elif state == "RESYNC":
+                    state = self._run_resync()
+                elif state == "WAIT_TO_POLL":
+                    state, query_retries = self._run_wait_to_poll()
+                elif state == "SEND_QUERY":
+                    state = self._run_send_query()
+                elif state == "REPLY_PENDING":
+                    state, query_retries = self._run_reply_pending(query_retries)
+                else:
+                    # Unknown state — fall back to CONNECTING
+                    state = "CONNECTING"
+            except OSError:
+                # Scoped to OSError deliberately — catching Exception would mask
+                # programming bugs. Covers drain() in _run_resync and
+                # _run_reply_pending, which can raise on a dead socket.
+                self._log_connection("[STATUS] Monitor state raised; retrying")
                 state = "CONNECTING"
 
     def _run_connecting(self) -> str:
@@ -450,7 +457,14 @@ class RdStatus:
         if not self.transport.is_open:
             return "CONNECTING"
         if self._ping_cmd is not None:
-            self.transport.write([self._ping_cmd])
+            try:
+                self.transport.write([self._ping_cmd])
+            except OSError:
+                # Defends against the dead-handshake-thread OSError from
+                # _put_with_retry (sendto resets are caught in the handshake
+                # thread); a transient send failure must not kill the monitor.
+                self._log_connection("[STATUS] Ping send raised; retrying")
+                return "CONNECTING"
         self._notify_listeners(RdStatusEvent.PING_SENT)
         return "PING_REPLY"
 
@@ -542,7 +556,11 @@ class RdStatus:
         if not self.transport.is_open:
             return "CONNECTING"
         if self._query_cmds:
-            self.transport.write(self._query_cmds)
+            try:
+                self.transport.write(self._query_cmds)
+            except OSError:
+                self._log_connection("[STATUS] Query send raised; retrying")
+                return "CONNECTING"
             self._notify_listeners(RdStatusEvent.QUERY_SENT)
         return "REPLY_PENDING"
 

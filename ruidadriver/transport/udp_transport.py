@@ -1,7 +1,10 @@
+import logging
 import socket
 from typing import Optional
 
 from .base import Transport
+
+logger = logging.getLogger(__name__)
 
 
 class UdpTransport(Transport):
@@ -11,17 +14,25 @@ class UdpTransport(Transport):
         self._socket: Optional[socket.socket] = None
         self._host: Optional[str] = None
         self._port: Optional[int] = None
+        self._logged_reset = False
 
     def open(self, host: str, port: int = 50200, **kwargs) -> bool:
         # Close any stale socket before reopening
         self.close()
+        # A fresh socket may hit a fresh WSAECONNRESET, so re-arm the
+        # one-time debug log for this connection.
+        self._logged_reset = False
 
         # Determine local IP that routes to the controller
         # (UDP connect() sets the route without sending data)
         temp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            temp_sock.connect((host, port))
-            local_ip = temp_sock.getsockname()[0]
+            try:
+                temp_sock.connect((host, port))
+                local_ip = temp_sock.getsockname()[0]
+            except OSError as exc:
+                logger.warning("UDP connect failed: %s", exc)
+                return False
         finally:
             temp_sock.close()
 
@@ -56,7 +67,10 @@ class UdpTransport(Transport):
             return None
         try:
             return self._socket.recv(length, socket.MSG_DONTWAIT)
-        except BlockingIOError:
+        except (BlockingIOError, ConnectionResetError) as exc:
+            if isinstance(exc, ConnectionResetError) and not self._logged_reset:
+                logger.debug("UDP read reset (WSAECONNRESET); treating as transient")
+                self._logged_reset = True
             return None
 
     def drain(self) -> None:
