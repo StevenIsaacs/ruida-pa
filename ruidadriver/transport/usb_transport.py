@@ -1,3 +1,5 @@
+import logging
+import os
 from typing import Optional
 
 from .base import Transport
@@ -7,6 +9,8 @@ try:
     import serial.tools.list_ports
 except ImportError:
     serial = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 class UsbTransport(Transport):
@@ -22,18 +26,18 @@ class UsbTransport(Transport):
         # Close any stale connection before reopening
         self.close()
 
-        resolved = device
-
-        # If vid:pid format, resolve via port enumeration
-        if ":" in device:
-            ports = list(serial.tools.list_ports.grep(device))
-            if not ports:
-                return False
-            resolved = ports[0].device
-        elif "/" not in device:
-            resolved = f"/dev/{device}"
-
         try:
+            resolved = device
+
+            # If vid:pid format, resolve via port enumeration
+            if ":" in device:
+                ports = list(serial.tools.list_ports.grep(device))
+                if not ports:
+                    return False
+                resolved = ports[0].device
+            elif "/" not in device and os.name == "posix":
+                resolved = f"/dev/{device}"
+
             self._serial = serial.Serial(
                 port=resolved,
                 baudrate=115200,
@@ -43,7 +47,11 @@ class UsbTransport(Transport):
                 timeout=0,
             )
             return True
-        except serial.SerialException:
+        except OSError as exc:
+            # comports() can raise ctypes.WinError (OSError) on Windows; a
+            # transient failure must not kill the reconnect monitor thread.
+            logger.warning("USB open failed: %s", exc)
+            self._serial = None
             return False
 
     def close(self) -> None:

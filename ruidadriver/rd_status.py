@@ -389,7 +389,16 @@ class RdStatus:
 
             # Normal open path for closed transport (USB reconnect, etc.)
             self._log_connection("[STATUS] Reopening transport...")
-            self.transport.open()
+            try:
+                self.transport.open()
+            except OSError:
+                # Defense-in-depth: after the UsbTransport fix, open() returns
+                # False instead of raising, but other transports (e.g. UDP
+                # temp_sock.connect()) can still raise OSError. A transient
+                # failure must never kill the monitor thread.
+                self._log_connection("[STATUS] Transport open raised; retrying")
+                self._wait_for_event(self._connect_interval / 1000.0)
+                continue
             event = self._wait_for_event(
                 self._connect_interval / 1000.0,
                 [TransportEvent.OPENED],
