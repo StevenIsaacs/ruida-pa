@@ -836,6 +836,7 @@ class TuiAdapter(App):
                     host=self._rpc_auto_host,
                     port=self._rpc_auto_port,
                     token=self._rpc_auto_token,
+                    exit_on_failure=True,
                 )
             )
             self._rpc_auto_start_task.add_done_callback(
@@ -4365,6 +4366,7 @@ class TuiAdapter(App):
         self, host: str | None = None, port: int | None = None,
         cert: str | None = None, key: str | None = None,
         token: str | None = None,
+        exit_on_failure: bool = False,
     ) -> None:
         """Start the RPyC server in a background thread.
 
@@ -4372,6 +4374,13 @@ class TuiAdapter(App):
         across server start/stop cycles.
 
         Localhost/127.0.0.1 connections skip TLS and authentication.
+
+        exit_on_failure: When True and the server fails to start (e.g. the
+            port is already bound by another TUI instance), report the
+            error on the TUI thread and push the ErrorScreen so the user
+            can dismiss it (Escape exits). The manual /server command
+            path leaves this False: it logs the error and keeps the TUI
+            alive.
         """
         # Resolve None params against last-used values
         if host is None:
@@ -4405,22 +4414,40 @@ class TuiAdapter(App):
 
         from rpalib.rpyc_service import start_rpyc_server
 
+        def _report_failure(error: BaseException) -> None:
+            """Report a server start failure on the TUI thread (thread-safe)."""
+
+            def _on_tui_thread() -> None:
+                self._log_error(f"RPC server failed to start: {error}")
+                if exit_on_failure:
+                    self._show_error_screen(error)
+
+            self.post_message(Callback(_on_tui_thread))
+
         def _run():
             """Create, register, and start the RPyC server (blocking)."""
-            server = start_rpyc_server(
-                self,
-                host=host,
-                port=port,
-                cert_path=cert,
-                key_path=key,
-                token=token,
-                auto_start=False,
-            )
+            try:
+                server = start_rpyc_server(
+                    self,
+                    host=host,
+                    port=port,
+                    cert_path=cert,
+                    key_path=key,
+                    token=token,
+                    auto_start=False,
+                )
+            except Exception as e:
+                _report_failure(e)
+                return
             self._rpyc_server = server
             self.post_message(Callback(
                 lambda: self._log_info(f"RPC server started on {host}:{port}")
             ))
-            server.start()  # Blocks until server stops
+            try:
+                server.start()  # Blocks until server stops
+            except Exception as e:
+                self._rpyc_server = None
+                _report_failure(e)
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
@@ -5707,7 +5734,7 @@ def run_tui(
     rpc_host: str = "localhost",
     rpc_port: int = 18812,
     rpc_token: str | None = None,
-) -> None:
+) -> int | None:
     """Run the TuiAdapter TUI application.
 
     Creates an TuiAdapter instance and enters the Textual event loop.
@@ -5719,6 +5746,10 @@ def run_tui(
         rpc_port: RPC server bind port (default: 18812).
         rpc_token: RPC authentication token; only enforced for non-local
             hosts (localhost always skips auth).
+
+    Returns:
+        The app exit code (e.g. 1 when a fatal error screen was dismissed)
+        or None for a normal quit.
     """
     app = TuiAdapter(
         rpc_auto_start=rpc,
@@ -5726,4 +5757,4 @@ def run_tui(
         rpc_port=rpc_port,
         rpc_token=rpc_token,
     )
-    app.run()
+    return app.run()

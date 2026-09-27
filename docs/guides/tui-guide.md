@@ -57,6 +57,12 @@ together with `--rpc`. This is equivalent to typing `server start` in the TUI.
 Localhost connections always skip TLS and token authentication; a token is only
 enforced when `--rpc-host` is a non-local address.
 
+If the RPC port is already in use (for example, another TUI instance is running),
+an auto-start reports the failure on an error screen — press **Escape** to exit —
+and the process exits with a non-zero status. Starting the server manually with
+`server start` under the same condition just logs the error and leaves the TUI
+running.
+
 ---
 
 ## 3. Layout

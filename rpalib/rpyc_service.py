@@ -890,6 +890,7 @@ def start_rpyc_server(
         authenticator = _make_authenticator(token)
 
     # Build TLS configuration if cert is provided
+    ssl_ctx = None
     if cert_path and key_path:
         import ssl
 
@@ -899,20 +900,32 @@ def start_rpyc_server(
             ssl_ctx.load_verify_locations(ca_path)
             ssl_ctx.verify_mode = ssl.CERT_REQUIRED
 
-        server = ThreadedServer(
+    def _make_server() -> ThreadedServer:
+        if ssl_ctx is not None:
+            return ThreadedServer(
+                service,
+                hostname=host,
+                port=port,
+                ssl_ctx=ssl_ctx,
+                authenticator=authenticator,
+            )
+        return ThreadedServer(
             service,
             hostname=host,
             port=port,
-            ssl_ctx=ssl_ctx,
             authenticator=authenticator,
         )
-    else:
-        server = ThreadedServer(
-            service,
-            hostname=host,
-            port=port,
-            authenticator=authenticator,
-        )
+
+    # ThreadedServer binds its listener socket in __init__, so a port
+    # already in use (e.g. a second TUI instance) raises OSError here.
+    # Surface it with context instead of a bare "[Errno 98]".
+    try:
+        server = _make_server()
+    except OSError as e:
+        raise OSError(
+            f"Cannot bind RPyC server to {host}:{port}: {e} — "
+            "is another TUI or RPC server already running?"
+        ) from e
 
     _log.info(
         "RPyC server starting on %s:%s (TLS=%s, auth=%s)",

@@ -101,12 +101,14 @@ def main() -> None:
                 f'Note: script argument "{args.script}" ignored in TUI mode. '
                 "Use Ctrl+L to load scripts within the TUI."
             )
-        run_tui(
+        exit_code = run_tui(
             rpc=args.rpc,
             rpc_host=args.rpc_host,
             rpc_port=args.rpc_port,
             rpc_token=args.rpc_token,
         )
+        if exit_code is not None:
+            sys.exit(exit_code)
         return
 
     # Script argument is required when not in TUI mode
