@@ -51,6 +51,7 @@ REGISTRY_METHODS = [
     "cut_y_to",
     "power",
     "power_range",
+    "set_power_scaling_enabled",
     "set_mode",
     "set_overscan",
     "air_assist_on",
@@ -236,6 +237,13 @@ class GlueScript:
         "stop_job",
         "reset",
     })
+    # Registered commands exempt from the job-running guard. These are
+    # config setters with a storable transcript line (persisted and
+    # replayed like any other command) but live, session-less semantics:
+    # they may be toggled at any time, including while a job runs.
+    GUARD_EXEMPT_COMMANDS: frozenset[str] = frozenset({
+        "set_power_scaling_enabled",
+    })
     # Jog, home, and job-control commands form the three live-only command
     # groups. Any FUTURE live-only command that belongs to none of these
     # three groups must be added to LIVE_ONLY_COMMANDS separately (e.g.
@@ -247,13 +255,15 @@ class GlueScript:
     LIVE_ONLY_COMMANDS: frozenset[str] = (
         JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS
     )
-    # Every registry command except the job-control commands, plus the
-    # staging/run entry points — 46 commands total (46 registry methods
-    # − 4 JOB_CONTROL + 4 extra). The move_z_to/move_u_to/cut_z_to/
-    # cut_u_to stubs are unguarded but moot: they raise
-    # NotImplementedError before any guard could matter.
+    # Every registry command except the job-control and guard-exempt
+    # commands, plus the staging/run entry points — 46 commands total
+    # (47 registry methods − 4 JOB_CONTROL − 1 GUARD_EXEMPT + 4 extra).
+    # The move_z_to/move_u_to/cut_z_to/cut_u_to stubs are unguarded but
+    # moot: they raise NotImplementedError before any guard could matter.
     _GUARDED_COMMANDS: frozenset[str] = (
-        frozenset(REGISTRY_METHODS) - JOB_CONTROL_COMMANDS
+        frozenset(REGISTRY_METHODS)
+        - JOB_CONTROL_COMMANDS
+        - GUARD_EXEMPT_COMMANDS
     ) | frozenset(
         {"stage_gluescript", "stage_gluescript_delta", "run", "run_job"}
     )
@@ -1398,8 +1408,17 @@ class GlueScript:
         When enabled, ``power_range()`` raises the emitted minimum as the
         current layer's cut speed decreases. When disabled, the resolved
         minimum is emitted unchanged.
+
+        The call is recorded in the gluescript transcript (the coerced
+        ``bool``), so a persisted ``.cglu`` replays it and the flag is
+        restored before the next ``power_range()`` flush. The line must be
+        placed after ``declare_job()``: ``declare_job()`` resets the
+        transcript, dropping any line emitted before it. The flag itself is
+        per-instance config — never reset by ``new_gluescript()`` or the
+        re-stage reset block.
         """
         self.power_scaling_enabled = bool(enabled)
+        self.gluescript.append(f"set_power_scaling_enabled({bool(enabled)!r})")
 
     def _effective_min_power(
         self, min_power: float, max_power: float, cut_speed: float

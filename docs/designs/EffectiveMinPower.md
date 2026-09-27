@@ -114,9 +114,9 @@ the replay of the `cut_*` line.
 
 Setters for the configuration variables are exposed in the RPC interface and via the `/power_scale` TUI command:
 
-- `set_max_cut_speed(speed)` — raises `ValueError` unless `speed > 0`.
-- `set_power_floor(floor)` — raises `ValueError` unless `0 <= floor <= 100`.
-- `set_power_scaling_enabled(enabled)` — coerces to `bool`.
+- `set_max_cut_speed(speed)` — raises `ValueError` unless `speed > 0`. Live-only: sets the flag, records no transcript line.
+- `set_power_floor(floor)` — raises `ValueError` unless `0 <= floor <= 100`. Live-only: sets the flag, records no transcript line.
+- `set_power_scaling_enabled(enabled)` — coerces to `bool`. **Storable transcript command**: each call appends `set_power_scaling_enabled(<bool>)` to the gluescript transcript, so a persisted `.cglu` replays it and the flag is restored before the next `power_range()` flush. The line must be emitted after `declare_job()` — `declare_job()` resets the transcript and silently drops any preceding line (the flag itself is per-instance and survives, but a fresh replay instance would otherwise default to `True`). Exempt from the job-running guard (togglable while a job runs).
 
 ## Emission behavior
 

@@ -456,7 +456,8 @@ to `.cglu`.
 ### 2.12 Job-Running Guard
 
 While the controller is running a job, every GlueScript command except the
-job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
+job-control commands (`pause`, `resume`, `stop_job`, `reset`) and the
+guard-exempt config setter `set_power_scaling_enabled` raises
 `JobRunningError` — a `RuntimeError` subclass — instead of executing. The
 guarded set (46 commands) covers authoring (`declare_job`, `declare_layer`,
 move/cut, `power`, ...), staging (`stage_gluescript`,
@@ -768,6 +769,12 @@ session is required.
 | `set_power_floor` | `(floor)` | `None` | No |
 | `set_power_scaling_enabled` | `(enabled)` | `None` | No |
 | `power_scale_config` | `(property)` | `dict` | No |
+
+Note: unlike `set_max_cut_speed` and `set_power_floor`, `set_power_scaling_enabled` is a
+storable transcript command — each call appends `set_power_scaling_enabled(<bool>)` to the
+gluescript transcript so a persisted `.cglu` replays it. Emit it after `declare_job()`
+(`declare_job()` resets the transcript), and note it is exempt from the job-running guard.
+
 | **Movement jogs (live)** | | | |
 | `jog_xy_to` | `(x, y)` | `list[str] \| None` | Yes |
 | `jog_x_to` | `(x)` | `list[str] \| None` | Yes |

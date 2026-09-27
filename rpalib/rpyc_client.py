@@ -57,7 +57,8 @@ Batching semantics
 ------------------
 - Structural calls are buffered locally and mirrored into ``_transcript``:
   ``declare_job``, ``declare_layer``, ``comment``, ``inline``
-  (until ``end_job()``), and the layer actions (``move_*_to``,
+  (until ``end_job()``), ``set_power_scaling_enabled``, and the layer
+  actions (``move_*_to``,
   ``cut_*_to``, ``power``, ``power_range``, ``set_mode``, ``set_overscan``,
   ``air_assist_*``). Each flush — at
   ``declare_layer`` or ``end_job`` — sends ONLY the newly appended lines
@@ -70,7 +71,9 @@ Batching semantics
   ``_flushed_count``), and the post-``end_job`` epilogue is the only way
   lines reach the server after the last flush boundary (forwarded
   epilogue lines break ``len(server) == _flushed_count``; ``sync()`` or a
-  new ``declare_job()`` restores the invariant).
+  new ``declare_job()`` restores the invariant). ``set_power_scaling_enabled``
+  follows the same pattern: mirrored locally, forwarded immediately once
+  ``end_job()`` has run.
 - ``add_layer_action``, ``update_position``, jogs, and homing stay
   forwarded-only as today.
 - Validation now happens at call time, exactly as on the direct driver:
@@ -950,13 +953,26 @@ class RpcRdDriver(GlueScript):
         self._svc.set_power_floor(floor)
 
     def set_power_scaling_enabled(self, enabled: bool) -> None:
-        """Enable or disable GlueScript effective-min power scaling on the
-        server-side driver.
+        """Enable or disable GlueScript effective-min power scaling
+        (mirrored; forwarded after end_job).
 
-        Forwarded only — the server is authoritative for effective-min
-        power scaling configuration.
+        The base method records the toggle as a transcript line (the
+        coerced ``bool``), so a persisted ``.cglu`` replays it and the
+        flag is restored on re-stage. Before ``end_job()`` the line is
+        mirrored into the local transcript (via the base method) and
+        reaches the server with the next boundary flush. After
+        ``end_job()`` no flush boundary exists, so the toggle is
+        forwarded immediately — the only way a post-``end_job`` line
+        reaches the server.
+
+        The flag is per-instance config; the server remains authoritative
+        for the live backend (``power_scale_config`` reads server state).
+        Unlike other authoring commands this is exempt from the
+        job-running guard: it may be toggled while a job runs.
         """
-        self._svc.set_power_scaling_enabled(enabled)
+        if self._job_complete:
+            self._svc.set_power_scaling_enabled(enabled)
+        super().set_power_scaling_enabled(enabled)
 
     @property
     def power_scale_config(self) -> dict[str, Any]:

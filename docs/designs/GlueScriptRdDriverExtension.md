@@ -777,12 +777,17 @@ re-staging; setters are exposed over RPC and via the `/power_scale` TUI
 command):
 
 - `max_cut_speed` (default `400.0` mm/s) — `set_max_cut_speed(speed)` raises
-  `ValueError` unless `speed > 0`.
+  `ValueError` unless `speed > 0`. Live-only: sets the flag, records no
+  transcript line.
 - `power_floor` (default `8.0`%) — biases the scaling calculation and
   replaces the hard-coded 8% warning threshold; `set_power_floor(floor)`
-  raises `ValueError` unless `0 <= floor <= 100`.
+  raises `ValueError` unless `0 <= floor <= 100`. Live-only: sets the flag,
+  records no transcript line.
 - `power_scaling_enabled` (default `True`) — master switch;
-  `set_power_scaling_enabled(enabled)` coerces to `bool`.
+  `set_power_scaling_enabled(enabled)` coerces to `bool`. Storable
+  transcript command: each call appends `set_power_scaling_enabled(<bool>)`
+  to the transcript (persisted `.cglu` replays it), must be emitted after
+  `declare_job()`, and is exempt from the job-running guard.
 
 **Constraints** (a layer must be declared first — that raises `ValueError`
 on the direct path, surfacing as `RuntimeError` when re-staging a persisted

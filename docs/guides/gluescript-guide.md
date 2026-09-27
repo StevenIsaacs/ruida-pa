@@ -392,13 +392,22 @@ command):
 
 - `max_cut_speed` (default `400.0` mm/s) — the maximum cut speed supported
   by the hardware; `set_max_cut_speed(speed)` raises `ValueError` unless
-  `speed > 0`.
+  `speed > 0`. Live-only config: it sets the flag but records no transcript
+  line.
 - `power_floor` (default `8.0`%) — the minimum power at which the laser
   fires; biases the scaling calculation and replaces the hard-coded 8%
   warning threshold; `set_power_floor(floor)` raises `ValueError` unless
-  `0 <= floor <= 100`.
+  `0 <= floor <= 100`. Live-only config: it sets the flag but records no
+  transcript line.
 - `power_scaling_enabled` (default `True`) — master switch;
-  `set_power_scaling_enabled(enabled)` coerces to `bool`.
+  `set_power_scaling_enabled(enabled)` coerces to `bool`. Unlike the other
+  two setters it **is** a storable transcript command: each call appends
+  `set_power_scaling_enabled(<bool>)` to the gluescript transcript, so a
+  persisted `.cglu` replays it and the flag is restored before the next
+  `power_range()` flush. Emit the line **after** `declare_job()` —
+  `declare_job()` resets the transcript, silently dropping any line that
+  precedes it. It is also exempt from the job-running guard (togglable
+  while a job runs).
 
 **Frequency gating:** `frequency()` only saves the value and sets a change
 flag; the `LAYER_FREQUENCY` line is emitted by the flush (before
@@ -740,9 +749,11 @@ Section 5).
 ### 4.5.3 Job-Running Guard
 
 While the controller is running a job, every GlueScript command except the
-job-control commands raises `JobRunningError` (a `RuntimeError` subclass)
-instead of executing. The guard covers all 46 guarded commands — every
-registry command except `pause`/`resume`/`stop_job`/`reset`, plus
+job-control commands and the guard-exempt `set_power_scaling_enabled`
+(config setter, togglable at any time) raises `JobRunningError` (a
+`RuntimeError` subclass) instead of executing. The guard covers all 46
+guarded commands — every registry command except
+`pause`/`resume`/`stop_job`/`reset` and the exempt config setter, plus
 `stage_gluescript`, `stage_gluescript_delta`, `run`, and `run_job` — so
 authoring, staging, jog, home, and run calls are all rejected while a job
 runs.
@@ -1556,6 +1567,7 @@ move_xy_to, move_x_to, move_y_to
 cut_xy_to, cut_x_to, cut_y_to
 power
 power_range
+set_power_scaling_enabled
 set_mode, set_overscan
 air_assist_on, air_assist_off
 cut_speed, move_speed, frequency, pwm, select_laser
