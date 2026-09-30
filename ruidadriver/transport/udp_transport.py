@@ -66,7 +66,7 @@ class UdpTransport(Transport):
         if self._socket is None:
             return None
         try:
-            return self._socket.recv(length, socket.MSG_DONTWAIT)
+            return self._socket.recv(length)
         except (BlockingIOError, ConnectionResetError) as exc:
             if isinstance(exc, ConnectionResetError) and not self._logged_reset:
                 logger.debug("UDP read reset (WSAECONNRESET); treating as transient")

@@ -109,7 +109,7 @@ Implements `Transport` for UDP network communication.
 
 - **`open(host, port=50200)`** — Creates a non-blocking UDP socket.
 - **`write(packet)`** — Sends the packet via `socket.sendto()` to the configured host/port.
-- **`read(length)`** — Calls `socket.recv()` with `MSG_DONTWAIT`. Returns `None` on `BlockingIOError`.
+- **`read(length)`** — Calls non-blocking `socket.recv()`. Returns `None` on `BlockingIOError`.
 - **`drain()`** — Loops `read(65536)` until no more data.
 - **`is_udp`** → `True`; **`is_usb`** → `False`.
 
@@ -769,7 +769,7 @@ A Textual-based terminal user interface that implements (duck-types) the `AppAda
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.21.1            [Header]   │
+│  Ruida Script TUI v0.21.2            [Header]   │
 ├──────────────────────────┬──────────────────────┤
 │                          │  [STATUS] CONNECTED   │
 │  Log Area                │  [STATUS] PING_SENT   │

@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.2] - 2026-09-30
+
+### Fixed
+
+- `UdpTransport.read()` no longer uses `socket.MSG_DONTWAIT` (POSIX-only); the socket is already non-blocking via `setblocking(False)`, so a plain `recv()` raises `BlockingIOError` when no data is pending — fixing an `AttributeError: module 'socket' has no attribute 'MSG_DONTWAIT'` on Windows
+
+## [0.21.1] - 2026-09-27
+
+### Added
+
+- `set_power_scaling_enabled()` now records a storable gluescript transcript line, so a persisted `.cglu` replays it and the effective-min power scaling flag is restored before the next `power_range()` flush; it is exempt from the job-running guard so it can be toggled while a job runs
+
+### Fixed
+
+- Launching a second TUI instance while another holds the RPC port now reports the bind error on an error screen and exits gracefully (auto-start path) instead of failing silently in a background thread; manual `server start` logs the error and leaves the TUI running
+
 ## [0.21.0] - 2026-09-25
 
 ### Added

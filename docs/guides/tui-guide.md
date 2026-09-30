@@ -69,7 +69,7 @@ running.
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  Ruida Script TUI v0.21.1               [Header]   │
+│  Ruida Script TUI v0.21.2               [Header]   │
 ├───────────────────────────┬────────────────────────┤
 │                           │  [STATUS] CONNECTED     │
 │  Log Area                 │  [STATUS] PING_SENT     │
