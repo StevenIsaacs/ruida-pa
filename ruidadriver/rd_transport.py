@@ -165,6 +165,16 @@ class RdTransport:
         if self._transport and self._transport.is_open:
             self._transport.drain()
 
+    def close_stream(self) -> None:
+        """Close a stream (TCP) connection so the next open() reconnects.
+
+        A controller can drop a TCP client without closing the socket
+        (e.g. when another client connects), leaving a connection that
+        looks open but never answers. UDP and USB are left untouched.
+        """
+        if self._transport is not None and self._transport.is_tcp:
+            self._transport.close()
+
     @property
     def is_idle(self) -> bool:
         """True when the handshake thread is not processing a batch."""

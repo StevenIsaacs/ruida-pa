@@ -517,12 +517,15 @@ class RdStatus:
     def _run_resync(self) -> str:
         """RESYNC state: drain transport after ping failure.
 
-        Call transport.drain() to clear stale data.
+        Call transport.drain() to clear stale data, then close a TCP
+        connection so CONNECTING reopens it: unlike a UDP socket, a TCP
+        connection the controller has silently dropped never recovers.
         No notification — ping failed silently.
         Transition to CONNECTING to enter reconnect cycle.
         """
         if not self._shutdown.is_set():
             self.transport.drain()
+            self.transport.close_stream()
         return "CONNECTING"
 
     def _run_wait_to_poll(self) -> tuple[str, int]:

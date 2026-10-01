@@ -7,11 +7,13 @@ traffic captured from an RDC8445S on TCP port 50200 (magic 0x88).
 import socket
 import threading
 import time
+from unittest.mock import Mock
 
 import pytest
 
 from protocols.ruida.ruida_protocol import ACK
 from rpalib.rpa_swizzler import RpaSwizzler
+from ruidadriver.rd_status import RdStatus
 from ruidadriver.rd_transport import RdTransport
 from ruidadriver.transport import TcpTransport
 
@@ -142,3 +144,47 @@ def test_rd_transport_tcp_handshake_without_checksum(server, monkeypatch):
 def test_rd_transport_rejects_unknown_protocol():
     with pytest.raises(ValueError):
         RdTransport().open(udp_host="127.0.0.1", protocol="sctp")
+
+
+def test_close_stream_closes_tcp_so_open_reconnects(server, monkeypatch):
+    port = server.getsockname()[1]
+    original_open = TcpTransport.open
+    monkeypatch.setattr(
+        TcpTransport,
+        "open",
+        lambda self, host, _port=50200, **kw: original_open(self, host, port),
+    )
+    rd = RdTransport()
+    rd.configure(magic=MAGIC)
+    assert rd.open(udp_host="127.0.0.1", protocol="tcp")
+    first, _ = server.accept()
+
+    rd.close_stream()
+    assert not rd.is_open
+
+    assert rd.open()
+    second, _ = server.accept()
+    assert rd.is_open and rd.is_tcp
+    rd.close()
+    first.close()
+    second.close()
+
+
+def test_close_stream_leaves_udp_open():
+    rd = RdTransport()
+    udp = Mock(is_tcp=False)
+    rd._transport = udp
+
+    rd.close_stream()
+
+    udp.close.assert_not_called()
+
+
+def test_resync_after_ping_failure_closes_stream():
+    transport = Mock(spec=RdTransport)
+    status = RdStatus(transport)
+
+    assert status._run_resync() == "CONNECTING"
+
+    transport.drain.assert_called_once()
+    transport.close_stream.assert_called_once()
