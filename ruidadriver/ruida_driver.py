@@ -27,6 +27,7 @@ from rpascript.interpreter import ScriptParser
 from ruidadriver.rd_session import RdSession
 from ruidadriver.rd_gluescript import GlueScript, JobRunningError
 from ruidadriver.rd_status import RdStatusEvent
+from ruidadriver.rd_transport import RdTransport
 
 _UNSET = object()  # Sentinel for "never seen before" in status change detection
 
@@ -122,6 +123,7 @@ class RdDriver(GlueScript):
         self._start_udp_host: str = ""
         self._start_usb_device: str = ""
         self._start_magic: int = 0x88
+        self._start_protocol: str = "udp"
         self._decoded_values: dict[int, Any] = {}
         self._build_status_map()
         self._head_script: list[str] = [
@@ -208,7 +210,13 @@ class RdDriver(GlueScript):
 
     # ---- Driver Lifecycle ----
 
-    def start(self, udp_host: str | None = None, usb_device: str | None = None, magic: int | None = None) -> bool:
+    def start(
+        self,
+        udp_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+        protocol: str | None = None,
+    ) -> bool:
         """Start the driver: create session, configure transport, open, start script runner.
 
         Creates an RdSession, configures transport with the given parameters,
@@ -216,8 +224,11 @@ class RdDriver(GlueScript):
         then starts the script runner and status monitor.
 
         Args:
-            udp_host: UDP host address or hostname. None reuses previous value.
+            udp_host: Network host address or hostname. None reuses previous value.
             usb_device: USB serial device path. None reuses previous value.
+            magic: Controller swizzle magic number. None reuses previous value.
+            protocol: Network protocol for udp_host, "udp" (default) or "tcp"
+                (e.g. RDC8445S). None reuses previous value.
 
         Returns:
             True if transport opened immediately, False if it needs retry.
@@ -228,10 +239,16 @@ class RdDriver(GlueScript):
             usb_device = self._start_usb_device
         if magic is not None:
             self._start_magic = magic
+        if protocol is None:
+            protocol = self._start_protocol
+        if protocol not in RdTransport.NETWORK_PROTOCOLS:
+            raise ValueError(f"Unsupported network protocol: {protocol!r}")
 
         if self._session is not None:
-            if (udp_host and udp_host != self._start_udp_host) or (
-                usb_device and usb_device != self._start_usb_device
+            if (
+                (udp_host and udp_host != self._start_udp_host)
+                or (usb_device and usb_device != self._start_usb_device)
+                or protocol != self._start_protocol
             ):
                 self.stop()
             else:
@@ -241,9 +258,11 @@ class RdDriver(GlueScript):
         self._session.transport.configure(magic=self._start_magic, timeout=500, gross_timeout=15000)
         self._start_udp_host = udp_host
         self._start_usb_device = usb_device
+        self._start_protocol = protocol
         opened = self._session.transport.open(
             udp_host=udp_host,
             usb_device=usb_device,
+            protocol=protocol,
         )
         self._start_script_runner()
         return opened
@@ -278,6 +297,8 @@ class RdDriver(GlueScript):
         if session is not None and session.is_connected:
             if session.is_usb:
                 transport_event = RdStatusEvent.TRANSPORT_USB
+            elif session.transport.is_tcp:
+                transport_event = RdStatusEvent.TRANSPORT_TCP
             else:
                 transport_event = RdStatusEvent.TRANSPORT_UDP
             for event in (transport_event, RdStatusEvent.CONNECTED):

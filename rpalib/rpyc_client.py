@@ -829,11 +829,15 @@ class RpcRdDriver(GlueScript):
         udp_host: str | None = None,
         usb_device: str | None = None,
         magic: int | None = None,
+        protocol: str | None = None,
     ) -> bool:
         """Start the server-side driver/session. Mirrors RdDriver.start()."""
         return bool(
             self._svc.start(
-                udp_host=udp_host, usb_device=usb_device, magic=magic
+                udp_host=udp_host,
+                usb_device=usb_device,
+                magic=magic,
+                protocol=protocol,
             )
         )
 

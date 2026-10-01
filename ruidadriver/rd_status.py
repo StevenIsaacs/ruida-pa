@@ -22,6 +22,7 @@ class RdStatusEvent(Enum):
     """Session-layer events fired by RdStatus to registered listeners."""
 
     TRANSPORT_UDP = "TRANSPORT_UDP"
+    TRANSPORT_TCP = "TRANSPORT_TCP"
     TRANSPORT_USB = "TRANSPORT_USB"
     CONNECTED = "CONNECTED"
     DISCONNECTED = "DISCONNECTED"

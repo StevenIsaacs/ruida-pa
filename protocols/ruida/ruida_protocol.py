@@ -49,6 +49,7 @@ RD_TYPES = {
 # Card ID reply to model name lookup table.
 CARD_IDS = {
     0x65106510: "RDC6442S",
+    0x90109010: "RDC8445S",
 }
 
 # Reverse lookup: model name → card ID uint35 value.

@@ -3,7 +3,7 @@ from typing import Optional
 
 
 class Transport(ABC):
-    """Abstract base for transport implementations (UDP or Serial/USB)."""
+    """Abstract base for transport implementations (UDP, TCP or Serial/USB)."""
 
     @abstractmethod
     def open(self, **kwargs) -> bool:
@@ -36,3 +36,8 @@ class Transport(ABC):
     @property
     @abstractmethod
     def is_udp(self) -> bool: ...
+
+    @property
+    def is_tcp(self) -> bool:
+        """True for stream transports (TCP). Defaults to False."""
+        return False

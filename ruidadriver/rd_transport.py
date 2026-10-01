@@ -1,4 +1,4 @@
-"""L4 Ruida Transport — wrapping UdpTransport and UsbTransport.
+"""L4 Ruida Transport — wrapping UdpTransport, TcpTransport and UsbTransport.
 
 Provides transport-agnostic interface for upper layers (L5+).
 Handles transport selection, packing/unpacking, and command/response
@@ -14,27 +14,40 @@ from typing import Callable, Optional
 
 from protocols.ruida.ruida_protocol import ACK
 from rpalib.rpa_swizzler import RpaSwizzler
-from ruidadriver.transport import Transport, UdpTransport, UsbTransport
+from ruidadriver.transport import (
+    TcpTransport,
+    Transport,
+    UdpTransport,
+    UsbTransport,
+)
 from ruidadriver.transport_events import TransportEvent
 
 
 class RdTransport:
     """Ruida Transport coordinator.
 
-    Wraps UdpTransport and UsbTransport, providing unified interface
-    with automatic transport selection, swizzle packing, checksumming,
-    and handshake sequencing in a background thread.
+    Wraps UdpTransport, TcpTransport and UsbTransport, providing unified
+    interface with automatic transport selection, swizzle packing,
+    checksumming, and handshake sequencing in a background thread.
+
+    The network host (``_udp_host``) is reached over UDP or TCP depending
+    on the selected network protocol; TCP is used by newer controllers
+    such as the RDC8445S.
     """
+
+    NETWORK_PROTOCOLS = ("udp", "tcp")
 
     _HANDSHAKE_TIMEOUT = 0.2  # 200ms — queue poll interval
 
     def __init__(self) -> None:
         self._udp: UdpTransport | None = None
+        self._tcp: TcpTransport | None = None
         self._usb: UsbTransport | None = None
         self._transport: Transport | None = None
 
         self._udp_host = ""
         self._usb_device = ""
+        self._protocol = "udp"
 
         self._swizzler = RpaSwizzler()
         self._chunk_size = 1024
@@ -77,16 +90,20 @@ class RdTransport:
         self._gross_timeout = gross_timeout
         self._inter_packet_timeout = inter_packet_timeout
 
-    def open(self, udp_host: str = "", usb_device: str = "") -> bool:
-        """Open the preferred transport (USB first, then UDP).
+    def open(self, udp_host: str = "", usb_device: str = "", protocol: str = "") -> bool:
+        """Open the preferred transport (USB first, then the network host).
 
         Args:
-            udp_host: UDP host address. Empty string reuses value from a previous `open()` call.
+            udp_host: Network host address. Empty string reuses value from a previous `open()` call.
             usb_device: USB device path. Empty string reuses value from a previous `open()` call.
+            protocol: Network protocol, "udp" or "tcp". Empty string reuses value from a
+                previous `open()` call (default "udp").
         """
+        if protocol:
+            if protocol not in self.NETWORK_PROTOCOLS:
+                raise ValueError(f"Unsupported network protocol: {protocol!r}")
+            self._protocol = protocol
         if udp_host:
-            if self._udp is None:
-                self._udp = UdpTransport()
             self._udp_host = udp_host
         if usb_device:
             if self._usb is None:
@@ -97,10 +114,11 @@ class RdTransport:
         # This eliminates the race where the old thread could write through a closed socket.
         self._stop_handshake_thread()
 
+        network = self._network_transport()
         if self._usb and self._usb.open(self._usb_device):
             self._transport = self._usb
-        elif self._udp and self._udp.open(self._udp_host, 50200):
-            self._transport = self._udp
+        elif network and network.open(self._udp_host, 50200):
+            self._transport = network
         else:
             return False
         # Clear stale send queue from any previous connection
@@ -108,6 +126,18 @@ class RdTransport:
         self._start_handshake_thread()
         self._notify_status(TransportEvent.OPENED)
         return True
+
+    def _network_transport(self) -> UdpTransport | TcpTransport | None:
+        """Return the transport for the network host and selected protocol."""
+        if not self._udp_host:
+            return None
+        if self._protocol == "tcp":
+            if self._tcp is None:
+                self._tcp = TcpTransport(self._swizzler)
+            return self._tcp
+        if self._udp is None:
+            self._udp = UdpTransport()
+        return self._udp
 
     def close(self) -> None:
         """Shutdown handshake thread and close transport."""
@@ -287,7 +317,7 @@ class RdTransport:
                         # Mid-batch failure: advance to next packet or go IDLE
                         advance_batch()
                         continue
-                    if self._transport.is_udp:
+                    if self._transport.is_udp or self._transport.is_tcp:
                         self._handshake_state = "ACK_PENDING"
                     else:
                         # USB: no ACK; check if it contains GET_SETTING commands
@@ -462,6 +492,15 @@ class RdTransport:
     @property
     def is_udp(self) -> bool:
         return self._transport is not None and self._transport.is_udp
+
+    @property
+    def is_tcp(self) -> bool:
+        return self._transport is not None and self._transport.is_tcp
+
+    @property
+    def protocol(self) -> str:
+        """Selected network protocol ("udp" or "tcp")."""
+        return self._protocol
 
     @property
     def has_usb(self) -> bool:

@@ -282,13 +282,15 @@ class RpycTuiService(rpyc.Service):
         udp_host: str | None = None,
         usb_device: str | None = None,
         magic: int | None = None,
+        protocol: str | None = None,
     ) -> bool:
         self._rpc_info(
             f"[RPC] RPC start(udp_host={udp_host!r}, "
-            f"usb_device={usb_device!r}, magic={'***' if magic is not None else None})"
+            f"usb_device={usb_device!r}, magic={'***' if magic is not None else None}, "
+            f"protocol={protocol!r})"
         )
         return self._adapter.start(
-            udp_host=udp_host, usb_device=usb_device, magic=magic
+            udp_host=udp_host, usb_device=usb_device, magic=magic, protocol=protocol
         )
 
     def exposed_stop(self) -> None:

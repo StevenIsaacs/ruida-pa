@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `TcpTransport` for controllers that take the Ruida command stream over TCP port 50200 instead of UDP, such as the RDC8445S; select it with `RdDriver.start(protocol="tcp")` (also accepted by the RPC client/service and the TUI adapter). TCP packets carry no checksum prefix, and the byte stream is re-framed into the ACK and reply units the handshake expects
+- `RdStatusEvent.TRANSPORT_TCP` and `RdTransport.is_tcp`
+- RDC8445S card ID (`0x90109010`)
+
 ## [0.21.2] - 2026-09-30
 
 ### Fixed
