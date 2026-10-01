@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RdTransport.close_stream()`; after failed pings the status monitor closes a TCP connection and reconnects, so a client the controller dropped without closing the socket recovers
 - `session start ... proto=udp|tcp` in the TUI and `.rds` scripts selects the network protocol (default `udp`)
 - RDC8445S card ID (`0x90109010`)
+- `GlueScript.focus_z()` sends `FOCUS_Z` (`D8 2E`), the controller's Z auto-focus (same routine as the panel Focus key): the table is raised until the probe triggers, lowered to `MEM_FOCUS_DEPTH`, and Z is set to that distance. Available through `RdDriver`, the RPC client/service and the TUI (`focus_z`)
+- `MEM_FOCUS_CONFIG` (`0x030F`); bit `0x0001` is the controller's focus-enabled flag, so hosts can choose between `HOME_Z` and `FOCUS_Z`
 ## [0.22.0] - 2026-10-02
 
 ### Added

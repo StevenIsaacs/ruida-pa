@@ -188,6 +188,7 @@ commands (no `/` prefix) that act on the live session:
 ```
 home                            # Jog X and Y axes to the origin reference
 home_z                          # Home Z axis
+focus_z                         # Auto-focus Z with the focus probe (needs material under the probe)
 home_u                          # Home U axis (rotary)
 pause                           # Pause the current job
 resume                          # Resume the paused job
@@ -212,7 +213,7 @@ jog_set_u_rel 10            # Set relative U jog distance (mm)
 ```
 
 - **Live-only semantics** — movement jogs, homing (`home`, `home_z`,
-  `home_u`), and job-control commands (`pause`, `resume`, `stop_job`,
+  `focus_z`, `home_u`), and job-control commands (`pause`, `resume`, `stop_job`,
   `reset`) run immediately against a connected controller (requiring an active
   session) and are never persisted to `.cglu` files; `jog_set_*` setters
   configure the live jog session (speeds and relative distances) and never

@@ -79,6 +79,7 @@ REGISTRY_METHODS = [
     "jog_u_rel",
     "home",
     "home_z",
+    "focus_z",
     "home_u",
     "pause",
     "resume",
@@ -227,6 +228,7 @@ class GlueScript:
     HOME_COMMANDS: frozenset[str] = frozenset({
         "home",
         "home_z",
+        "focus_z",
         "home_u",
     })
     # Job-control commands act immediately on the controller regardless
@@ -1226,6 +1228,11 @@ class GlueScript:
     def home_z(self) -> list[str] | None:
         """Generate rpascript to home the Z axis.
 
+        On machines whose Z reference is an auto-focus probe the behaviour
+        depends on the controller: an RDC6442S probes and backs off to the
+        focus distance, while an RDC8445S stops at the probe with the work
+        against it. Use focus_z() to probe and finish at focus height.
+
         On RdDriver, sends the lines immediately via _emit_live_lines;
         on a standalone GlueScript (default hook), returns the generated
         lines unchanged. Returns the sent lines, or None if nothing was
@@ -1235,6 +1242,27 @@ class GlueScript:
             list[str] | None: ["HOME_Z"] as rpascript to home the Z axis.
         """
         lines = ["HOME_Z"]
+        return self._emit_live_lines(lines)
+
+    def focus_z(self) -> list[str] | None:
+        """Generate rpascript to run the controller's Z auto-focus.
+
+        Raises the table until the focus probe triggers, then moves to the
+        configured focus distance and sets Z to it (the same routine as the
+        controller panel's Focus key). On an RDC8445S, HOME_Z also probes
+        but stops at the probe-contact point with Z set to 0, leaving the
+        work against the probe; FOCUS_Z references Z and leaves the work at
+        focus height. Both need material under the probe.
+
+        On RdDriver, sends the lines immediately via _emit_live_lines;
+        on a standalone GlueScript (default hook), returns the generated
+        lines unchanged. Returns the sent lines, or None if nothing was
+        sent.
+
+        Returns:
+            list[str] | None: ["FOCUS_Z"] as rpascript to auto-focus Z.
+        """
+        lines = ["FOCUS_Z"]
         return self._emit_live_lines(lines)
 
     def home_u(self) -> list[str] | None:
