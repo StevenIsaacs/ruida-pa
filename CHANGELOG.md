@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.21.2] - 2026-09-30
 
+### Added
+
+- `publish.sh` and `publish.ps1` append a commit-derived dev version (e.g. `0.21.2.dev245122120`) to the package when uploading to TestPyPI (`--test`/`-Test`), giving each test upload a unique, uploadable version
+
 ### Fixed
 
 - `UdpTransport.read()` no longer uses `socket.MSG_DONTWAIT` (POSIX-only); the socket is already non-blocking via `setblocking(False)`, so a plain `recv()` raises `BlockingIOError` when no data is pending — fixing an `AttributeError: module 'socket' has no attribute 'MSG_DONTWAIT'` on Windows
+- TestPyPI uploads no longer use a PEP 440 local version (`0.21.2+<sha>`), which TestPyPI rejects with `HTTP 400 Bad Request`; the short commit ID is now encoded as a numeric dev segment
 
 ## [0.21.1] - 2026-09-27
 
