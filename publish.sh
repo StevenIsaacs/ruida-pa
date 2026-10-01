@@ -12,7 +12,7 @@ Usage: $_self [--test] [--no-upload]
 Build and optionally publish RPA to PyPI.
 
 Options:
-  --test         Upload to TestPyPI instead of PyPI
+  --test         Upload to TestPyPI instead of PyPI (appends a commit-derived dev version)
   --no-upload    Build but don't upload (dry run)
   -h, --help     Show this help
 EOF
@@ -38,6 +38,31 @@ if [ "$_no_upload" = false ]; then
   python -c "import twine" 2>/dev/null || { echo "Install twine: pip install twine"; exit 1; }
 fi
 
+# Rewrite the [project] version line in pyproject.toml.
+_set_version () {
+  python - "$1" <<'EOF'
+import re
+import sys
+
+version = sys.argv[1]
+path = "pyproject.toml"
+with open(path, encoding="utf-8") as f:
+    text = f.read()
+pattern = r'^(\s*version\s*=\s*[\x22\x27])[^\x22\x27]+([\x22\x27])\s*$'
+patched, count = re.subn(
+    pattern,
+    lambda m: m.group(1) + version + m.group(2),
+    text,
+    count=1,
+    flags=re.M,
+)
+if count == 0:
+    sys.exit("Error: could not locate the version line in pyproject.toml")
+with open(path, "w", encoding="utf-8") as f:
+    f.write(patched)
+EOF
+}
+
 # Build
 _version=$(python -c "
 try:
@@ -49,9 +74,29 @@ with open('pyproject.toml', 'rb') as f:
 print(data['project']['version'])
 ")
 
+_orig_version="$_version"
+_patched=false
+_restore_version () {
+  if [ "$_patched" = true ]; then
+    _set_version "$_orig_version"
+    _patched=false
+  fi
+}
+trap _restore_version EXIT
+
+if [ "$_test" = true ]; then
+  _sha=$(git rev-parse --short HEAD 2>/dev/null) || { echo "Error: not in a git repository (cannot derive commit ID)"; exit 1; }
+  _dev_num=$(python -c "print(int('$_sha', 16))")
+  _version="$_version.dev$_dev_num"
+  _set_version "$_version"
+  _patched=true
+fi
+
 echo "Building RPA v$_version for PyPI..."
 rm -rf dist/ build/ *.egg-info
 python -m build
+
+_restore_version
 
 if [ "$_no_upload" = true ]; then
   echo "Build complete. Artifacts in dist/:"
