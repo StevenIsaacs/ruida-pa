@@ -122,6 +122,7 @@ Three main areas:
 ```
 session start udp=192.168.1.100
 session start udp=192.168.1.100 usb=ttyUSB0 to=10s
+session start udp=192.168.1.58 proto=tcp
 ```
 
 Parameters:
@@ -130,6 +131,8 @@ Parameters:
   Can be combined with UDP; USB is preferred when both are specified.
 - `to=<timeout>` — Connection timeout. Formats: `5s`, `5000ms`. Default: 5000ms.
 - `magic=0xNN` — Optional swizzle magic number (e.g., `magic=0x88`).
+- `proto=udp|tcp` — Optional network protocol for the `udp=` host. Default `udp`;
+  use `tcp` for controllers that only accept TCP, such as the RDC8445S.
 
 The TUI remains responsive while connecting. Use `/stop` or **Escape** to cancel
 a pending connection.

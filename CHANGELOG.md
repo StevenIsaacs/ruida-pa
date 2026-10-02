@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TcpTransport` for controllers that take the Ruida command stream over TCP port 50200 instead of UDP, such as the RDC8445S; select it with `RdDriver.start(protocol="tcp")` (also accepted by the RPC client/service and the TUI adapter). TCP packets carry no checksum prefix, and the byte stream is re-framed into the ACK and reply units the handshake expects
 - `RdStatusEvent.TRANSPORT_TCP` and `RdTransport.is_tcp`
 - `RdTransport.close_stream()`; after failed pings the status monitor closes a TCP connection and reconnects, so a client the controller dropped without closing the socket recovers
+- `session start ... proto=udp|tcp` in the TUI and `.rds` scripts selects the network protocol (default `udp`)
 - RDC8445S card ID (`0x90109010`)
 
 ## [0.21.2] - 2026-09-30

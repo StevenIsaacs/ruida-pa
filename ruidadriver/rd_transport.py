@@ -23,6 +23,25 @@ from ruidadriver.transport import (
 from ruidadriver.transport_events import TransportEvent
 
 
+def parse_network_protocol(value: str | None) -> str | None:
+    """Normalise a user-supplied network protocol ("udp"/"tcp", any case).
+
+    Returns None for an empty value (reuse the previous protocol).
+
+    Raises:
+        ValueError: If the value is not a supported protocol.
+    """
+    if value is None or not str(value).strip():
+        return None
+    protocol = str(value).strip().lower()
+    if protocol not in RdTransport.NETWORK_PROTOCOLS:
+        raise ValueError(
+            f"Unsupported network protocol: {value!r} "
+            f"(expected one of: {', '.join(RdTransport.NETWORK_PROTOCOLS)})"
+        )
+    return protocol
+
+
 class RdTransport:
     """Ruida Transport coordinator.
 

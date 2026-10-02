@@ -659,11 +659,20 @@ class ScriptInterpreter:
                         )
                         return
 
+                from ruidadriver.rd_transport import parse_network_protocol
+
+                try:
+                    _protocol = parse_network_protocol(params.get("proto"))
+                except ValueError as exc:
+                    self._out.write(f"# ERROR: {exc}\n")
+                    return
+
                 driver = RdDriver()
                 opened = driver.start(
                     udp_host=params.get("udp", ""),
                     usb_device=params.get("usb", ""),
                     magic=_magic,
+                    protocol=_protocol,
                 )
                 if not opened:
                     self._out.write(
