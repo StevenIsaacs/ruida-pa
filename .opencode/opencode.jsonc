@@ -28,7 +28,7 @@
       "description": "Decode a capture log into .txt and -vrb.txt"
     },
     "capture": {
-      "template": "Run ./capture <ip> <file> to capture Ruida UDP traffic using tshark.\nRequires tshark installed and the controller reachable at <ip>.\nOn Windows, use ./capture.ps1 -if Ethernet -ip <IP> -out <file> instead.",
+      "template": "Run ./capture <ip> <file> to capture Ruida UDP traffic using tshark.\nRequires tshark installed and the controller reachable at <ip>.\nPass --tcp to capture the Ruida TCP stream on port 50200 instead of UDP.\nOn Windows, use ./capture.ps1 -if Ethernet -ip <IP> -out <file> [-Protocol tcp] instead.",
       "description": "Capture Ruida traffic with tshark"
     },
     "verify": {

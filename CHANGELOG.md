@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `session start ... proto=udp|tcp` in the TUI and `.rds` scripts selects the network protocol (default `udp`)
 - RDC8445S card ID (`0x90109010`)
 - Text selection and clipboard copy in the TUI monitor pane (`#reply-log`, the memory/GC tables rendered by `/monitor`): mouse drag, keyboard caret (Tab to focus, arrows, Shift+arrows, Home/End), and Enter to copy. Selection is confined to the text currently displayed — off-screen rows and markup tags are never copied. The selection/caret machinery was extracted from `SelectableRichLog` into a shared `TextSelectionMixin` used by both the log and monitor panes.
+- `./capture <ip> <file> --tcp` (bash) and `./capture.ps1 -Protocol tcp` (PowerShell) capture the Ruida TCP stream on port 50200 with tshark (`tcp.port`/`tcp.len`/`tcp.payload` fields) in addition to the default UDP capture
 - Version bump to 0.22.0.
 
 ### Fixed
