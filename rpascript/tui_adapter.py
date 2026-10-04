@@ -17,6 +17,8 @@ import logging
 import math
 import os
 import re
+import shutil
+import subprocess
 import sys
 import types
 import threading
@@ -52,14 +54,20 @@ from rpascript.generator import ScriptGenerator
 from rpalib.rpa_swizzler import RpaSwizzler
 
 from rich.highlighter import ReprHighlighter
+from rich.segment import Segment
+from rich.style import Style
 
 from textual import on
+from textual.actions import SkipAction
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Callback, Key
+from textual.geometry import Offset
 from textual.markup import escape
 from textual.screen import ModalScreen
+from textual.selection import Selection
+from textual.strip import Strip
 from textual.widgets import Header, Input, RichLog, Static, TextArea
 
 from rpalib.ruida_transcoder import RdDecoder, RdEncoder
@@ -79,6 +87,41 @@ from rpyc.utils.server import ThreadedServer
 _log = logging.getLogger(__name__)
 
 _GLUESCRIPT_WATCH_INTERVAL = 2.0  # seconds between .cglu external-edit polls
+
+
+def _copy_to_native_clipboard(text: str) -> bool:
+    """Copy ``text`` to the system clipboard using a native utility.
+
+    Textual's ``App.copy_to_clipboard`` writes an OSC 52 escape sequence, which
+    some terminals (for example Wave Terminal) ignore. Prefer a platform
+    clipboard tool when one is available: ``wl-copy`` (Wayland), ``xclip`` (X11),
+    then ``pbcopy`` (macOS). Returns ``True`` on success; never raises.
+    """
+    candidates: list[list[str]] = []
+    if os.environ.get("WAYLAND_DISPLAY"):
+        candidates.append(["wl-copy"])
+    if os.environ.get("DISPLAY"):
+        candidates.append(["xclip", "-selection", "clipboard"])
+    candidates.append(["pbcopy"])
+
+    data = text.encode("utf-8")
+    for command in candidates:
+        if shutil.which(command[0]) is None:
+            continue
+        try:
+            result = subprocess.run(
+                command,
+                input=data,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return True
+    return False
 
 
 def _parse_timeout_spec(to_str: str) -> float:
@@ -381,6 +424,308 @@ class CommandInput(Input):
     ]
 
 
+class SelectableRichLog(RichLog):
+    """A ``RichLog`` whose visible text can be selected with mouse or keyboard.
+
+    Textual's ``Screen`` drives mouse selection but depends on two things this
+    widget supplies: rendered lines carrying content-offset metadata (via
+    ``Strip.apply_offsets``) and a ``get_selection`` implementation. Extracted
+    text is confined to this widget and stripped of trailing padding spaces.
+
+    Keyboard selection uses a caret: arrow keys move it, Shift+arrows extend a
+    selection from the anchor, Home/End and Ctrl+Home/Ctrl+End jump to line and
+    document bounds. Escape clears the selection (falling through to the app's
+    stop action when nothing is selected).
+    """
+
+    BINDINGS = [
+        Binding("up", "caret_up", "Caret up", show=False),
+        Binding("down", "caret_down", "Caret down", show=False),
+        Binding("left", "caret_left", "Caret left", show=False),
+        Binding("right", "caret_right", "Caret right", show=False),
+        Binding("shift+up", "select_up", "Extend selection up", show=False),
+        Binding("shift+down", "select_down", "Extend selection down", show=False),
+        Binding("shift+left", "select_left", "Extend selection left", show=False),
+        Binding("shift+right", "select_right", "Extend selection right", show=False),
+        Binding("home", "caret_home", "Line start", show=False),
+        Binding("end", "caret_end", "Line end", show=False),
+        Binding("ctrl+home", "caret_doc_start", "Document start", show=False),
+        Binding("ctrl+end", "caret_doc_end", "Document end", show=False),
+        Binding("shift+home", "select_home", "Select to line start", show=False),
+        Binding("shift+end", "select_end", "Select to line end", show=False),
+        Binding("enter", "copy_selection", "Copy selection", show=False),
+        Binding("escape", "clear_selection", "Clear selection", show=False),
+    ]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._anchor: Offset | None = None
+        self._cursor: Offset | None = None
+        self._last_applied: Selection | None = None
+
+    # ------------------------------------------------------------------
+    # Text extraction (mouse + keyboard selection)
+    # ------------------------------------------------------------------
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        """Return the text under ``selection`` with no trailing spaces.
+
+        RichLog pads every rendered line to the render width; ``rstrip`` on each
+        line removes that padding so the extracted text matches the visible
+        content.
+        """
+        text = "\n".join(strip.text.rstrip() for strip in self.lines)
+        return selection.extract(text).rstrip(), "\n"
+
+    # ------------------------------------------------------------------
+    # Rendering: offset metadata, selection highlight, caret
+    # ------------------------------------------------------------------
+
+    def render_line(self, y: int) -> Strip:
+        strip = super().render_line(y)
+        scroll_x, scroll_y = self.scroll_offset
+        content_y = scroll_y + y
+
+        selection = self.text_selection
+        if selection is not None:
+            span = selection.get_span(content_y)
+            if span is not None:
+                start, end = span
+                if end == -1:
+                    end = strip.cell_length
+                if end > start:
+                    strip = self._style_span(
+                        strip, start, end, self._selection_style()
+                    )
+        elif (
+            self.has_focus
+            and self._cursor is not None
+            and self._cursor.y == content_y
+            and 0 <= self._cursor.x < strip.cell_length
+        ):
+            strip = self._style_span(
+                strip, self._cursor.x, self._cursor.x + 1, Style(reverse=True)
+            )
+        # Apply offset metadata LAST: the highlight/caret split the strip into
+        # segments, and apply_offsets assigns each resulting segment its true
+        # starting column. Applying it before the split would leave the trailing
+        # pieces with a stale offset and corrupt mouse cell -> content mapping.
+        return strip.apply_offsets(scroll_x, content_y)
+
+    @staticmethod
+    def _style_span(strip: Strip, start: int, end: int, style: Style) -> Strip:
+        """Overlay ``style`` on the cell range ``[start, end)`` of a strip.
+
+        The style must be applied on top of the existing segment styles, not as
+        the base via ``Strip.apply_style`` — that method does ``style + seg_style``,
+        so the log line's own foreground/background would win and the highlight
+        would be invisible.
+        """
+        start = max(0, min(start, strip.cell_length))
+        end = max(start, min(end, strip.cell_length))
+        before = strip.crop(0, start)
+        middle = strip.crop(start, end)
+        styled = Strip(
+            [
+                Segment(text, (seg_style + style) if seg_style else style, control)
+                for text, seg_style, control in middle
+            ],
+            middle.cell_length,
+        )
+        after = strip.crop(end, strip.cell_length)
+        return Strip.join([before, styled, after])
+
+    def _selection_style(self) -> Style:
+        """Return the selection overlay style.
+
+        ``partial=True`` yields the un-composited overlay (e.g. ``on #0178d4``).
+        The full component style composites foreground and background to the same
+        color, which renders the selection invisible.
+        """
+        style = self.screen.get_component_rich_style(
+            "screen--selection", partial=True, default=None
+        )
+        if style is None or (style.color is None and style.bgcolor is None):
+            return Style(reverse=True)
+        return style
+
+    # ------------------------------------------------------------------
+    # Keyboard caret / selection
+    # ------------------------------------------------------------------
+
+    def on_focus(self) -> None:
+        if self._cursor is None and self.lines:
+            top = max(0, min(int(self.scroll_offset.y), len(self.lines) - 1))
+            self._cursor = Offset(0, top)
+            self.refresh()
+
+    def _line_length(self, y: int) -> int:
+        if 0 <= y < len(self.lines):
+            return len(self.lines[y].text.rstrip())
+        return 0
+
+    def _seed_from_external_selection(self) -> None:
+        """Adopt a mouse-made selection as the keyboard anchor/caret."""
+        selection = self.text_selection
+        if selection is None or selection == self._last_applied:
+            return
+        if selection.start is not None and selection.end is not None:
+            self._anchor = selection.start
+            self._cursor = selection.end
+
+    def _sync_selection(self) -> None:
+        """Publish (or clear) this widget's selection on the screen."""
+        if (
+            self._anchor is not None
+            and self._cursor is not None
+            and self._anchor != self._cursor
+        ):
+            selection = Selection.from_offsets(self._anchor, self._cursor)
+            self._last_applied = selection
+            self.screen.selections = {self: selection}
+        else:
+            self._last_applied = None
+            if self in self.screen.selections:
+                selections = dict(self.screen.selections)
+                selections.pop(self, None)
+                self.screen.selections = selections
+
+    def _move_caret(self, dx: int, dy: int, select: bool) -> None:
+        if not self.lines:
+            return
+        self._seed_from_external_selection()
+        if self._cursor is None:
+            self._cursor = Offset(0, max(0, int(self.scroll_offset.y)))
+        if select:
+            if self._anchor is None:
+                self._anchor = self._cursor
+        else:
+            self._anchor = None
+        x, y = self._cursor
+        y = max(0, min(len(self.lines) - 1, y + dy))
+        length = self._line_length(y)
+        if dx:
+            x = max(0, min(length, x + dx))
+        else:
+            x = max(0, min(length, x))
+        self._cursor = Offset(x, y)
+        self._sync_selection()
+        self._scroll_caret_into_view()
+        self.refresh()
+
+    def _set_caret(self, x: int, y: int, select: bool) -> None:
+        if not self.lines:
+            return
+        self._seed_from_external_selection()
+        if self._cursor is None:
+            self._cursor = Offset(0, 0)
+        if select:
+            if self._anchor is None:
+                self._anchor = self._cursor
+        else:
+            self._anchor = None
+        y = max(0, min(len(self.lines) - 1, y))
+        x = max(0, min(self._line_length(y), x))
+        self._cursor = Offset(x, y)
+        self._sync_selection()
+        self._scroll_caret_into_view()
+        self.refresh()
+
+    def _scroll_caret_into_view(self) -> None:
+        if self._cursor is None:
+            return
+        height = self.scrollable_content_region.height
+        if height <= 0:
+            return
+        top = int(self.scroll_offset.y)
+        y = self._cursor.y
+        if y < top:
+            self.scroll_to(y=y, animate=False, immediate=True)
+        elif y >= top + height:
+            self.scroll_to(y=y - height + 1, animate=False, immediate=True)
+
+    def action_caret_up(self) -> None:
+        self._move_caret(0, -1, select=False)
+
+    def action_caret_down(self) -> None:
+        self._move_caret(0, 1, select=False)
+
+    def action_caret_left(self) -> None:
+        self._move_caret(-1, 0, select=False)
+
+    def action_caret_right(self) -> None:
+        self._move_caret(1, 0, select=False)
+
+    def action_select_up(self) -> None:
+        self._move_caret(0, -1, select=True)
+
+    def action_select_down(self) -> None:
+        self._move_caret(0, 1, select=True)
+
+    def action_select_left(self) -> None:
+        self._move_caret(-1, 0, select=True)
+
+    def action_select_right(self) -> None:
+        self._move_caret(1, 0, select=True)
+
+    def action_caret_home(self) -> None:
+        if self._cursor is not None:
+            self._set_caret(0, self._cursor.y, select=False)
+
+    def action_caret_end(self) -> None:
+        if self._cursor is not None:
+            self._set_caret(self._line_length(self._cursor.y), self._cursor.y, select=False)
+
+    def action_caret_doc_start(self) -> None:
+        self._set_caret(0, 0, select=False)
+
+    def action_caret_doc_end(self) -> None:
+        if self.lines:
+            last = len(self.lines) - 1
+            self._set_caret(self._line_length(last), last, select=False)
+
+    def action_select_home(self) -> None:
+        if self._cursor is not None:
+            self._set_caret(0, self._cursor.y, select=True)
+
+    def action_select_end(self) -> None:
+        if self._cursor is not None:
+            self._set_caret(self._line_length(self._cursor.y), self._cursor.y, select=True)
+
+    def action_copy_selection(self) -> None:
+        """Copy the current selection to the clipboard (Enter in the log pane).
+
+        Gives a toast so the copy is observable even on terminals that ignore
+        the OSC 52 clipboard sequence.
+        """
+        if self.text_selection is None:
+            raise SkipAction()
+        text = self.screen.get_selected_text()
+        if not text:
+            raise SkipAction()
+        if self.app.copy_to_clipboard(text):
+            self.app.notify(f"Copied {len(text)} characters", timeout=2)
+        else:
+            self.app.notify(
+                f"Copied {len(text)} characters (terminal clipboard may be unsupported)",
+                severity="warning",
+                timeout=3,
+            )
+
+    def action_clear_selection(self) -> None:
+        """Clear the selection, or fall through to the app's stop action."""
+        if self.text_selection is None and self._anchor is None:
+            raise SkipAction()
+        self._anchor = None
+        self._cursor = None
+        self._last_applied = None
+        if self in self.screen.selections:
+            selections = dict(self.screen.selections)
+            selections.pop(self, None)
+            self.screen.selections = selections
+        self.refresh()
+
+
 def _deep_getsizeof(obj: Any, seen: set[int] | None = None, _depth: int = 500, _level: int = 0) -> tuple[int, int]:
     """Recursively compute deep memory footprint of an object.
 
@@ -488,7 +833,7 @@ class TuiAdapter(App):
     SUB_TITLE = "Interactive Ruida Controller Interface"
 
     BINDINGS = [
-        ("ctrl+c", "quit", "Quit"),
+        Binding("ctrl+c", "quit", "Quit", priority=True),
         ("escape", "stop", "Stop"),
         ("page_up", "scroll_log_up", "Scroll log up"),
         ("page_down", "scroll_log_down", "Scroll log down"),
@@ -800,7 +1145,7 @@ class TuiAdapter(App):
         yield Header()
         with Horizontal(id="main-container"):
             with Vertical(id="log-panel"):
-                yield RichLog(
+                yield SelectableRichLog(
                     id="log-area", highlight=True, markup=True, max_lines=1000
                 )
                 yield CommandInput(
@@ -817,14 +1162,20 @@ class TuiAdapter(App):
 
     def on_mount(self) -> None:
         """Widgets are ready — cache references, load history, and log startup message."""
-        self._log_widget = self.query_one("#log-area", RichLog)
+        self._log_widget = self.query_one("#log-area", SelectableRichLog)
         self._log_widget.highlighter = _NoTagHighlighter()
         self._status_log = self.query_one("#status-log", RichLog)
         self._reply_log = self.query_one("#reply-log", Static)
         self._status_bar = self.query_one("#status-bar", Static)
-        # Restrict focus to command input only — Tab stays on Input
-        self._log_widget.can_focus = False
+        # The log pane is focusable so Tab toggles between it and the command
+        # input; the side panels and input are not selectable so extracted text
+        # can only ever come from the log pane.
+        self._log_widget.can_focus = True
         self._status_log.can_focus = False
+        self._status_log.ALLOW_SELECT = False
+        self._reply_log.ALLOW_SELECT = False
+        self.query_one("#command-input", Input).ALLOW_SELECT = False
+        self._suggest_popup.ALLOW_SELECT = False
         self._update_status_bar()
         self._load_command_history()
         self.query_one("#command-input", Input).focus()
@@ -844,6 +1195,19 @@ class TuiAdapter(App):
             self._rpc_auto_start_task.add_done_callback(
                 self._on_rpc_auto_start_done
             )
+
+    def copy_to_clipboard(self, text: str) -> bool:
+        """Copy ``text`` to the system clipboard.
+
+        Prefers a native clipboard utility (``wl-copy``/``xclip``/``pbcopy``)
+        because some terminals ignore the OSC 52 sequence Textual writes.
+        Returns ``True`` when a native tool handled the copy.
+        """
+        if _copy_to_native_clipboard(text):
+            self._clipboard = text
+            return True
+        super().copy_to_clipboard(text)
+        return False
 
     # ------------------------------------------------------------------
     # Command input handling

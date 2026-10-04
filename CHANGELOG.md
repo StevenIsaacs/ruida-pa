@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Text selection in the TUI log pane using the mouse (drag) or keyboard (Tab to focus, arrow keys to move a caret, Shift+arrows to extend); Enter copies the selection (with a confirmation toast, preferring a native clipboard tool over OSC 52) and Ctrl+C quits. Selection is confined to the log pane and copied text has no trailing spaces.
 - Version bump to 0.22.0.
 
 ## [0.21.2] - 2026-09-30

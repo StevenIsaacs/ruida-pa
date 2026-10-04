@@ -96,7 +96,8 @@ Three main areas:
 
 **Left panel (log area)**
 - Main `RichLog` widget showing commands sent, replies received, system messages,
-  and error logs. Scrolling history of the last 1000 lines.
+  and error logs. Scrolling history of the last 1000 lines. Text can be selected
+  with the mouse or keyboard and copied (see §3.1).
 
 **Right panel (side panel)**
 - **Top: status/reply log** — real-time controller status updates (connection
@@ -112,6 +113,27 @@ Three main areas:
 **Bottom bar**
 - **Command input**: text input for entering commands
 - **Status bar**: connection state and transport info (e.g., `Connected | UDP 192.168.1.100:50200`)
+
+### 3.1 Log Selection & Copy
+
+The left log pane supports text selection; the side panels and the command input
+are not selectable, so a selection can only ever contain log-pane text.
+
+- **Mouse** — click and drag to select; double-click selects all.
+- **Keyboard** — press **Tab** to focus the log pane (**Tab** again returns to
+  the command input), then:
+  - Arrow keys move a caret (the pane scrolls to keep it visible).
+  - **Shift+Arrow** extends the selection from the anchor.
+  - **Home**/**End** jump to the line bounds; **Ctrl+Home**/**Ctrl+End** to the
+    document bounds; the **Shift** variants extend.
+  - **Escape** clears the selection, and otherwise performs the normal stop.
+- **Copy** — **Enter** copies the selection to the clipboard and shows a
+  confirmation toast. **Ctrl+C** quits, as before.
+
+Copied text never contains trailing spaces: the log's right-hand padding is
+stripped from each line. Copy prefers a native clipboard tool (`wl-copy` on
+Wayland, `xclip` on X11, `pbcopy` on macOS) and falls back to the terminal's
+OSC 52 sequence, which some terminals ignore.
 
 ---
 
