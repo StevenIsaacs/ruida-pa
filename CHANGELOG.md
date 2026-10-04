@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RdTransport.close_stream()`; after failed pings the status monitor closes a TCP connection and reconnects, so a client the controller dropped without closing the socket recovers
 - `session start ... proto=udp|tcp` in the TUI and `.rds` scripts selects the network protocol (default `udp`)
 - RDC8445S card ID (`0x90109010`)
+- Text selection and clipboard copy in the TUI monitor pane (`#reply-log`, the memory/GC tables rendered by `/monitor`): mouse drag, keyboard caret (Tab to focus, arrows, Shift+arrows, Home/End), and Enter to copy. Selection is confined to the text currently displayed — off-screen rows and markup tags are never copied. The selection/caret machinery was extracted from `SelectableRichLog` into a shared `TextSelectionMixin` used by both the log and monitor panes.
 - Version bump to 0.22.0.
 
 ### Fixed

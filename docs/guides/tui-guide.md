@@ -109,6 +109,7 @@ Three main areas:
     Ruida protocol objects tracked by the garbage collector. Class names appear
     in **[orange]** when the measurement hit the recursion depth limit (500 levels),
     indicating the reported size is a partial count.
+  The monitor tables can be selected and copied like the log pane (see §3.1).
 
 **Bottom bar**
 - **Command input**: text input for entering commands
@@ -116,13 +117,14 @@ Three main areas:
 
 ### 3.1 Log Selection & Copy
 
-The left log pane supports text selection; the side panels and the command input
-are not selectable, so a selection can only ever contain log-pane text.
+The left log pane and the bottom-right monitor pane (`#reply-log`) support text
+selection and copying; the status log and the command input are not selectable.
 
 - **Mouse** — click and drag to select; double-click selects all.
-- **Keyboard** — press **Tab** to focus the log pane (**Tab** again returns to
-  the command input), then:
-  - Arrow keys move a caret (the pane scrolls to keep it visible).
+- **Keyboard** — press **Tab** to move focus between the log pane, the command
+  input, and the monitor pane, then:
+  - Arrow keys move a caret (the log pane scrolls to keep it visible; the
+    monitor pane is a fixed-height snapshot and does not scroll).
   - **Shift+Arrow** extends the selection from the anchor.
   - **Home**/**End** jump to the line bounds; **Ctrl+Home**/**Ctrl+End** to the
     document bounds; the **Shift** variants extend.
@@ -130,10 +132,12 @@ are not selectable, so a selection can only ever contain log-pane text.
 - **Copy** — **Enter** copies the selection to the clipboard and shows a
   confirmation toast. **Ctrl+C** quits, as before.
 
-Copied text never contains trailing spaces: the log's right-hand padding is
-stripped from each line. Copy prefers a native clipboard tool (`wl-copy` on
-Wayland, `xclip` on X11, `pbcopy` on macOS) and falls back to the terminal's
-OSC 52 sequence, which some terminals ignore.
+In the monitor pane only the text currently displayed can be selected: the pane
+clips overflow, so rows scrolled out (or cut off) below the pane can never be
+included in a selection or copy. Copied text never contains trailing spaces (the
+panes' right-hand padding is stripped) nor markup tags. Copy prefers a native
+clipboard tool (`wl-copy` on Wayland, `xclip` on X11, `pbcopy` on macOS) and
+falls back to the terminal's OSC 52 sequence, which some terminals ignore.
 
 ---
 
