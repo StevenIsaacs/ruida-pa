@@ -2355,7 +2355,7 @@ class TuiAdapter(App):
             self._ruida_driver.set_tail_script([])
         # Stop memory monitor timer
         if self._mem_timer is not None:
-            self._mem_timer.cancel()
+            self._mem_timer.stop()
             self._mem_timer = None
         self._monitor_enabled = False
         self._mem_initial = {}
@@ -3066,7 +3066,7 @@ class TuiAdapter(App):
             self._log_info("Monitor ON — auto-update every 15s")
         elif action == "off":
             if self._mem_timer is not None:
-                self._mem_timer.cancel()
+                self._mem_timer.stop()
                 self._mem_timer = None
             self._monitor_enabled = False
             self._log_info("Monitor OFF")
@@ -3732,7 +3732,7 @@ class TuiAdapter(App):
     def _stop_gluescript_watch(self) -> None:
         """Cancel the watch timer and clear the watched-file state."""
         if self._gluescript_watch_timer is not None:
-            self._gluescript_watch_timer.cancel()
+            self._gluescript_watch_timer.stop()
             self._gluescript_watch_timer = None
         self._gluescript_watch_path = None
         self._gluescript_watch_mtime = None
@@ -5781,7 +5781,7 @@ class TuiAdapter(App):
         """
         # Stop memory monitor timer to prevent widget access during teardown
         if self._mem_timer is not None:
-            self._mem_timer.cancel()
+            self._mem_timer.stop()
             self._mem_timer = None
         self._stop_gluescript_watch()
         self._save_command_history()

@@ -5,21 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-
-- `TcpTransport` for controllers that take the Ruida command stream over TCP port 50200 instead of UDP, such as the RDC8445S; select it with `RdDriver.start(protocol="tcp")` (also accepted by the RPC client/service and the TUI adapter). TCP packets carry no checksum prefix, and the byte stream is re-framed into the ACK and reply units the handshake expects
-- `RdStatusEvent.TRANSPORT_TCP` and `RdTransport.is_tcp`
-- `RdTransport.close_stream()`; after failed pings the status monitor closes a TCP connection and reconnects, so a client the controller dropped without closing the socket recovers
-- `session start ... proto=udp|tcp` in the TUI and `.rds` scripts selects the network protocol (default `udp`)
-- RDC8445S card ID (`0x90109010`)
 ## [0.22.0] - 2026-10-02
 
 ### Added
 
 - Text selection in the TUI log pane using the mouse (drag) or keyboard (Tab to focus, arrow keys to move a caret, Shift+arrows to extend); Enter copies the selection (with a confirmation toast, preferring a native clipboard tool over OSC 52) and Ctrl+C quits. Selection is confined to the log pane and copied text has no trailing spaces.
+- `TcpTransport` for controllers that take the Ruida command stream over TCP port 50200 instead of UDP, such as the RDC8445S; select it with `RdDriver.start(protocol="tcp")` (also accepted by the RPC client/service and the TUI adapter). TCP packets carry no checksum prefix, and the byte stream is re-framed into the ACK and reply units the handshake expects
+- `RdStatusEvent.TRANSPORT_TCP` and `RdTransport.is_tcp`
+- `RdTransport.close_stream()`; after failed pings the status monitor closes a TCP connection and reconnects, so a client the controller dropped without closing the socket recovers
+- `session start ... proto=udp|tcp` in the TUI and `.rds` scripts selects the network protocol (default `udp`)
+- RDC8445S card ID (`0x90109010`)
 - Version bump to 0.22.0.
+
+### Fixed
+
+- TUI `/monitor off` no longer crashes with `'Timer' object has no attribute 'cancel'`: Textual `Timer` handles returned by `set_interval()` are now stopped with `.stop()` instead of `.cancel()` (also fixed for `/clear`, the GlueScript file-watch stop, and the app-exit teardown); the asyncio `Task.cancel()` site is unaffected.
 
 ## [0.21.2] - 2026-09-30
 
