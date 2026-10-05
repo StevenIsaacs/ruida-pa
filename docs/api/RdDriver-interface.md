@@ -74,6 +74,8 @@ def stop(self) -> None
 | `get_head_script` | `()` | `list[str]` | Return a copy of the current head script. Thread-safe. |
 | `get_tail_script` | `()` | `list[str]` | Return a copy of the current tail script. Thread-safe. |
 | `cancel_script` | `()` | `None` | Clear all queued scripts and prevent current script from requeuing on disconnect. Thread-safe. |
+| `read_settings` | `(mnemonics: list[str], timeout: float = 3.0)` | `dict[str, int]` | Send one `GET_SETTING` per `MEM_*` mnemonic and block until every reply arrives or `timeout` seconds pass. Returns raw unsigned values keyed by mnemonic; settings that did not reply are omitted. Raises `KeyError` for an unknown mnemonic, `JobRunningError` while a job runs (see §3.9). |
+| `setting_address` | `(mnemonic: str)` (static) | `int` | Memory address of a `MEM_*` mnemonic from `MT`. Raises `KeyError` if unknown. |
 
 ### 3.1 Script Format
 
@@ -298,6 +300,23 @@ that starts between polls is not seen immediately.
 subclass. `_emit_live_lines()` — used by the job-control commands and by
 jogs/homing — calls `_queue_script()` directly, so job-control commands
 reach the controller while a job runs.
+
+### 3.9 `read_settings()` — Reading Controller Memory
+
+`read_settings()` reads controller configuration on demand, for example to
+auto-configure a host application from the bed size and axis limits:
+
+```python
+values = driver.read_settings(["MEM_BED_SIZE_X", "MEM_BED_SIZE_Y"])
+# {"MEM_BED_SIZE_X": 1300000, "MEM_BED_SIZE_Y": 900000}  (µm)
+```
+
+- Values are the raw 35-bit integers; callers apply units (lengths in µm,
+  velocities in µm/s, accelerations in µm/s² on an RDC8445S).
+- Replies are captured before status filtering, so status-tracked addresses
+  such as `MEM_CARD_ID` can be read too, even though they are never forwarded
+  to reply listeners.
+- The commands go through `run()`, so the job-running guard applies.
 
 ---
 

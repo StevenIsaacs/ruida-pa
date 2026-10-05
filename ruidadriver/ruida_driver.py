@@ -125,6 +125,9 @@ class RdDriver(GlueScript):
         self._start_magic: int = 0x88
         self._start_protocol: str = "udp"
         self._decoded_values: dict[int, Any] = {}
+        # Outstanding read_settings() requests: address -> raw value
+        # (None until replied) plus the event set once all have replied.
+        self._pending_reads: list[tuple[dict[int, int | None], threading.Event]] = []
         self._build_status_map()
         self._head_script: list[str] = [
             "REF_POINT_MACHINE",
@@ -521,6 +524,7 @@ class RdDriver(GlueScript):
 
         for raw_reply in replies:
             address = decoder.decode_address(raw_reply)
+            self._resolve_pending_read(address, decoder.decode_value(raw_reply))
 
             if address in self._handled_addresses:
                 status_key = self._address_to_status_key[address]
@@ -791,6 +795,65 @@ class RdDriver(GlueScript):
             if not script:
                 return  # Empty script is a no-op
             self._script_queue.put((script, auto_checksum))
+
+    def _resolve_pending_read(self, address: int, value: int) -> None:
+        """Record a reply for any read_settings() call waiting on *address*."""
+        with self._lock:
+            for values, done in self._pending_reads:
+                if address in values and values[address] is None:
+                    values[address] = value
+                    if all(v is not None for v in values.values()):
+                        done.set()
+
+    @staticmethod
+    def setting_address(mnemonic: str) -> int:
+        """Return the memory address of a MEM_* mnemonic.
+
+        Raises:
+            KeyError: If the mnemonic is not in the memory table.
+        """
+        for msb, entries in rdap.MT.items():
+            for lsb, entry in entries.items():
+                if entry[0] == mnemonic:
+                    return (msb << 8) | lsb
+        raise KeyError(f"Unknown memory mnemonic: {mnemonic}")
+
+    def read_settings(self, mnemonics: list[str], timeout: float = 3.0) -> dict[str, int]:
+        """Read controller memory values and wait for the replies.
+
+        Sends one GET_SETTING per mnemonic and blocks until every reply
+        has arrived or *timeout* seconds have passed. Values are the raw
+        unsigned 35-bit integers from the controller; callers apply the
+        units for each setting (e.g. µm, µm/s, µm/s²).
+
+        Args:
+            mnemonics: MEM_* mnemonics from the memory table.
+            timeout: Maximum seconds to wait for all replies.
+
+        Returns:
+            Mapping of mnemonic to raw value. Settings that did not reply
+            in time are omitted.
+
+        Raises:
+            KeyError: If a mnemonic is not in the memory table.
+            RuntimeError: If the driver is not started.
+        """
+        addresses = {self.setting_address(m): m for m in mnemonics}
+        values: dict[int, int | None] = dict.fromkeys(addresses)
+        done = threading.Event()
+        with self._lock:
+            self._pending_reads.append((values, done))
+        try:
+            self.run([f"GET_SETTING {m}" for m in mnemonics])
+            done.wait(timeout)
+        finally:
+            with self._lock:
+                self._pending_reads.remove((values, done))
+        return {
+            addresses[address]: value
+            for address, value in values.items()
+            if value is not None
+        }
 
     def run(self, script: list[str], auto_checksum: bool = False) -> None:
         """Queue a script for background execution.

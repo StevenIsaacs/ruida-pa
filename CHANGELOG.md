@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `RdDriver.read_settings(mnemonics, timeout)` reads controller memory by `MEM_*` mnemonic and waits for the replies, returning raw values (including status-tracked addresses such as `MEM_CARD_ID`); `RdDriver.setting_address()` resolves a mnemonic to its address
 - `TcpTransport` for controllers that take the Ruida command stream over TCP port 50200 instead of UDP, such as the RDC8445S; select it with `RdDriver.start(protocol="tcp")` (also accepted by the RPC client/service and the TUI adapter). TCP packets carry no checksum prefix, and the byte stream is re-framed into the ACK and reply units the handshake expects
 - `RdStatusEvent.TRANSPORT_TCP` and `RdTransport.is_tcp`
 - `RdTransport.close_stream()`; after failed pings the status monitor closes a TCP connection and reconnects, so a client the controller dropped without closing the socket recovers
