@@ -59,7 +59,7 @@ if [ -e $_path ]; then
     done
     if [ "$_proto" = "tcp" ]; then
         _filter="(ip.addr == $_ip && tcp.port == 50200)"
-        _fields="-e frame.time_delta -e tcp.port -e tcp.len -e tcp.payload"
+        _fields="-e frame.time_delta -e tcp.srcport -e tcp.dstport -e tcp.len -e tcp.payload"
     else
         _filter="(ip.addr == $_ip)"
         _fields="-e frame.time_delta -e udp.port -e udp.length -e data.data"

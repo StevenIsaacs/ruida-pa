@@ -1,11 +1,15 @@
 """
-Protocol analyzer for Ruida data transported via a UDP connection. This
-dissects Ruida commands and replies in UDP data packets to produce a human
+Protocol analyzer for Ruida data transported via a UDP or TCP connection. This
+dissects Ruida commands and replies in network packets to produce a human
 readable log of events and their relative timing.
 
-This version is intended to be used from the command line to process UDP
-session data previously captured using tshark (Wireshark CLI). See decode
-for more information.
+The capture format is autodetected per line from the field count: UDP captures
+have four tab-separated fields, TCP captures have five (the source and
+destination ports are separate fields rather than a comma-joined pair).
+
+This version is intended to be used from the command line to process session
+data previously captured using tshark (Wireshark CLI). See decode for more
+information.
 """
 
 import protocols.ruida.ruida_parser as rp
@@ -21,6 +25,10 @@ class UdpDumpReader:
     tshark -Y '(ip.addr == <ruida ip> && udp.payload)' -T fields \
         -e frame.time -e udp.port -e udp.length -e data.data>
 
+    TCP captures use five fields and are autodetected:
+    tshark -Y '(ip.addr == <ruida ip> && tcp.payload)' -T fields \
+        -e frame.time -e tcp.srcport -e tcp.dstport -e tcp.len -e tcp.payload>
+
     Parameters:
         args        The command line arguments.
         input       The input stream to read capture data from. This stream
@@ -33,9 +41,10 @@ class UdpDumpReader:
         line_number The number of lines read or the number for the last line
                     read.
         ts          The timestamp of when the packet was captured.
-        to_port     The destination port number.
-        from_port   The source port number. The receiver uses this port as the
-                    destination port for replies.
+        is_tcp      True when the current line is a TCP capture (five fields).
+        to_port     The source port number.
+        from_port   The destination port number. The receiver uses this port as
+                    the destination port for replies.
         length      The length of the payload (not including the checksum)
         data        The binary swizzled data payload (not including checksum).
     """
@@ -52,6 +61,8 @@ class UdpDumpReader:
         self.from_port = None
         self.length = 0
         self.data = []
+        # Capture protocol, autodetected per line from the field count.
+        self.is_tcp = False
 
     def next_packet(self):
         """Read the next packet from the dump file.
@@ -72,13 +83,20 @@ class UdpDumpReader:
             self.out.set_pkt_n(self.line_number)
             _fields: list[str] = self.line.rstrip("\n\r").split("\t")
 
-            # Validate field count: tshark -T fields with 4 -e flags yields
-            # 4 tab-separated fields (frame.time_delta, udp.port, udp.length,
-            # data.data).
-            if len(_fields) != 4:
+            # Autodetect the capture protocol from the field count:
+            #   UDP: 4 fields (frame.time_delta, udp.port, udp.length, data.data)
+            #   TCP: 5 fields (frame.time_delta, tcp.srcport, tcp.dstport,
+            #        tcp.len, tcp.payload).  The extra field exists because the
+            #        TCP source and destination ports are separate tab-separated
+            #        fields rather than the comma-joined udp.port pair.
+            if len(_fields) == 5:
+                self.is_tcp = True
+            elif len(_fields) == 4:
+                self.is_tcp = False
+            else:
                 raise SyntaxError(
-                    f"Line {self.line_number}: expected 4 tab-separated fields, "
-                    f"got {len(_fields)}"
+                    f"Line {self.line_number}: expected 4 (UDP) or 5 (TCP) "
+                    f"tab-separated fields, got {len(_fields)}"
                 )
 
             # First packet has no previous frame, so frame.time_delta is
@@ -89,22 +107,37 @@ class UdpDumpReader:
             self.delta_time = float(_fields[0])
             self.out.reader(f"Interval:{self.delta_time:.6f}S")
 
-            # Validate Ruida port combination: the controller exchanges
-            # packets between port 40200 and 50200.
-            if _fields[1] not in ("50200,40200", "40200,50200"):
-                raise SyntaxError(
-                    f"Line {self.line_number}: unrecognized port combination "
-                    f'"{_fields[1]}"; expected 50200,40200 or 40200,50200'
-                )
+            if self.is_tcp:
+                # TCP: source/destination ports are separate fields.  tcp.len
+                # is already the payload length (no transport header to strip).
+                self.to_port = int(_fields[1])
+                self.from_port = int(_fields[2])
+                self.length = int(_fields[3])
+                self.data = bytes.fromhex(_fields[4])
+                _n = len(self.data)
+                if _n != self.length:
+                    self.out.fatal(
+                        f"Length MISMATCH: TCP=({self.length}) payload=({_n})"
+                    )
+            else:
+                # Validate Ruida port combination: the controller exchanges
+                # packets between port 40200 and 50200.
+                if _fields[1] not in ("50200,40200", "40200,50200"):
+                    raise SyntaxError(
+                        f"Line {self.line_number}: unrecognized port combination "
+                        f'"{_fields[1]}"; expected 50200,40200 or 40200,50200'
+                    )
 
-            _ports = _fields[1].split(",")
-            self.to_port = int(_ports[0])
-            self.from_port = int(_ports[1])
-            self.length = int(_fields[2]) - 8  # Subtract length of UDP header.
-            self.data = bytes.fromhex(_fields[3])
-            _n = len(self.data)
-            if _n != self.length:
-                self.out.fatal(f"Length MISMATCH: UDP=({self.length}) payload=({_n})")
+                _ports = _fields[1].split(",")
+                self.to_port = int(_ports[0])
+                self.from_port = int(_ports[1])
+                self.length = int(_fields[2]) - 8  # Subtract length of UDP header.
+                self.data = bytes.fromhex(_fields[3])
+                _n = len(self.data)
+                if _n != self.length:
+                    self.out.fatal(
+                        f"Length MISMATCH: UDP=({self.length}) payload=({_n})"
+                    )
         except EOFError:
             self.line = None
             return None
@@ -210,8 +243,15 @@ class RdPacket:
             return None
 
         self.new_packet = True  # next_byte resets this.
-        self.swizzled = self.reader.to_port in [40200, 50200]
-        self.reply = self.reader.from_port in [40200, 40207]
+        if self.reader.is_tcp:
+            # TCP traffic is swizzled in both directions.  The controller
+            # accepts connections on port 50200, so any packet whose
+            # destination is another port is a controller->host reply.
+            self.swizzled = True
+            self.reply = self.reader.from_port != 50200
+        else:
+            self.swizzled = self.reader.to_port in [40200, 50200]
+            self.reply = self.reader.from_port in [40200, 40207]
 
         if self.reply:
             self.out.set_direction("<--")
@@ -220,16 +260,21 @@ class RdPacket:
             self.chk_ok = True
         else:
             self.out.set_direction("-->")
-            # Verify checksum and return only the data portion of the payload.
-            # NOTE: The checksum is not swizzled.
-            _chk = int.from_bytes(self.reader.data[0:2])
-            _data = self.reader.data[2:]
-            _chk_sum = sum(_data) & 0xFFFF
-            self.chk_ok = _chk == _chk_sum
-            if not self.chk_ok:
-                self.out.error(
-                    f"Checksum mismatch. pkt:0x{_chk:04X} sum:0x{_chk_sum:04X}"
-                )
+            if self.reader.is_tcp:
+                # TCP command packets carry no checksum prefix.
+                _data = self.reader.data
+                self.chk_ok = True
+            else:
+                # Verify checksum and return only the data portion of the
+                # payload.  NOTE: The checksum is not swizzled.
+                _chk = int.from_bytes(self.reader.data[0:2])
+                _data = self.reader.data[2:]
+                _chk_sum = sum(_data) & 0xFFFF
+                self.chk_ok = _chk == _chk_sum
+                if not self.chk_ok:
+                    self.out.error(
+                        f"Checksum mismatch. pkt:0x{_chk:04X} sum:0x{_chk_sum:04X}"
+                    )
 
         if self.swizzled:
             self.data = self._swizzler.unswizzle(bytearray(_data))
@@ -271,7 +316,15 @@ class RdPacket:
             while True:
                 if self.reader.next_packet() is None:
                     break
-                if self.reader.from_port == 40200 and self.reader.length == 1:
+                if self.reader.is_tcp:
+                    # The TCP controller ACK is a 1-byte reply sourced from
+                    # the controller port 50200.
+                    _is_ack = self.reader.to_port == 50200 and self.reader.length == 1
+                else:
+                    _is_ack = (
+                        self.reader.from_port == 40200 and self.reader.length == 1
+                    )
+                if _is_ack:
                     _r = self.reader.data[0]
                     if _r in self.MAGIC_LUT:
                         self.magic = self.MAGIC_LUT[_r]

@@ -16,7 +16,7 @@ param (
 )
 if ($Protocol -eq "tcp") {
 	$filter = "(ip.addr == $ip && tcp.port == 50200)"
-	$fields = @("-e", "frame.time_delta", "-e", "tcp.port", "-e", "tcp.len", "-e", "tcp.payload")
+	$fields = @("-e", "frame.time_delta", "-e", "tcp.srcport", "-e", "tcp.dstport", "-e", "tcp.len", "-e", "tcp.payload")
 } else {
 	$filter = "(ip.addr == $ip)"
 	$fields = @("-e", "frame.time_delta", "-e", "udp.port", "-e", "udp.length", "-e", "data.data")
