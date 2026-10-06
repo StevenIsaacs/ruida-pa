@@ -88,6 +88,12 @@ _log = logging.getLogger(__name__)
 
 _GLUESCRIPT_WATCH_INTERVAL = 2.0  # seconds between .cglu external-edit polls
 
+# How long a command-pane GET_SETTING address stays eligible for a
+# raw-transport reply match. The reply normally arrives within milliseconds;
+# the window only bounds stale entries when no reply arrives (e.g. a dropped
+# session).
+_EXPLICIT_REPLY_TTL = 5.0
+
 
 def _copy_to_native_clipboard(text: str) -> bool:
     """Copy ``text`` to the system clipboard using a native utility.
@@ -1036,6 +1042,12 @@ class TuiAdapter(App):
         self._script_count = 0
         self._logging_enabled: bool = True
         self._status_log_buffer: deque[str] = deque()
+        # Explicit command-pane GET_SETTING tracking: addresses whose replies
+        # are otherwise swallowed by the driver's status filter are forwarded
+        # to the log pane via a raw transport reply listener.
+        self._explicit_reply_addrs: dict[int, float] = {}
+        self._explicit_reply_lock = threading.Lock()
+        self._explicit_reply_transport: Any = None
         self._introspect_map: dict[str, Callable[[], Any]] = {
             "session": lambda: self._ruida_driver,
             "transport": lambda: (
@@ -1402,6 +1414,9 @@ class TuiAdapter(App):
                     )
                     self._log_error(f"Invalid GET_SETTING: {reason}")
                     return
+                # Replies to status addresses are swallowed by the driver's
+                # status filter; track them so the reply is shown in the pane.
+                self._register_explicit_query(params[0])
 
             if cmd["type"] == "SERVER_START":
                 asyncio.create_task(self._start_server(**cmd["params"]))
@@ -3245,6 +3260,12 @@ class TuiAdapter(App):
             return
         if driver.gluescript:
             self._preserved_gluescript = list(driver.gluescript)
+        # Drop the explicit-reply registration with the session's transport
+        # (close() also clears listeners, but the transport identity must be
+        # forgotten so a new session re-registers).
+        self._explicit_reply_transport = None
+        with self._explicit_reply_lock:
+            self._explicit_reply_addrs.clear()
         driver.stop()
         self._ruida_driver = None
 
@@ -5056,6 +5077,92 @@ class TuiAdapter(App):
         """Write reply strings to the main log area (asyncio thread only)."""
         for formatted in replies:
             self._log_widget.write(f"  ← {formatted}")
+
+    # ------------------------------------------------------------------
+    # Explicit command-pane GET_SETTING reply display
+    # ------------------------------------------------------------------
+    #
+    # The driver decodes replies for its status addresses (MACHINE_STATUS,
+    # positions, CARD_ID, bed size) itself and does not forward them to reply
+    # listeners, so a GET_SETTING typed in the command pane would show nothing.
+    # These helpers add a raw reply listener on the session transport (which
+    # notifies every reply) and display only the addresses just queried.
+
+    def _resolve_mt_address(self, token: str) -> int | None:
+        """Resolve an MT mnemonic or numeric GET_SETTING address token."""
+        mt_entry = self._parser._mt_map.get(token)
+        if mt_entry is not None:
+            try:
+                msb, lsb = mt_entry
+                return (int(msb) << 8) | int(lsb)
+            except (TypeError, ValueError):
+                return None
+        try:
+            return int(token, 0) & 0xFFFF
+        except (TypeError, ValueError):
+            return None
+
+    def _register_explicit_query(self, token: str) -> None:
+        """Track a command-pane GET_SETTING address so its reply is displayed.
+
+        Only driver-handled (status) addresses need this — other addresses are
+        already forwarded to the log pane by the driver's reply listener.
+        """
+        driver = self._ruida_driver
+        if driver is None:
+            return
+        address = self._resolve_mt_address(token)
+        if address is None or address not in driver._handled_addresses:
+            return
+        with self._explicit_reply_lock:
+            self._explicit_reply_addrs[address] = time.monotonic() + _EXPLICIT_REPLY_TTL
+        self._ensure_explicit_reply_listener()
+
+    def _ensure_explicit_reply_listener(self) -> None:
+        """Register the raw reply listener on the current session transport."""
+        driver = self._ruida_driver
+        if driver is None or driver._session is None:
+            return
+        transport = driver._session.transport
+        if transport is self._explicit_reply_transport:
+            return
+        try:
+            transport.register_reply_listener(self._on_explicit_reply)
+        except Exception as e:  # noqa: BLE001 - display helper must never crash
+            self._log_warning(f"Could not register explicit reply listener: {e}")
+            return
+        self._explicit_reply_transport = transport
+
+    def _on_explicit_reply(self, replies: list[bytearray]) -> None:
+        """Transport reply listener: display replies for explicitly queried addresses.
+
+        Called on the handshake thread for every raw reply; each tracked address
+        is consumed once so the periodic status polling does not spam the pane.
+        """
+        now = time.monotonic()
+        matched: list[str] = []
+        decoder = RdDecoder()
+        with self._explicit_reply_lock:
+            for address in [
+                a for a, expiry in self._explicit_reply_addrs.items() if expiry < now
+            ]:
+                self._explicit_reply_addrs.pop(address, None)
+            for reply in replies:
+                try:
+                    address = decoder.decode_address(reply)
+                except Exception:  # noqa: BLE001
+                    continue
+                if address not in self._explicit_reply_addrs:
+                    continue
+                self._explicit_reply_addrs.pop(address, None)
+                try:
+                    matched.append(RdDriver.format_reply(reply))
+                except Exception:  # noqa: BLE001
+                    pass
+        if matched:
+            self.post_message(
+                Callback(functools.partial(self._write_replies, matched))
+            )
 
     def on_error(self, message: str) -> None:
         """Handle an error condition. Thread-safe via post_message(Callback(...))."""

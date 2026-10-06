@@ -270,6 +270,14 @@ CUT_FAR_XY X=200mm Y=100mm
 
 Sent to the controller as a single-line script. Requires an active session.
 
+Replies to a `GET_SETTING` command typed in the command pane **always appear in
+the log pane** (as `← MEM_MACHINE_STATUS: …`, `← MEM_CARD_ID: …`, etc.), even for
+the status addresses the TUI polls automatically (machine status, positions,
+card ID, bed size). Those replies are otherwise consumed by the driver's status
+tracking, so the TUI registers a raw transport reply listener and displays the
+reply for the address you just queried. Polling replies are not shown, and each
+typed query shows its reply once.
+
 ---
 
 ## 6. Slash Commands
