@@ -425,6 +425,33 @@ def parse_value(
         if result or parts == [""]:
             return result
 
+    # --- MFeatures label/field-to-bitmask resolution ---
+    # Mirrors m_stat, plus "Name: Label" value fields (see MFT_FIELDS).
+    if decoder_fn == "m_features":
+        label_to_bit = {lbl: bit for bit, lbl in rdap.MFT}
+        field_by_name = {
+            name: (mask, shift, modes)
+            for mask, shift, name, modes in rdap.MFT_FIELDS
+        }
+        parts = [p.strip() for p in raw.split(",")]
+        result = 0
+        for part in parts:
+            if part in label_to_bit:
+                result |= label_to_bit[part]
+                continue
+            name, sep, label = part.partition(":")
+            if not sep:
+                continue
+            field = field_by_name.get(name.strip())
+            if field is None:
+                continue
+            mask, shift, modes = field
+            reverse = {lbl: value for value, lbl in modes.items()}
+            if label.strip() in reverse:
+                result |= (reverse[label.strip()] << shift) & mask
+        if result or parts == [""]:
+            return result
+
     # --- Card ID name-to-value resolution ---
     if decoder_fn == "card_id":
         numeric_id = rdap.CARD_IDS_BY_NAME.get(raw)
