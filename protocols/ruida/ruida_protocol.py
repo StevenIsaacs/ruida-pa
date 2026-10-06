@@ -344,7 +344,7 @@ MT = {
         0x0B: ("MEM_FEED_DELAY_PRIOR", TBDU35),
         0x0C: ("MEM_MANUAL_DIS", TBDU35),
         0x0D: ("MEM_SHUT_DOWN_DELAY", TBDU35),
-        0x0E: ("MEM_FOCUS_DEPTH", TBDU35),  # Verified RDC8445S
+        0x0E: ("MEM_FOCUS_DEPTH", ZFARDIM),  # Verified RDC8445S
         0x0F: ("MEM_GO_SCALE_BLANK", TBDU35),
         0x1A: ("MEM_ACC_RATIO", TBDU35),
         0x17: ("MEM_ARRAY_FEED_REPAY", TBDU35),

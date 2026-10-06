@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - TUI `/monitor off` no longer crashes with `'Timer' object has no attribute 'cancel'`: Textual `Timer` handles returned by `set_interval()` are now stopped with `.stop()` instead of `.cancel()` (also fixed for `/clear`, the GlueScript file-watch stop, and the app-exit teardown); the asyncio `Task.cancel()` site is unaffected.
 - TUI command-pane `GET_SETTING` replies now appear in the log pane for status addresses (`MEM_MACHINE_STATUS`, positions, `MEM_CARD_ID`, bed size) whose replies the driver otherwise consumes for status tracking; the TUI registers a raw transport reply listener and displays each queried address once.
+- `MEM_FOCUS_DEPTH` (`0x020E`) now decodes as a Z-axis dimension (`ZFARDIM`, mm) instead of the opaque `TBDU35`, so it displays as `MEM_FOCUS_DEPTH: Z=12.345mm`.
 
 ## [0.21.2] - 2026-09-30
 
