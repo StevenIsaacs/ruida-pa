@@ -52,6 +52,7 @@ class StatusDict(TypedDict, total=False):
     CARD_ID: tuple[int, str]
     BED_SIZE_X: tuple[float, str]
     BED_SIZE_Y: tuple[float, str]
+    MACHINE_FEATURES: tuple[int, str]
     MACHINE_STATUS: tuple[int, str]
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_PAUSED: bool
@@ -84,6 +85,7 @@ class RdDriver(GlueScript):
         0x057E: "CARD_ID",
         0x0026: "BED_SIZE_X",
         0x0036: "BED_SIZE_Y",
+        0x030F: "MACHINE_FEATURES",
         0x0400: "MACHINE_STATUS",
     }
     # Generic keys whose values are positions in mm
@@ -102,9 +104,10 @@ class RdDriver(GlueScript):
     ]
 
     # Commands triggered on MEM_CARD_ID reply
-    _BED_SIZE_SCRIPT = [
+    _FEATURES_SCRIPT = [
         "GET_SETTING MEM_BED_SIZE_X",
         "GET_SETTING MEM_BED_SIZE_Y",
+        "GET_SETTING MEM_MACHINE_FEATURES",
     ]
 
     def __init__(self) -> None:
@@ -135,7 +138,8 @@ class RdDriver(GlueScript):
         self._tail_script: list[str] = []
 
     def _build_status_map(self) -> None:
-        """Build address resolution maps from _PING_SCRIPT, _QUERY_SCRIPT, _BED_SIZE_SCRIPT.
+        """Build address resolution maps from _PING_SCRIPT, _QUERY_SCRIPT,
+        _FEATURES_SCRIPT.
 
         Populates:
             _handled_addresses: set[int] — fast membership check for reply filtering
@@ -162,7 +166,7 @@ class RdDriver(GlueScript):
         scripts = [
             ("_PING_SCRIPT", self._PING_SCRIPT),
             ("_QUERY_SCRIPT", self._QUERY_SCRIPT),
-            ("_BED_SIZE_SCRIPT", self._BED_SIZE_SCRIPT),
+            ("_FEATURES_SCRIPT", self._FEATURES_SCRIPT),
         ]
 
         for script_name, script_lines in scripts:
@@ -505,7 +509,7 @@ class RdDriver(GlueScript):
     def _on_reply(self, replies: list[bytearray]) -> None:
         """Internal reply handler: decode for status tracking, filter handled replies.
 
-        For handled addresses (from _PING_SCRIPT, _QUERY_SCRIPT, _BED_SIZE_SCRIPT):
+        For handled addresses (from _PING_SCRIPT, _QUERY_SCRIPT, _FEATURES_SCRIPT):
         - Decode value, compare with previous, build changes dict if changed.
         - Dimension addresses (dim spec) emit mm float values; all others emit
           raw unsigned ints.
@@ -553,10 +557,10 @@ class RdDriver(GlueScript):
 
                 if status_key == "CARD_ID":
                     try:
-                        self.run(self._BED_SIZE_SCRIPT)
+                        self.run(self._FEATURES_SCRIPT)
                     except JobRunningError:
-                        logging.debug("Skipping bed-size query: job running")
-                        pass  # Job running — skip bed-size query; retried next CARD_ID
+                        logging.debug("Skipping features query: job running")
+                        pass  # Job running — skip features query; retried next CARD_ID
             else:
                 forward_replies_raw.append(raw_reply)
 

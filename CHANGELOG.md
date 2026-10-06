@@ -16,16 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `session start ... proto=udp|tcp` in the TUI and `.rds` scripts selects the network protocol (default `udp`)
 - RDC8445S card ID (`0x90109010`)
 - `GlueScript.focus_z()` sends `FOCUS_Z` (`D8 2E`), the controller's Z auto-focus (same routine as the panel Focus key): the table is raised until the probe triggers, lowered to `MEM_FOCUS_DEPTH`, and Z is set to that distance. Available through `RdDriver`, the RPC client/service and the TUI (`focus_z`)
-- `MEM_FOCUS_CONFIG` (`0x030F`); bit `0x0001` is the controller's focus-enabled flag, so hosts can choose between `HOME_Z` and `FOCUS_Z`
+- `MEM_MACHINE_FEATURES` (`0x030F`, renamed from `MEM_FOCUS_CONFIG`); a bit/field table (`MFT`/`MFT_FIELDS`) decodes the controller feature flags — bit `0x0001` focus enabled (so hosts can choose between `HOME_Z` and `FOCUS_Z`), bit `0x0008` Z return to docking, and field `0x0600` air-assist mode
 - Text selection and clipboard copy in the TUI monitor pane (`#reply-log`, the memory/GC tables rendered by `/monitor`): mouse drag, keyboard caret (Tab to focus, arrows, Shift+arrows, Home/End), and Enter to copy. Selection is confined to the text currently displayed — off-screen rows and markup tags are never copied. The selection/caret machinery was extracted from `SelectableRichLog` into a shared `TextSelectionMixin` used by both the log and monitor panes.
 - `./capture <ip> <file> --tcp` (bash) and `./capture.ps1 -Protocol tcp` (PowerShell) capture the Ruida TCP stream on port 50200 with tshark (`tcp.srcport`/`tcp.dstport`/`tcp.len`/`tcp.payload` fields) in addition to the default UDP capture
 - `RuidaProtocolAnalyzer` autodetects TCP captures from the field count (UDP log lines have four tab-separated fields, TCP lines have five), so `rpa.py` decodes `./capture --tcp` logs with no extra parameter; TCP carries no checksum prefix and uses port 50200 for controller replies
+- `RdDriver._FEATURES_SCRIPT` (renamed from `_BED_SIZE_SCRIPT`) now also issues `GET_SETTING MEM_MACHINE_FEATURES` on each `MEM_CARD_ID` reply, so the controller feature flags are fetched on connect and exposed to status listeners as the `MACHINE_FEATURES` key in `StatusDict` (`(raw_int, "MFeat:…")`)
 - Version bump to 0.22.0.
 
 ### Fixed
 
 - TUI `/monitor off` no longer crashes with `'Timer' object has no attribute 'cancel'`: Textual `Timer` handles returned by `set_interval()` are now stopped with `.stop()` instead of `.cancel()` (also fixed for `/clear`, the GlueScript file-watch stop, and the app-exit teardown); the asyncio `Task.cancel()` site is unaffected.
 - TUI command-pane `GET_SETTING` replies now appear in the log pane for status addresses (`MEM_MACHINE_STATUS`, positions, `MEM_CARD_ID`, bed size) whose replies the driver otherwise consumes for status tracking; the TUI registers a raw transport reply listener and displays each queried address once.
+- `MEM_FOCUS_DEPTH` (`0x020E`) now decodes as a Z-axis dimension (`ZFARDIM`, mm) instead of the opaque `TBDU35`, so it displays as `MEM_FOCUS_DEPTH: Z=12.345mm`.
 
 ## [0.21.2] - 2026-09-30
 

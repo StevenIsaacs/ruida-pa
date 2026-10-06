@@ -141,6 +141,7 @@ TIME = ("{:.3f}mS", "time", "int_35")
 SWITCH = ("State:{}", "on_off", "uint_7")
 CARD_ID = ("CardID:{}", "card_id", "uint_35")
 M_STAT = ("MStat:{}", "m_stat", "uint_35")
+M_FEATURES = ("MFeat:{}", "m_features", "uint_35")
 
 # A memory access triggers special processing using MT.
 MEMORY = ("Addr:{:04X}", "mt", "mt")
@@ -234,6 +235,28 @@ MST = {
     MACHINE_STATUS_JOB_RUNNING,
 }
 
+# Single-bit flags in a MEM_MACHINE_FEATURES value (MST-style).
+MACHINE_FEATURE_FOCUS = (0x0001, "Focus")
+MACHINE_FEATURE_Z_RETURN_DOCKING = (0x0008, "Z Return to Docking")
+
+MFT = {
+    MACHINE_FEATURE_FOCUS,
+    MACHINE_FEATURE_Z_RETURN_DOCKING,
+}
+
+# Multi-bit value fields in a MEM_MACHINE_FEATURES value:
+# (mask, shift, name, {value: label}).
+# NOTE: The air-assist mode labels are placeholders pending confirmation of
+# the controller's mode values.
+MACHINE_FEATURE_AIR_ASSIST = (
+    0x0600,
+    9,
+    "Air Assist Mode",
+    {0: "Mode 0", 1: "Mode 1", 2: "Mode 2", 3: "Mode 3"},
+)
+
+MFT_FIELDS = (MACHINE_FEATURE_AIR_ASSIST,)
+
 MT = {
     0x00: {
         0x04: ("MEM_IO_ENABLE", TBDU35),
@@ -321,7 +344,7 @@ MT = {
         0x0B: ("MEM_FEED_DELAY_PRIOR", TBDU35),
         0x0C: ("MEM_MANUAL_DIS", TBDU35),
         0x0D: ("MEM_SHUT_DOWN_DELAY", TBDU35),
-        0x0E: ("MEM_FOCUS_DEPTH", TBDU35),  # Verified RDC8445S
+        0x0E: ("MEM_FOCUS_DEPTH", ZFARDIM),  # Verified RDC8445S
         0x0F: ("MEM_GO_SCALE_BLANK", TBDU35),
         0x1A: ("MEM_ACC_RATIO", TBDU35),
         0x17: ("MEM_ARRAY_FEED_REPAY", TBDU35),
@@ -353,9 +376,8 @@ MT = {
         0x05: ("MEM_PC_LOCK_5", TBDU35),
         0x06: ("MEM_PC_LOCK_6", TBDU35),
         0x07: ("MEM_PC_LOCK_7", TBDU35),
-        # Bit 0x0001 focus enabled, 0x0008 Z return to docking,
-        # 0x0600 air assist mode.
-        0x0F: ("MEM_FOCUS_CONFIG", TBDU35),  # Verified RDC8445S
+        # Bit/field definitions in MFT (flags) and MFT_FIELDS (value fields).
+        0x0F: ("MEM_MACHINE_FEATURES", M_FEATURES),  # Verified RDC8445S
         0x11: ("MEM_TOTAL_LASER_WORK_TIME", TBDU35),
     },
     0x04: {

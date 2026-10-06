@@ -342,6 +342,7 @@ thread). UI applications must use thread-safe dispatch mechanisms
 | `0x057E` | `MEM_CARD_ID` | `int` | Card identifier |
 | `0x0026` | `MEM_BED_SIZE_X` | `int` | Bed width (raw) |
 | `0x0036` | `MEM_BED_SIZE_Y` | `int` | Bed height (raw) |
+| `0x030F` | `MEM_MACHINE_FEATURES` | `int` | Feature bitfield: bit 0=Focus, bit 3=Z return to docking, bits 9-10=Air Assist Mode |
 
 ---
 
@@ -430,6 +431,7 @@ class StatusDict(TypedDict, total=False):
     CARD_ID: tuple[int, str]
     BED_SIZE_X: tuple[float, str]
     BED_SIZE_Y: tuple[float, str]
+    MACHINE_FEATURES: tuple[int, str]
     MACHINE_STATUS: tuple[int, str]
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_PAUSED: bool

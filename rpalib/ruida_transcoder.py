@@ -211,6 +211,19 @@ class RdDecoder:
         self.value = ", ".join(_s) if _s else f"0x{_v:08X}"
         return self.formatted
 
+    def rd_m_features(self, data: bytearray):
+        _v = self.to_uint(data)
+        _s = []
+        for _bit, _lbl in rdap.MFT:
+            if _v & _bit:
+                _s.append(_lbl)
+        for _mask, _shift, _name, _modes in rdap.MFT_FIELDS:
+            _mode = (_v & _mask) >> _shift
+            _lbl = _modes.get(_mode, f"0x{_mode:X}")
+            _s.append(f"{_name}: {_lbl}")
+        self.value = ", ".join(_s) if _s else f"0x{_v:08X}"
+        return self.formatted
+
     def rd_mt(self, data: bytearray):
         _msb = data[0]
         _lsb = data[1]

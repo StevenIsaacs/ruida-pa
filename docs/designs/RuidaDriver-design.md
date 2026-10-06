@@ -158,6 +158,7 @@ In addition, anytime a `MEM_CARD_ID` reply is received `RdDriver` sends addition
 ```
 GET_SETTING MEM_BED_SIZE_X
 GET_SETTING MEM_BED_SIZE_Y
+GET_SETTING MEM_MACHINE_FEATURES
 ```
 The ping command and the commands triggered by a `MEM_CARD_ID` reply are important because it is possible a transport was closed or `DROPPED` as the result of disconnecting from one machine and connecting to a different machine. The application needs to be informed of this change.
 ##### Query Commands

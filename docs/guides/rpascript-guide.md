@@ -363,6 +363,12 @@ Mnemonics resolve to 2-byte memory addresses (MSB, LSB).
 | `MEM_CURRENT_POSITION_Z`    | `0x0441` | `float`/`int`   | Current Z position             |
 | `MEM_CURRENT_POSITION_U`    | `0x0451` | `float`/`int`   | Current U position (rotary)    |
 
+### Machine Features
+
+| Mnemonic                    | Address   | Value Type      | Description                    |
+| --------------------------- | --------- | --------------- | ------------------------------ |
+| `MEM_MACHINE_FEATURES`      | `0x030F` | `int` (bitfield) | bit 0=Focus enabled, bit 3=Z return to docking, bits 9-10=Air Assist Mode (0-3) |
+
 ### Card & Bed
 
 | Mnemonic                    | Address   | Value Type      | Description                    |

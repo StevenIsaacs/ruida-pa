@@ -68,7 +68,7 @@ flowchart TD
     NRL["RdTransport._notify_reply_listeners()\n(reply data listeners)"]
     NS["RdTransport._notify_status()\n(TransportEvent listeners)"]
     RS["RdStatus._transport_listener (L5)\nevent-driven state machine\nsets threading.Event"]
-    DR["RdDriver._on_reply() (L6)\nRdDecoder.decode_address() / decode_value()\nupdate _machine_status dict\nfire MACHINE_STATUS_* events\nqueue BED_SIZE_SCRIPT on MEM_CARD_ID reply\nforward raw replies to reply listeners"]
+    DR["RdDriver._on_reply() (L6)\nRdDecoder.decode_address() / decode_value()\nupdate _machine_status dict\nfire MACHINE_STATUS_* events\nqueue FEATURES_SCRIPT on MEM_CARD_ID reply\nforward raw replies to reply listeners"]
     TUI["TuiAdapter.on_reply_data() (L7)\ndisplay in TUI side panel"]
     RC --> TR --> HST
     HST --> NRL
@@ -563,9 +563,10 @@ _QUERY_SCRIPT = [
     'GET_SETTING MEM_CURRENT_POSITION_Z',
     'GET_SETTING MEM_CURRENT_POSITION_U',
 ]
-_BED_SIZE_SCRIPT = [
+_FEATURES_SCRIPT = [
     'GET_SETTING MEM_BED_SIZE_X',
     'GET_SETTING MEM_BED_SIZE_Y',
+    'GET_SETTING MEM_MACHINE_FEATURES',
 ]
 ```
 
@@ -638,7 +639,7 @@ Called from the handshake thread for each batch of unpacked replies:
    - Decode value via `RdDecoder.decode_value()`.
    - Store in `_machine_status[address]`.
    - If address is `0x0400` (machine status): parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, `MACHINE_STATUS_JOB_RUNNING` events and fire them.
-   - If address is `0x057E` (card ID): queue `_BED_SIZE_SCRIPT` via `self.run()`, wrapped in `try/except JobRunningError: pass` — the bed-size query is skipped while a job runs and retried on the next card-ID reply (see §5.1.10).
+   - If address is `0x057E` (card ID): queue `_FEATURES_SCRIPT` via `self.run()`, wrapped in `try/except JobRunningError: pass` — the bed-size/features queries are skipped while a job runs and retried on the next card-ID reply (see §5.1.10).
 2. Forward raw replies to all registered reply listeners.
 
 #### 5.1.7 Machine Status Parsing
@@ -713,8 +714,8 @@ seen until the next query reply arrives.
 `__init_subclass__`. `_emit_live_lines()` — used by the job-control commands
 `pause`/`resume`/`stop_job`/`reset`, and by jogs/homing — calls
 `_queue_script()` directly, so job-control commands reach the controller
-while a job runs. The internal `_on_reply` bed-size query
-(`self.run(self._BED_SIZE_SCRIPT)` on a `MEM_CARD_ID` reply) is wrapped in
+while a job runs. The internal `_on_reply` features query
+(`self.run(self._FEATURES_SCRIPT)` on a `MEM_CARD_ID` reply) is wrapped in
 `try/except JobRunningError: pass` — the query is skipped while a job runs
 and retried on the next card-ID reply.
 
