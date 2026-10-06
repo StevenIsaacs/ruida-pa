@@ -96,7 +96,8 @@ Three main areas:
 
 **Left panel (log area)**
 - Main `RichLog` widget showing commands sent, replies received, system messages,
-  and error logs. Scrolling history of the last 1000 lines.
+  and error logs. Scrolling history of the last 1000 lines. Text can be selected
+  with the mouse or keyboard and copied (see §3.1).
 
 **Right panel (side panel)**
 - **Top: status/reply log** — real-time controller status updates (connection
@@ -108,10 +109,35 @@ Three main areas:
     Ruida protocol objects tracked by the garbage collector. Class names appear
     in **[orange]** when the measurement hit the recursion depth limit (500 levels),
     indicating the reported size is a partial count.
+  The monitor tables can be selected and copied like the log pane (see §3.1).
 
 **Bottom bar**
 - **Command input**: text input for entering commands
 - **Status bar**: connection state and transport info (e.g., `Connected | UDP 192.168.1.100:50200`)
+
+### 3.1 Log Selection & Copy
+
+The left log pane and the bottom-right monitor pane (`#reply-log`) support text
+selection and copying; the status log and the command input are not selectable.
+
+- **Mouse** — click and drag to select; double-click selects all.
+- **Keyboard** — press **Tab** to move focus between the log pane, the command
+  input, and the monitor pane, then:
+  - Arrow keys move a caret (the log pane scrolls to keep it visible; the
+    monitor pane is a fixed-height snapshot and does not scroll).
+  - **Shift+Arrow** extends the selection from the anchor.
+  - **Home**/**End** jump to the line bounds; **Ctrl+Home**/**Ctrl+End** to the
+    document bounds; the **Shift** variants extend.
+  - **Escape** clears the selection, and otherwise performs the normal stop.
+- **Copy** — **Enter** copies the selection to the clipboard and shows a
+  confirmation toast. **Ctrl+C** quits, as before.
+
+In the monitor pane only the text currently displayed can be selected: the pane
+clips overflow, so rows scrolled out (or cut off) below the pane can never be
+included in a selection or copy. Copied text never contains trailing spaces (the
+panes' right-hand padding is stripped) nor markup tags. Copy prefers a native
+clipboard tool (`wl-copy` on Wayland, `xclip` on X11, `pbcopy` on macOS) and
+falls back to the terminal's OSC 52 sequence, which some terminals ignore.
 
 ---
 
@@ -243,6 +269,14 @@ CUT_FAR_XY X=200mm Y=100mm
 ```
 
 Sent to the controller as a single-line script. Requires an active session.
+
+Replies to a `GET_SETTING` command typed in the command pane **always appear in
+the log pane** (as `← MEM_MACHINE_STATUS: …`, `← MEM_CARD_ID: …`, etc.), even for
+the status addresses the TUI polls automatically (machine status, positions,
+card ID, bed size). Those replies are otherwise consumed by the driver's status
+tracking, so the TUI registers a raw transport reply listener and displays the
+reply for the address you just queried. Polling replies are not shown, and each
+typed query shows its reply once.
 
 ---
 

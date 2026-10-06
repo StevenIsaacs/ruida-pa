@@ -10,7 +10,11 @@ using decode.
 Parameters:
  1 The Ruida controller IP address.
  2 The capture file name -- not including extension. This saves to <file>.log.
- 3 Optional parameters. (e.g. "-i <if>")
+ 3 Optional parameters. (e.g. "-i <if>", "--tcp")
+
+Options:
+ --tcp    Capture the Ruida TCP stream on port 50200 instead of UDP.
+ --udp    Capture Ruida UDP traffic (the default).
 
 NOTE: Parameter 3 is often needed on Windows because it typically assumes the
 wrong interface. If this is the case use "-i Ethernet".
@@ -44,8 +48,24 @@ _file=$2
 
 _path=$(dirname $_file)
 if [ -e $_path ]; then
-    tshark -Y "(ip.addr == $_ip)" $3 -l -T fields \
-        -e frame.time_delta -e udp.port -e udp.length -e data.data | tee $_file.log
+    _proto=udp
+    _tshark_args=()
+    for _arg in "${@:3}"; do
+        case "$_arg" in
+            --tcp) _proto=tcp ;;
+            --udp) _proto=udp ;;
+            *) _tshark_args+=("$_arg") ;;
+        esac
+    done
+    if [ "$_proto" = "tcp" ]; then
+        _filter="(ip.addr == $_ip && tcp.port == 50200)"
+        _fields="-e frame.time_delta -e tcp.srcport -e tcp.dstport -e tcp.len -e tcp.payload"
+    else
+        _filter="(ip.addr == $_ip)"
+        _fields="-e frame.time_delta -e udp.port -e udp.length -e data.data"
+    fi
+    tshark -Y "$_filter" "${_tshark_args[@]}" -l -T fields \
+        $_fields | tee $_file.log
 else
     echo Log file path $_path does not exist.
     usage

@@ -419,7 +419,7 @@ def main():
         if is_rd:
             output.critical("Verify the .rd file is not corrupted or try --magic 0xNN.")
         else:
-            output.critical("Verify incoming data is a tshark dump of a Ruida UDP session.")
+            output.critical("Verify incoming data is a tshark dump of a Ruida UDP or TCP session.")
     except SyntaxError as e:
         output.critical(f"{e}")
     except RuntimeError as e:

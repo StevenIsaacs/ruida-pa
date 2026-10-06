@@ -32,7 +32,7 @@ classifiers = [
 dependencies = [
     "bokeh>=3.9",
     "pyserial>=3.5",
-    "textual>=0.32",
+    "textual>=8.2,<9",
     "rpyc>=6.0",
 ]
 

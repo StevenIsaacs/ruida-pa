@@ -5,20 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.22.0] - 2026-10-02
 
 ### Added
 
+- Text selection in the TUI log pane using the mouse (drag) or keyboard (Tab to focus, arrow keys to move a caret, Shift+arrows to extend); Enter copies the selection (with a confirmation toast, preferring a native clipboard tool over OSC 52) and Ctrl+C quits. Selection is confined to the log pane and copied text has no trailing spaces.
 - `TcpTransport` for controllers that take the Ruida command stream over TCP port 50200 instead of UDP, such as the RDC8445S; select it with `RdDriver.start(protocol="tcp")` (also accepted by the RPC client/service and the TUI adapter). TCP packets carry no checksum prefix, and the byte stream is re-framed into the ACK and reply units the handshake expects
 - `RdStatusEvent.TRANSPORT_TCP` and `RdTransport.is_tcp`
 - `RdTransport.close_stream()`; after failed pings the status monitor closes a TCP connection and reconnects, so a client the controller dropped without closing the socket recovers
 - `session start ... proto=udp|tcp` in the TUI and `.rds` scripts selects the network protocol (default `udp`)
 - RDC8445S card ID (`0x90109010`)
-## [0.22.0] - 2026-10-02
-
-### Added
-
+- Text selection and clipboard copy in the TUI monitor pane (`#reply-log`, the memory/GC tables rendered by `/monitor`): mouse drag, keyboard caret (Tab to focus, arrows, Shift+arrows, Home/End), and Enter to copy. Selection is confined to the text currently displayed — off-screen rows and markup tags are never copied. The selection/caret machinery was extracted from `SelectableRichLog` into a shared `TextSelectionMixin` used by both the log and monitor panes.
+- `./capture <ip> <file> --tcp` (bash) and `./capture.ps1 -Protocol tcp` (PowerShell) capture the Ruida TCP stream on port 50200 with tshark (`tcp.srcport`/`tcp.dstport`/`tcp.len`/`tcp.payload` fields) in addition to the default UDP capture
+- `RuidaProtocolAnalyzer` autodetects TCP captures from the field count (UDP log lines have four tab-separated fields, TCP lines have five), so `rpa.py` decodes `./capture --tcp` logs with no extra parameter; TCP carries no checksum prefix and uses port 50200 for controller replies
 - Version bump to 0.22.0.
+
+### Fixed
+
+- TUI `/monitor off` no longer crashes with `'Timer' object has no attribute 'cancel'`: Textual `Timer` handles returned by `set_interval()` are now stopped with `.stop()` instead of `.cancel()` (also fixed for `/clear`, the GlueScript file-watch stop, and the app-exit teardown); the asyncio `Task.cancel()` site is unaffected.
+- TUI command-pane `GET_SETTING` replies now appear in the log pane for status addresses (`MEM_MACHINE_STATUS`, positions, `MEM_CARD_ID`, bed size) whose replies the driver otherwise consumes for status tracking; the TUI registers a raw transport reply listener and displays each queried address once.
 
 ## [0.21.2] - 2026-09-30
 

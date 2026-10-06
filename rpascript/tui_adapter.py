@@ -17,6 +17,8 @@ import logging
 import math
 import os
 import re
+import shutil
+import subprocess
 import sys
 import types
 import threading
@@ -52,14 +54,20 @@ from rpascript.generator import ScriptGenerator
 from rpalib.rpa_swizzler import RpaSwizzler
 
 from rich.highlighter import ReprHighlighter
+from rich.segment import Segment
+from rich.style import Style
 
 from textual import on
+from textual.actions import SkipAction
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Callback, Key
+from textual.geometry import Offset
 from textual.markup import escape
 from textual.screen import ModalScreen
+from textual.selection import Selection
+from textual.strip import Strip
 from textual.widgets import Header, Input, RichLog, Static, TextArea
 
 from rpalib.ruida_transcoder import RdDecoder, RdEncoder
@@ -79,6 +87,47 @@ from rpyc.utils.server import ThreadedServer
 _log = logging.getLogger(__name__)
 
 _GLUESCRIPT_WATCH_INTERVAL = 2.0  # seconds between .cglu external-edit polls
+
+# How long a command-pane GET_SETTING address stays eligible for a
+# raw-transport reply match. The reply normally arrives within milliseconds;
+# the window only bounds stale entries when no reply arrives (e.g. a dropped
+# session).
+_EXPLICIT_REPLY_TTL = 5.0
+
+
+def _copy_to_native_clipboard(text: str) -> bool:
+    """Copy ``text`` to the system clipboard using a native utility.
+
+    Textual's ``App.copy_to_clipboard`` writes an OSC 52 escape sequence, which
+    some terminals (for example Wave Terminal) ignore. Prefer a platform
+    clipboard tool when one is available: ``wl-copy`` (Wayland), ``xclip`` (X11),
+    then ``pbcopy`` (macOS). Returns ``True`` on success; never raises.
+    """
+    candidates: list[list[str]] = []
+    if os.environ.get("WAYLAND_DISPLAY"):
+        candidates.append(["wl-copy"])
+    if os.environ.get("DISPLAY"):
+        candidates.append(["xclip", "-selection", "clipboard"])
+    candidates.append(["pbcopy"])
+
+    data = text.encode("utf-8")
+    for command in candidates:
+        if shutil.which(command[0]) is None:
+            continue
+        try:
+            result = subprocess.run(
+                command,
+                input=data,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return True
+    return False
 
 
 def _parse_timeout_spec(to_str: str) -> float:
@@ -381,6 +430,371 @@ class CommandInput(Input):
     ]
 
 
+_SELECTION_BINDINGS: tuple[Binding, ...] = (
+    Binding("up", "caret_up", "Caret up", show=False),
+    Binding("down", "caret_down", "Caret down", show=False),
+    Binding("left", "caret_left", "Caret left", show=False),
+    Binding("right", "caret_right", "Caret right", show=False),
+    Binding("shift+up", "select_up", "Extend selection up", show=False),
+    Binding("shift+down", "select_down", "Extend selection down", show=False),
+    Binding("shift+left", "select_left", "Extend selection left", show=False),
+    Binding("shift+right", "select_right", "Extend selection right", show=False),
+    Binding("home", "caret_home", "Line start", show=False),
+    Binding("end", "caret_end", "Line end", show=False),
+    Binding("ctrl+home", "caret_doc_start", "Document start", show=False),
+    Binding("ctrl+end", "caret_doc_end", "Document end", show=False),
+    Binding("shift+home", "select_home", "Select to line start", show=False),
+    Binding("shift+end", "select_end", "Select to line end", show=False),
+    Binding("enter", "copy_selection", "Copy selection", show=False),
+    Binding("escape", "clear_selection", "Clear selection", show=False),
+)
+
+
+class TextSelectionMixin:
+    """Selection and caret machinery shared by selectable widgets.
+
+    Textual's ``Screen`` drives mouse selection but depends on two things the
+    widget supplies: rendered lines carrying content-offset metadata (via
+    ``Strip.apply_offsets``) and a ``get_selection`` implementation. This mixin
+    provides both plus a keyboard caret: arrow keys move it, Shift+arrows extend
+    a selection from the anchor, Home/End and Ctrl+Home/Ctrl+End jump to line
+    and document bounds. Escape clears the selection (falling through to the
+    app's stop action when nothing is selected). Extracted text is confined to
+    the widget and stripped of trailing padding spaces.
+
+    Concrete widgets must define ``BINDINGS = _SELECTION_BINDINGS`` (Textual's
+    binding merge iterates the MRO and skips plain mixins) and implement four
+    hooks:
+
+    - ``_selection_text_lines()`` — the rendered lines that may be selected.
+    - ``_content_row(y)`` — the content row for viewport row ``y``.
+    - ``_caret_max_row()`` — the largest row the caret may occupy.
+    - ``_scroll_caret_into_view()`` — scroll to keep the caret visible.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._anchor: Offset | None = None
+        self._cursor: Offset | None = None
+        self._last_applied: Selection | None = None
+
+    # ------------------------------------------------------------------
+    # Text extraction (mouse + keyboard selection)
+    # ------------------------------------------------------------------
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        """Return the text under ``selection`` with no trailing spaces.
+
+        Selectable widgets pad every rendered line to the render width; ``rstrip``
+        on each line removes that padding so the extracted text matches the
+        visible content.
+        """
+        lines = self._selection_text_lines()
+        text = "\n".join(strip.text.rstrip() for strip in lines)
+        return selection.extract(text).rstrip(), "\n"
+
+    # ------------------------------------------------------------------
+    # Rendering: offset metadata, selection highlight, caret
+    # ------------------------------------------------------------------
+
+    def render_line(self, y: int) -> Strip:
+        strip = super().render_line(y)
+        scroll_x = self.scroll_offset.x
+        content_y = self._content_row(y)
+
+        selection = self.text_selection
+        if selection is not None:
+            span = selection.get_span(content_y)
+            if span is not None:
+                start, end = span
+                if end == -1:
+                    end = strip.cell_length
+                if end > start:
+                    strip = self._style_span(
+                        strip, start, end, self._selection_style()
+                    )
+        elif (
+            self.has_focus
+            and self._cursor is not None
+            and self._cursor.y == content_y
+            and 0 <= self._cursor.x < strip.cell_length
+        ):
+            strip = self._style_span(
+                strip, self._cursor.x, self._cursor.x + 1, Style(reverse=True)
+            )
+        # Apply offset metadata LAST: the highlight/caret split the strip into
+        # segments, and apply_offsets assigns each resulting segment its true
+        # starting column. Applying it before the split would leave the trailing
+        # pieces with a stale offset and corrupt mouse cell -> content mapping.
+        return strip.apply_offsets(scroll_x, content_y)
+
+    @staticmethod
+    def _style_span(strip: Strip, start: int, end: int, style: Style) -> Strip:
+        """Overlay ``style`` on the cell range ``[start, end)`` of a strip.
+
+        The style must be applied on top of the existing segment styles, not as
+        the base via ``Strip.apply_style`` — that method does ``style + seg_style``,
+        so the log line's own foreground/background would win and the highlight
+        would be invisible.
+        """
+        start = max(0, min(start, strip.cell_length))
+        end = max(start, min(end, strip.cell_length))
+        before = strip.crop(0, start)
+        middle = strip.crop(start, end)
+        styled = Strip(
+            [
+                Segment(text, (seg_style + style) if seg_style else style, control)
+                for text, seg_style, control in middle
+            ],
+            middle.cell_length,
+        )
+        after = strip.crop(end, strip.cell_length)
+        return Strip.join([before, styled, after])
+
+    def _selection_style(self) -> Style:
+        """Return the selection overlay style.
+
+        ``partial=True`` yields the un-composited overlay (e.g. ``on #0178d4``).
+        The full component style composites foreground and background to the same
+        color, which renders the selection invisible.
+        """
+        style = self.screen.get_component_rich_style(
+            "screen--selection", partial=True, default=None
+        )
+        if style is None or (style.color is None and style.bgcolor is None):
+            return Style(reverse=True)
+        return style
+
+    # ------------------------------------------------------------------
+    # Keyboard caret / selection
+    # ------------------------------------------------------------------
+
+    def on_focus(self) -> None:
+        lines = self._selection_text_lines()
+        if self._cursor is None and lines:
+            top = max(0, min(int(self.scroll_offset.y), len(lines) - 1))
+            self._cursor = Offset(0, top)
+            self.refresh()
+
+    def _line_length(self, y: int) -> int:
+        lines = self._selection_text_lines()
+        if 0 <= y < len(lines):
+            return len(lines[y].text.rstrip())
+        return 0
+
+    def _seed_from_external_selection(self) -> None:
+        """Adopt a mouse-made selection as the keyboard anchor/caret."""
+        selection = self.text_selection
+        if selection is None or selection == self._last_applied:
+            return
+        if selection.start is not None and selection.end is not None:
+            self._anchor = selection.start
+            self._cursor = selection.end
+
+    def _sync_selection(self) -> None:
+        """Publish (or clear) this widget's selection on the screen."""
+        if (
+            self._anchor is not None
+            and self._cursor is not None
+            and self._anchor != self._cursor
+        ):
+            selection = Selection.from_offsets(self._anchor, self._cursor)
+            self._last_applied = selection
+            self.screen.selections = {self: selection}
+        else:
+            self._last_applied = None
+            if self in self.screen.selections:
+                selections = dict(self.screen.selections)
+                selections.pop(self, None)
+                self.screen.selections = selections
+
+    def _move_caret(self, dx: int, dy: int, select: bool) -> None:
+        if not self._selection_text_lines():
+            return
+        self._seed_from_external_selection()
+        if self._cursor is None:
+            self._cursor = Offset(0, max(0, int(self.scroll_offset.y)))
+        if select:
+            if self._anchor is None:
+                self._anchor = self._cursor
+        else:
+            self._anchor = None
+        x, y = self._cursor
+        y = max(0, min(self._caret_max_row(), y + dy))
+        length = self._line_length(y)
+        if dx:
+            x = max(0, min(length, x + dx))
+        else:
+            x = max(0, min(length, x))
+        self._cursor = Offset(x, y)
+        self._sync_selection()
+        self._scroll_caret_into_view()
+        self.refresh()
+
+    def _set_caret(self, x: int, y: int, select: bool) -> None:
+        if not self._selection_text_lines():
+            return
+        self._seed_from_external_selection()
+        if self._cursor is None:
+            self._cursor = Offset(0, 0)
+        if select:
+            if self._anchor is None:
+                self._anchor = self._cursor
+        else:
+            self._anchor = None
+        y = max(0, min(self._caret_max_row(), y))
+        x = max(0, min(self._line_length(y), x))
+        self._cursor = Offset(x, y)
+        self._sync_selection()
+        self._scroll_caret_into_view()
+        self.refresh()
+
+    def action_caret_up(self) -> None:
+        self._move_caret(0, -1, select=False)
+
+    def action_caret_down(self) -> None:
+        self._move_caret(0, 1, select=False)
+
+    def action_caret_left(self) -> None:
+        self._move_caret(-1, 0, select=False)
+
+    def action_caret_right(self) -> None:
+        self._move_caret(1, 0, select=False)
+
+    def action_select_up(self) -> None:
+        self._move_caret(0, -1, select=True)
+
+    def action_select_down(self) -> None:
+        self._move_caret(0, 1, select=True)
+
+    def action_select_left(self) -> None:
+        self._move_caret(-1, 0, select=True)
+
+    def action_select_right(self) -> None:
+        self._move_caret(1, 0, select=True)
+
+    def action_caret_home(self) -> None:
+        if self._cursor is not None:
+            self._set_caret(0, self._cursor.y, select=False)
+
+    def action_caret_end(self) -> None:
+        if self._cursor is not None:
+            self._set_caret(self._line_length(self._cursor.y), self._cursor.y, select=False)
+
+    def action_caret_doc_start(self) -> None:
+        self._set_caret(0, 0, select=False)
+
+    def action_caret_doc_end(self) -> None:
+        if self._selection_text_lines():
+            last = self._caret_max_row()
+            self._set_caret(self._line_length(last), last, select=False)
+
+    def action_select_home(self) -> None:
+        if self._cursor is not None:
+            self._set_caret(0, self._cursor.y, select=True)
+
+    def action_select_end(self) -> None:
+        if self._cursor is not None:
+            self._set_caret(self._line_length(self._cursor.y), self._cursor.y, select=True)
+
+    def action_copy_selection(self) -> None:
+        """Copy the current selection to the clipboard (Enter in the log pane).
+
+        Gives a toast so the copy is observable even on terminals that ignore
+        the OSC 52 clipboard sequence.
+        """
+        if self.text_selection is None:
+            raise SkipAction()
+        text = self.screen.get_selected_text()
+        if not text:
+            raise SkipAction()
+        if self.app.copy_to_clipboard(text):
+            self.app.notify(f"Copied {len(text)} characters", timeout=2)
+        else:
+            self.app.notify(
+                f"Copied {len(text)} characters (terminal clipboard may be unsupported)",
+                severity="warning",
+                timeout=3,
+            )
+
+    def action_clear_selection(self) -> None:
+        """Clear the selection, or fall through to the app's stop action."""
+        if self.text_selection is None and self._anchor is None:
+            raise SkipAction()
+        self._anchor = None
+        self._cursor = None
+        self._last_applied = None
+        if self in self.screen.selections:
+            selections = dict(self.screen.selections)
+            selections.pop(self, None)
+            self.screen.selections = selections
+        self.refresh()
+
+
+class SelectableRichLog(TextSelectionMixin, RichLog):
+    """A ``RichLog`` whose visible text can be selected with mouse or keyboard."""
+
+    BINDINGS = _SELECTION_BINDINGS
+
+    def _selection_text_lines(self) -> list[Strip]:
+        """The rendered lines of the log buffer."""
+        return self.lines
+
+    def _content_row(self, y: int) -> int:
+        """Map a viewport row to a content row (accounting for vertical scroll)."""
+        return int(self.scroll_offset.y) + y
+
+    def _caret_max_row(self) -> int:
+        """The largest row the caret may occupy (the last buffer line)."""
+        return len(self.lines) - 1
+
+    def _scroll_caret_into_view(self) -> None:
+        """Scroll the log so the caret stays visible."""
+        if self._cursor is None:
+            return
+        height = self.scrollable_content_region.height
+        if height <= 0:
+            return
+        top = int(self.scroll_offset.y)
+        y = self._cursor.y
+        if y < top:
+            self.scroll_to(y=y, animate=False, immediate=True)
+        elif y >= top + height:
+            self.scroll_to(y=y - height + 1, animate=False, immediate=True)
+
+
+class SelectableStatic(TextSelectionMixin, Static):
+    """A ``Static`` whose currently displayed text can be selected and copied.
+
+    The reply/monitor pane renders a snapshot via ``Static.update`` and clips
+    overflow (Textual's default ``overflow: hidden``), so the lines cached by
+    ``Widget._render_content`` are exactly the text currently on screen.
+    Selection and copy therefore never reach off-screen content.
+    """
+
+    BINDINGS = _SELECTION_BINDINGS
+
+    def _selection_text_lines(self) -> list[Strip]:
+        """The lines currently displayed (content clipped to the pane height)."""
+        if self._dirty_regions:
+            self._render_content()
+        return list(self._render_cache.lines)
+
+    def _content_row(self, y: int) -> int:
+        """A ``Static`` does not scroll, so viewport and content rows coincide."""
+        return y
+
+    def _caret_max_row(self) -> int:
+        """The caret stays within the displayed rows (never off-screen content)."""
+        lines = self._selection_text_lines()
+        if not lines:
+            return 0
+        return max(0, min(len(lines), self.content_region.height) - 1)
+
+    def _scroll_caret_into_view(self) -> None:
+        """A ``Static`` clips overflow, so there is nothing to scroll."""
+
+
 def _deep_getsizeof(obj: Any, seen: set[int] | None = None, _depth: int = 500, _level: int = 0) -> tuple[int, int]:
     """Recursively compute deep memory footprint of an object.
 
@@ -488,7 +902,7 @@ class TuiAdapter(App):
     SUB_TITLE = "Interactive Ruida Controller Interface"
 
     BINDINGS = [
-        ("ctrl+c", "quit", "Quit"),
+        Binding("ctrl+c", "quit", "Quit", priority=True),
         ("escape", "stop", "Stop"),
         ("page_up", "scroll_log_up", "Scroll log up"),
         ("page_down", "scroll_log_down", "Scroll log down"),
@@ -628,6 +1042,12 @@ class TuiAdapter(App):
         self._script_count = 0
         self._logging_enabled: bool = True
         self._status_log_buffer: deque[str] = deque()
+        # Explicit command-pane GET_SETTING tracking: addresses whose replies
+        # are otherwise swallowed by the driver's status filter are forwarded
+        # to the log pane via a raw transport reply listener.
+        self._explicit_reply_addrs: dict[int, float] = {}
+        self._explicit_reply_lock = threading.Lock()
+        self._explicit_reply_transport: Any = None
         self._introspect_map: dict[str, Callable[[], Any]] = {
             "session": lambda: self._ruida_driver,
             "transport": lambda: (
@@ -800,7 +1220,7 @@ class TuiAdapter(App):
         yield Header()
         with Horizontal(id="main-container"):
             with Vertical(id="log-panel"):
-                yield RichLog(
+                yield SelectableRichLog(
                     id="log-area", highlight=True, markup=True, max_lines=1000
                 )
                 yield CommandInput(
@@ -812,19 +1232,25 @@ class TuiAdapter(App):
                 yield RichLog(
                     id="status-log", highlight=True, markup=True, max_lines=50
                 )
-                yield Static(id="reply-log", markup=True)
+                yield SelectableStatic(id="reply-log", markup=True)
         yield Static(id="status-bar")
 
     def on_mount(self) -> None:
         """Widgets are ready — cache references, load history, and log startup message."""
-        self._log_widget = self.query_one("#log-area", RichLog)
+        self._log_widget = self.query_one("#log-area", SelectableRichLog)
         self._log_widget.highlighter = _NoTagHighlighter()
         self._status_log = self.query_one("#status-log", RichLog)
-        self._reply_log = self.query_one("#reply-log", Static)
+        self._reply_log = self.query_one("#reply-log", SelectableStatic)
         self._status_bar = self.query_one("#status-bar", Static)
-        # Restrict focus to command input only — Tab stays on Input
-        self._log_widget.can_focus = False
+        # The log and reply panes are focusable so Tab cycles through them and
+        # the command input; the status log and the input are not selectable so
+        # a mouse selection only ever originates from a selectable pane.
+        self._log_widget.can_focus = True
+        self._reply_log.can_focus = True
         self._status_log.can_focus = False
+        self._status_log.ALLOW_SELECT = False
+        self.query_one("#command-input", Input).ALLOW_SELECT = False
+        self._suggest_popup.ALLOW_SELECT = False
         self._update_status_bar()
         self._load_command_history()
         self.query_one("#command-input", Input).focus()
@@ -844,6 +1270,19 @@ class TuiAdapter(App):
             self._rpc_auto_start_task.add_done_callback(
                 self._on_rpc_auto_start_done
             )
+
+    def copy_to_clipboard(self, text: str) -> bool:
+        """Copy ``text`` to the system clipboard.
+
+        Prefers a native clipboard utility (``wl-copy``/``xclip``/``pbcopy``)
+        because some terminals ignore the OSC 52 sequence Textual writes.
+        Returns ``True`` when a native tool handled the copy.
+        """
+        if _copy_to_native_clipboard(text):
+            self._clipboard = text
+            return True
+        super().copy_to_clipboard(text)
+        return False
 
     # ------------------------------------------------------------------
     # Command input handling
@@ -975,6 +1414,9 @@ class TuiAdapter(App):
                     )
                     self._log_error(f"Invalid GET_SETTING: {reason}")
                     return
+                # Replies to status addresses are swallowed by the driver's
+                # status filter; track them so the reply is shown in the pane.
+                self._register_explicit_query(params[0])
 
             if cmd["type"] == "SERVER_START":
                 asyncio.create_task(self._start_server(**cmd["params"]))
@@ -1991,7 +2433,7 @@ class TuiAdapter(App):
             self._ruida_driver.set_tail_script([])
         # Stop memory monitor timer
         if self._mem_timer is not None:
-            self._mem_timer.cancel()
+            self._mem_timer.stop()
             self._mem_timer = None
         self._monitor_enabled = False
         self._mem_initial = {}
@@ -2702,7 +3144,7 @@ class TuiAdapter(App):
             self._log_info("Monitor ON — auto-update every 15s")
         elif action == "off":
             if self._mem_timer is not None:
-                self._mem_timer.cancel()
+                self._mem_timer.stop()
                 self._mem_timer = None
             self._monitor_enabled = False
             self._log_info("Monitor OFF")
@@ -2818,6 +3260,12 @@ class TuiAdapter(App):
             return
         if driver.gluescript:
             self._preserved_gluescript = list(driver.gluescript)
+        # Drop the explicit-reply registration with the session's transport
+        # (close() also clears listeners, but the transport identity must be
+        # forgotten so a new session re-registers).
+        self._explicit_reply_transport = None
+        with self._explicit_reply_lock:
+            self._explicit_reply_addrs.clear()
         driver.stop()
         self._ruida_driver = None
 
@@ -3368,7 +3816,7 @@ class TuiAdapter(App):
     def _stop_gluescript_watch(self) -> None:
         """Cancel the watch timer and clear the watched-file state."""
         if self._gluescript_watch_timer is not None:
-            self._gluescript_watch_timer.cancel()
+            self._gluescript_watch_timer.stop()
             self._gluescript_watch_timer = None
         self._gluescript_watch_path = None
         self._gluescript_watch_mtime = None
@@ -4630,6 +5078,92 @@ class TuiAdapter(App):
         for formatted in replies:
             self._log_widget.write(f"  ← {formatted}")
 
+    # ------------------------------------------------------------------
+    # Explicit command-pane GET_SETTING reply display
+    # ------------------------------------------------------------------
+    #
+    # The driver decodes replies for its status addresses (MACHINE_STATUS,
+    # positions, CARD_ID, bed size) itself and does not forward them to reply
+    # listeners, so a GET_SETTING typed in the command pane would show nothing.
+    # These helpers add a raw reply listener on the session transport (which
+    # notifies every reply) and display only the addresses just queried.
+
+    def _resolve_mt_address(self, token: str) -> int | None:
+        """Resolve an MT mnemonic or numeric GET_SETTING address token."""
+        mt_entry = self._parser._mt_map.get(token)
+        if mt_entry is not None:
+            try:
+                msb, lsb = mt_entry
+                return (int(msb) << 8) | int(lsb)
+            except (TypeError, ValueError):
+                return None
+        try:
+            return int(token, 0) & 0xFFFF
+        except (TypeError, ValueError):
+            return None
+
+    def _register_explicit_query(self, token: str) -> None:
+        """Track a command-pane GET_SETTING address so its reply is displayed.
+
+        Only driver-handled (status) addresses need this — other addresses are
+        already forwarded to the log pane by the driver's reply listener.
+        """
+        driver = self._ruida_driver
+        if driver is None:
+            return
+        address = self._resolve_mt_address(token)
+        if address is None or address not in driver._handled_addresses:
+            return
+        with self._explicit_reply_lock:
+            self._explicit_reply_addrs[address] = time.monotonic() + _EXPLICIT_REPLY_TTL
+        self._ensure_explicit_reply_listener()
+
+    def _ensure_explicit_reply_listener(self) -> None:
+        """Register the raw reply listener on the current session transport."""
+        driver = self._ruida_driver
+        if driver is None or driver._session is None:
+            return
+        transport = driver._session.transport
+        if transport is self._explicit_reply_transport:
+            return
+        try:
+            transport.register_reply_listener(self._on_explicit_reply)
+        except Exception as e:  # noqa: BLE001 - display helper must never crash
+            self._log_warning(f"Could not register explicit reply listener: {e}")
+            return
+        self._explicit_reply_transport = transport
+
+    def _on_explicit_reply(self, replies: list[bytearray]) -> None:
+        """Transport reply listener: display replies for explicitly queried addresses.
+
+        Called on the handshake thread for every raw reply; each tracked address
+        is consumed once so the periodic status polling does not spam the pane.
+        """
+        now = time.monotonic()
+        matched: list[str] = []
+        decoder = RdDecoder()
+        with self._explicit_reply_lock:
+            for address in [
+                a for a, expiry in self._explicit_reply_addrs.items() if expiry < now
+            ]:
+                self._explicit_reply_addrs.pop(address, None)
+            for reply in replies:
+                try:
+                    address = decoder.decode_address(reply)
+                except Exception:  # noqa: BLE001
+                    continue
+                if address not in self._explicit_reply_addrs:
+                    continue
+                self._explicit_reply_addrs.pop(address, None)
+                try:
+                    matched.append(RdDriver.format_reply(reply))
+                except Exception:  # noqa: BLE001
+                    pass
+        if matched:
+            self.post_message(
+                Callback(functools.partial(self._write_replies, matched))
+            )
+
     def on_error(self, message: str) -> None:
         """Handle an error condition. Thread-safe via post_message(Callback(...))."""
 
@@ -5417,7 +5951,7 @@ class TuiAdapter(App):
         """
         # Stop memory monitor timer to prevent widget access during teardown
         if self._mem_timer is not None:
-            self._mem_timer.cancel()
+            self._mem_timer.stop()
             self._mem_timer = None
         self._stop_gluescript_watch()
         self._save_command_history()
