@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Text selection and clipboard copy in the TUI monitor pane (`#reply-log`, the memory/GC tables rendered by `/monitor`): mouse drag, keyboard caret (Tab to focus, arrows, Shift+arrows, Home/End), and Enter to copy. Selection is confined to the text currently displayed — off-screen rows and markup tags are never copied. The selection/caret machinery was extracted from `SelectableRichLog` into a shared `TextSelectionMixin` used by both the log and monitor panes.
 - `./capture <ip> <file> --tcp` (bash) and `./capture.ps1 -Protocol tcp` (PowerShell) capture the Ruida TCP stream on port 50200 with tshark (`tcp.srcport`/`tcp.dstport`/`tcp.len`/`tcp.payload` fields) in addition to the default UDP capture
 - `RuidaProtocolAnalyzer` autodetects TCP captures from the field count (UDP log lines have four tab-separated fields, TCP lines have five), so `rpa.py` decodes `./capture --tcp` logs with no extra parameter; TCP carries no checksum prefix and uses port 50200 for controller replies
+- `RdDriver._FEATURES_SCRIPT` (renamed from `_BED_SIZE_SCRIPT`) now also issues `GET_SETTING MEM_MACHINE_FEATURES` on each `MEM_CARD_ID` reply, so the controller feature flags are fetched on connect and exposed to status listeners as the `MACHINE_FEATURES` key in `StatusDict` (`(raw_int, "MFeat:…")`)
 - Version bump to 0.22.0.
 
 ### Fixed
