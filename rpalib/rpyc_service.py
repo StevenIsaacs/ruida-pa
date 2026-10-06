@@ -631,6 +631,10 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info("[RPC] gluescript home_z()")
         return self._exposed_gluescript("home_z")
 
+    def exposed_focus_z(self) -> list[str] | None:
+        self._rpc_info("[RPC] gluescript focus_z()")
+        return self._exposed_gluescript("focus_z")
+
     def exposed_home_u(self) -> list[str] | None:
         self._rpc_info("[RPC] gluescript home_u()")
         return self._exposed_gluescript("home_u")

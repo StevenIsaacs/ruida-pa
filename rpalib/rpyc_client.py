@@ -1083,6 +1083,10 @@ class RpcRdDriver(GlueScript):
         """Home Z axis (forwarded immediately)."""
         return self._svc.home_z()
 
+    def focus_z(self) -> list[str] | None:
+        """Auto-focus Z with the focus probe (forwarded immediately)."""
+        return self._svc.focus_z()
+
     def home_u(self) -> list[str] | None:
         """Home U axis / rotary (forwarded immediately)."""
         return self._svc.home_u()

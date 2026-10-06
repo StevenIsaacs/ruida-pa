@@ -321,7 +321,7 @@ MT = {
         0x0B: ("MEM_FEED_DELAY_PRIOR", TBDU35),
         0x0C: ("MEM_MANUAL_DIS", TBDU35),
         0x0D: ("MEM_SHUT_DOWN_DELAY", TBDU35),
-        0x0E: ("MEM_FOCUS_DEPTH", TBDU35),
+        0x0E: ("MEM_FOCUS_DEPTH", TBDU35),  # Verified RDC8445S
         0x0F: ("MEM_GO_SCALE_BLANK", TBDU35),
         0x1A: ("MEM_ACC_RATIO", TBDU35),
         0x17: ("MEM_ARRAY_FEED_REPAY", TBDU35),
@@ -353,6 +353,9 @@ MT = {
         0x05: ("MEM_PC_LOCK_5", TBDU35),
         0x06: ("MEM_PC_LOCK_6", TBDU35),
         0x07: ("MEM_PC_LOCK_7", TBDU35),
+        # Bit 0x0001 focus enabled, 0x0008 Z return to docking,
+        # 0x0600 air assist mode.
+        0x0F: ("MEM_FOCUS_CONFIG", TBDU35),  # Verified RDC8445S
         0x11: ("MEM_TOTAL_LASER_WORK_TIME", TBDU35),
     },
     0x04: {
@@ -526,7 +529,7 @@ CT = {
         0x2A: "HOME_XY",
         0x2C: "HOME_Z",
         0x2D: "HOME_U",
-        0x2E: "FOCUS_Z",
+        0x2E: "FOCUS_Z",  # Verified RDC8445S
         0x30: "KEYUP_LEFT",
         0x31: "KEYUP_RIGHT",
         0x32: "KEYUP_Y_TOP",

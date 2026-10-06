@@ -1140,6 +1140,7 @@ class TuiAdapter(App):
             "listeners": r"List listeners registered with the RdDriver (/listeners \[full])",
             "home": "home: Jog X and Y axes to the origin reference",
             "home_z": "home_z: Home Z axis",
+            "focus_z": "focus_z: Auto-focus Z with the focus probe",
             "home_u": "home_u: Home U axis (rotary)",
             "jog_xy_to": "jog_xy_to <x> <y>: Jog XY to absolute position (mm)",
             "jog_x_to": "jog_x_to <x>: Jog X to absolute position (mm)",
@@ -3720,6 +3721,12 @@ class TuiAdapter(App):
         """Home the Z axis and run it on the live session."""
         return self._gluescript_bridge(
             lambda: self._gluescript_live_command("home_z")
+        )
+
+    def gluescript_focus_z(self) -> list[str] | None:
+        """Auto-focus the Z axis and run it on the live session."""
+        return self._gluescript_bridge(
+            lambda: self._gluescript_live_command("focus_z")
         )
 
     def gluescript_home_u(self) -> list[str] | None:
