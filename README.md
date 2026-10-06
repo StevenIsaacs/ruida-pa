@@ -183,6 +183,14 @@ tshark -Y "(ip.addr == <ruida_ip> && udp.payload)" -T fields \
        -e frame.time_delta -e udp.port -e udp.length -e data.data > capture.log
 ```
 
+The `./capture <ip> <file>` script wraps this. For controllers that take the
+Ruida command stream over TCP (e.g. the RDC8445S, on port 50200), pass `--tcp`:
+
+```bash
+./capture <ruida_ip> my-job --tcp        # bash
+./capture.ps1 -if Ethernet -ip <IP> -out <file> -Protocol tcp   # PowerShell
+```
+
 ### Analyze Captured Data
 
 #### Basic Analysis
