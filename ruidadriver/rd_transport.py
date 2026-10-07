@@ -259,23 +259,34 @@ class RdTransport:
         return payload
 
     def _unpack_replies(self, data: bytes) -> list[bytearray]:
-        """Unswizzle received data and split into individual GET_SETTING replies."""
+        """Unswizzle received data and split into individual GET_SETTING replies.
+
+        Reply value bytes are 7-bit, so the only high-bit byte in a reply is
+        the leading 0xDA command byte; a reply therefore ends at the next byte
+        with the high bit set (the next reply's 0xDA) or the end of the data.
+        This frames both the common 5-byte values and variable-length values
+        (e.g. a C-string such as MEM_MAINBOARD_VERSION).
+        """
         raw = self._swizzler.unswizzle(bytearray(data))
         replies: list[bytearray] = []
-        # Each GET_SETTING reply is 9 bytes: 0xDA + 0x01 + msb + lsb + 5 data bytes
-        for i in range(0, len(raw), 9):
-            chunk = raw[i : i + 9]
-            if len(chunk) < 9:
-                break
-            if chunk[0] != 0xDA:
+        length = len(raw)
+        i = 0
+        while i < length:
+            if raw[i] != 0xDA:
                 self._notify_status(TransportEvent.REPLY_ERROR)
                 break
-            if chunk[1] != 0x01:
+            # A reply spans until the next high-bit byte (the next 0xDA).
+            j = i + 1
+            while j < length and not (raw[j] & 0x80):
+                j += 1
+            chunk = raw[i:j]
+            if len(chunk) < 2 or chunk[1] != 0x01:
                 # Reply starts with 0xDA but second byte is unexpected — could be
                 # an undiscovered reply type; notify rather than silently dropping.
                 self._notify_status(TransportEvent.UNEXPECTED_REPLY)
                 break
             replies.append(chunk)
+            i = j
         return replies
 
     # ---- Handshake Thread ----

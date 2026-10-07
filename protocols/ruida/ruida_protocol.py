@@ -399,7 +399,7 @@ MT = {
     },
     0x05: {
         0x7E: ("MEM_CARD_ID", CARD_ID),
-        0x7F: ("MEM_MAINBOARD_VERSION", TBDU35),
+        0x7F: ("MEM_MAINBOARD_VERSION", CSTRING),  # Verified RDC6442S
     },
     0x06: {
         0x20: UNKNOWN_ADDRESS,

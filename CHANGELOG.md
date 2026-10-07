@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `./capture <ip> <file> --tcp` (bash) and `./capture.ps1 -Protocol tcp` (PowerShell) capture the Ruida TCP stream on port 50200 with tshark (`tcp.srcport`/`tcp.dstport`/`tcp.len`/`tcp.payload` fields) in addition to the default UDP capture
 - `RuidaProtocolAnalyzer` autodetects TCP captures from the field count (UDP log lines have four tab-separated fields, TCP lines have five), so `rpa.py` decodes `./capture --tcp` logs with no extra parameter; TCP carries no checksum prefix and uses port 50200 for controller replies
 - `RdDriver._FEATURES_SCRIPT` (renamed from `_BED_SIZE_SCRIPT`) now also issues `GET_SETTING MEM_MACHINE_FEATURES` on each `MEM_CARD_ID` reply, so the controller feature flags are fetched on connect and exposed to status listeners as the `MACHINE_FEATURES` key in `StatusDict` (`(raw_int, "MFeat:…")`)
+- `RdDriver._FEATURES_SCRIPT` also issues `GET_SETTING MEM_MAINBOARD_VERSION`, so the mainboard firmware version (e.g. `RDLC-V8.01.70`) is fetched on connect and exposed to status listeners as the `MAINBOARD_VERSION` key in `StatusDict`; `0x057F` is now a handled status address and the TUI stores it
 - Version bump to 0.22.0.
 
 ### Fixed
@@ -28,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TUI `/monitor off` no longer crashes with `'Timer' object has no attribute 'cancel'`: Textual `Timer` handles returned by `set_interval()` are now stopped with `.stop()` instead of `.cancel()` (also fixed for `/clear`, the GlueScript file-watch stop, and the app-exit teardown); the asyncio `Task.cancel()` site is unaffected.
 - TUI command-pane `GET_SETTING` replies now appear in the log pane for status addresses (`MEM_MACHINE_STATUS`, positions, `MEM_CARD_ID`, bed size) whose replies the driver otherwise consumes for status tracking; the TUI registers a raw transport reply listener and displays each queried address once.
 - `MEM_FOCUS_DEPTH` (`0x020E`) now decodes as a Z-axis dimension (`ZFARDIM`, mm) instead of the opaque `TBDU35`, so it displays as `MEM_FOCUS_DEPTH: Z=12.345mm`.
+- The protocol analyzer no longer aborts with `TypeError: unsupported format string passed to NoneType.__format__` when a host packet containing many `GET_SETTING` commands is answered with replies split across several reply packets: the parser now stays in reply mode across reply-packet boundaries, hands off cleanly to command parsing on the next host packet, and defers the command-context reset to the host command byte (also prevents continued replies from being mis-attributed to a phantom command number).
+- `MEM_MAINBOARD_VERSION` (`0x057F`) now decodes as a C-string (e.g. `RDLC-V8.01.70`) instead of the opaque `TBDU35`; the C-string decoder now accumulates bytes until the NUL terminator instead of returning after one byte.
+- The live driver/TUI now decodes variable-length reply values (such as `MEM_MAINBOARD_VERSION`) instead of showing a raw integer: `RdTransport` frames replies by high-bit boundary (rather than fixed 9-byte chunks), `RdDriver.format_reply_value`/`decode_status_value` decode from the full value bytes, and `RdDecoder` tolerates a missing output object instead of falling back to the wrong numeric type.
 
 ## [0.21.2] - 2026-09-30
 

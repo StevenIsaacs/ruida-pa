@@ -53,6 +53,7 @@ class StatusDict(TypedDict, total=False):
     BED_SIZE_X: tuple[float, str]
     BED_SIZE_Y: tuple[float, str]
     MACHINE_FEATURES: tuple[int, str]
+    MAINBOARD_VERSION: tuple[int, str]
     MACHINE_STATUS: tuple[int, str]
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_PAUSED: bool
@@ -83,6 +84,7 @@ class RdDriver(GlueScript):
         0x0441: "POSITION_Z",
         0x0451: "POSITION_U",
         0x057E: "CARD_ID",
+        0x057F: "MAINBOARD_VERSION",
         0x0026: "BED_SIZE_X",
         0x0036: "BED_SIZE_Y",
         0x030F: "MACHINE_FEATURES",
@@ -108,6 +110,7 @@ class RdDriver(GlueScript):
         "GET_SETTING MEM_BED_SIZE_X",
         "GET_SETTING MEM_BED_SIZE_Y",
         "GET_SETTING MEM_MACHINE_FEATURES",
+        "GET_SETTING MEM_MAINBOARD_VERSION",
     ]
 
     def __init__(self) -> None:
@@ -448,7 +451,10 @@ class RdDriver(GlueScript):
             return (None, TBDU35[0].format(val))
         decoder_method = getattr(d, f"rd_{d.decoder}")
         try:
-            decoded = decoder_method(raw_reply[4:9])
+            # Pass the full value bytes: fixed-width decoders consume their
+            # spec length, while variable-length decoders (e.g. cstring) use
+            # the whole remainder up to their terminator.
+            decoded = decoder_method(raw_reply[4:])
             return (mnemonic, str(decoded))
         except Exception:
             val = RdDecoder().decode_value(raw_reply)
@@ -467,7 +473,7 @@ class RdDriver(GlueScript):
             return RdDecoder().decode_value(raw_reply)
         decoder_method = getattr(d, f"rd_{d.decoder}")
         try:
-            decoder_method(raw_reply[4:9])
+            decoder_method(raw_reply[4:])
             return d.value
         except Exception:
             return RdDecoder().decode_value(raw_reply)

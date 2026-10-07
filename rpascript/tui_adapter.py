@@ -1194,6 +1194,7 @@ class TuiAdapter(App):
         self._machine_status: int = 0
         self._machine_status_formatted: str = "0"
         self._machine_features: tuple[int, str] | None = None
+        self._mainboard_version: tuple[int, str] | None = None
         self._connection_logging_enabled: bool = False
         self._status_bits: dict[str, bool] = {
             "MACHINE_STATUS_MOVING": False,
@@ -5013,6 +5014,9 @@ class TuiAdapter(App):
                 elif key == "MACHINE_FEATURES":
                     raw, formatted = value
                     self._machine_features = (raw, formatted)
+                elif key == "MAINBOARD_VERSION":
+                    raw, formatted = value
+                    self._mainboard_version = (raw, formatted)
                 elif key in (
                     "MACHINE_STATUS_MOVING",
                     "MACHINE_STATUS_PAUSED",
