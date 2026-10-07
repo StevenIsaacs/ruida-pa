@@ -87,7 +87,8 @@ class RdDecoder:
 
         # TODO: This is a workaround and masks a problem with LightBurn.
         if _n == 5 and not data[0] & 0x40 and data[0] & 0x08:
-            self.out.warn("LightBurn 35 bit signed integer WORKAROUND.")
+            if self.out is not None:
+                self.out.warn("LightBurn 35 bit signed integer WORKAROUND.")
             data[0] |= 0x70
 
         for _i in range(_n):
@@ -133,7 +134,8 @@ class RdDecoder:
         _na = False
         while True:
             if _i >= len(data):
-                self.out.error("End of string not found.")
+                if self.out is not None:
+                    self.out.error("End of string not found.")
                 break
             _c = data[_i]
             if _c == 0:
@@ -142,7 +144,7 @@ class RdDecoder:
             if not _s.isprintable():
                 _na = True
             _i += 1
-        if _na:
+        if _na and self.out is not None:
             self.out.error(f"Non-printable characters in string: {data}")
         self.value = _s
         return self.formatted
@@ -265,7 +267,8 @@ class RdDecoder:
     # --------------
 
     def prime(self, spec: tuple, length=None):
-        self.out.verbose(f"Priming: {spec}")
+        if self.out is not None:
+            self.out.verbose(f"Priming: {spec}")
         self.format: str = spec[rdap.DFMT]
         self.decoder: str = spec[rdap.DDEC]
         self.rd_type: str = spec[rdap.DTYP]
@@ -281,12 +284,22 @@ class RdDecoder:
         self._remaining = self._length
 
     def step(self, datum, remaining=None):
-        if datum == 0 and self.cstring:
+        if self.cstring:
+            # A C-string is variable length: accumulate until the NUL
+            # terminator. The terminator is included in the data so
+            # rd_cstring finds the end of the string (the nominal type
+            # length of 1 would otherwise return after a single byte).
+            self.accumulating = True
+            self.datum = datum
+            self.data.append(datum)
+            if datum != 0:
+                return None
             self.accumulating = False
             self.cstring = False
             return self._rd_decoder(self.data)
         if datum & rdap.CMD_MASK:
-            self.out.protocol(f"datum={datum:02X}: Should not have bit 7 set.")
+            if self.out is not None:
+                self.out.protocol(f"datum={datum:02X}: Should not have bit 7 set.")
         if not self.accumulating:
             self.accumulating = True
         self.datum = datum

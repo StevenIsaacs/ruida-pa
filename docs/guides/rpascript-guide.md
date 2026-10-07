@@ -374,6 +374,7 @@ Mnemonics resolve to 2-byte memory addresses (MSB, LSB).
 | Mnemonic                    | Address   | Value Type      | Description                    |
 | --------------------------- | --------- | --------------- | ------------------------------ |
 | `MEM_CARD_ID`               | `0x057E` | `int`           | Card identifier                |
+| `MEM_MAINBOARD_VERSION`     | `0x057F` | `str`           | Mainboard firmware version      |
 | `MEM_BED_SIZE_X`            | `0x0026` | `float`/`int`   | Bed width (X)                  |
 | `MEM_BED_SIZE_Y`            | `0x0036` | `float`/`int`   | Bed height (Y)                 |
 

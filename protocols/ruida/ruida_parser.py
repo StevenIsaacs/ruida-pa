@@ -315,10 +315,11 @@ class RdParser:
                         self.mt_address_msb, self.mt_address_lsb, self.mt_values
                     )
                     self.out.verbose("Reply decoded.")
-                    if self.remaining == 0:
-                        self._enter_state("expect_command")
-                    else:
-                        self._enter_state("mt_command")
+                    # Stay ready for more replies: a host packet with many
+                    # GET_SETTINGs is answered with replies that may continue
+                    # into subsequent packets. A following host packet is
+                    # handed off in _st_mt_command.
+                    self._enter_state("mt_command")
                     return self.decoded
                 else:
                     self.which_param = _next
@@ -440,15 +441,23 @@ class RdParser:
                 self.out.error(f"Datum (0x{datum:02X} is not a reply command byte.)")
                 self._enter_state("sync")
         else:
-            self.out.error("Current packet is NOT a reply packet.")
-            return self._forward_to_state("sync")
+            # A host packet arrived while awaiting replies (the pending
+            # reply stream is exhausted). Hand off to command parsing.
+            return self._forward_to_state("expect_command")
 
     def _tr_mt_command(self):
         """Setup to parse a reply to a memory read command.
 
         This state is triggered when the command parameter list contains
         a MEMORY spec and the memory command has been decoded."""
-        if self.command == 0xDA:  # Reading from controller.
+        if self.command in (0xDA, None):  # Reading from controller.
+            if self.command is None:
+                # Defensive: a reply continuation whose originating command
+                # context was lost. Report it and use the read tables so the
+                # run does not abort on a None format.
+                self.out.protocol(
+                    "Memory reply continuation with no command context."
+                )
             self.reply_command = None
             self._ct = rdap.RT
             self._it = rdap.MT
@@ -678,6 +687,11 @@ class RdParser:
             self.out.error("Reply packet when expecting command.")
             self._forward_to_state("mt_command")
         else:
+            # A host command byte begins a new command. Reset the previous
+            # command context here (deferred from _tr_expect_command) so that
+            # entering expect_command at a reply-packet boundary does not
+            # discard the in-progress reply context.
+            self._h_prepare_for_command()
             if self._h_is_command(datum):
                 # Is it a known command for this state?
                 if self._h_is_known_command(datum):
@@ -729,7 +743,10 @@ class RdParser:
         return None
 
     def _tr_expect_command(self):
-        self._h_prepare_for_command()
+        # Resetting the command context is deferred to _st_expect_command (on
+        # the host command byte) so that entering expect_command at a reply
+        # packet boundary does not discard the in-progress reply context.
+        pass
 
     # ----
 
