@@ -33,6 +33,12 @@ class RdStatusEvent(Enum):
     PING_REPLIED = "PING_REPLIED"
     QUERY_SENT = "QUERY_SENT"
     QUERY_RECEIVED = "QUERY_RECEIVED"
+    # Diagnostic reply-warning events, translated from TransportEvent so
+    # applications (e.g. the TUI) can surface them independently of the
+    # transport state machine. They do not affect connection lifecycle.
+    TRANSPORT_MALFORMED_REPLY = "TRANSPORT_MALFORMED_REPLY"
+    TRANSPORT_REPLY_ERROR = "TRANSPORT_REPLY_ERROR"
+    TRANSPORT_UNEXPECTED_REPLY = "TRANSPORT_UNEXPECTED_REPLY"
 
 
 class RdStatus:
@@ -57,6 +63,15 @@ class RdStatus:
     QUERY_RETRY_DELAY = 1.0  # seconds between query retries
     POLL_INTERVAL = 0.5  # seconds; default query_interval if not set
     CONNECT_RETRY_DELAY = 1.0  # seconds between connect attempts
+
+    # Reply-warning TransportEvents re-surfaced as RdStatusEvents for
+    # diagnostics. Reported to listeners for visibility but the state
+    # machine continues to consume the original TransportEvent normally.
+    _TRANSPORT_WARNING_EVENTS = {
+        TransportEvent.MALFORMED_REPLY: RdStatusEvent.TRANSPORT_MALFORMED_REPLY,
+        TransportEvent.REPLY_ERROR: RdStatusEvent.TRANSPORT_REPLY_ERROR,
+        TransportEvent.UNEXPECTED_REPLY: RdStatusEvent.TRANSPORT_UNEXPECTED_REPLY,
+    }
 
     def __init__(
         self,
@@ -245,9 +260,16 @@ class RdStatus:
 
         Registered with RdTransport via register_status_listener(). Stores the
         event and sets the _transport_event to unblock _wait_for_event.
+
+        Reply-warning events are additionally re-surfaced as RdStatusEvents so
+        application listeners (e.g. the TUI) can display them. The TransportEvent
+        is still stored/signalled for the state machine, so this is purely additive.
         """
         self._last_event = event
         self._transport_event.set()
+        warning = self._TRANSPORT_WARNING_EVENTS.get(event)
+        if warning is not None:
+            self._notify_listeners(warning)
 
     # ---- Wait-for-Event Helper ----
 

@@ -94,6 +94,17 @@ _GLUESCRIPT_WATCH_INTERVAL = 2.0  # seconds between .cglu external-edit polls
 # session).
 _EXPLICIT_REPLY_TTL = 5.0
 
+# Diagnostic reply-warning events always written to the status log, regardless
+# of the /status (reply logging) and /status connection (transport logging)
+# toggles — they indicate malformed/partial controller replies worth seeing.
+_ALWAYS_STATUS_EVENTS = frozenset(
+    {
+        RdStatusEvent.TRANSPORT_MALFORMED_REPLY,
+        RdStatusEvent.TRANSPORT_REPLY_ERROR,
+        RdStatusEvent.TRANSPORT_UNEXPECTED_REPLY,
+    }
+)
+
 
 def _copy_to_native_clipboard(text: str) -> bool:
     """Copy ``text`` to the system clipboard using a native utility.
@@ -2266,6 +2277,7 @@ class TuiAdapter(App):
             )
             return
         self._log_info(f"Executing {len(self._loaded_script)} lines...")
+        self._arm_explicit_replies_for_script(self._loaded_script)
         try:
             self._ruida_driver.run(self._loaded_script)
         except RuntimeError as e:
@@ -5034,7 +5046,7 @@ class TuiAdapter(App):
             # _session_disconnected / _session_connected are handled in _update()
             # below, which checks the flag BEFORE setting it.
             self._event_count += 1
-            if self._logging_enabled:
+            if self._logging_enabled or event in _ALWAYS_STATUS_EVENTS:
                 self._status_log_buffer.append(f"[STATUS] {event.value}")
 
         # --- UI updates (via message pump) ---
@@ -5094,14 +5106,17 @@ class TuiAdapter(App):
             self._log_widget.write(f"  ← {formatted}")
 
     # ------------------------------------------------------------------
-    # Explicit command-pane GET_SETTING reply display
+    # Explicit GET_SETTING reply display (command pane and script runs)
     # ------------------------------------------------------------------
     #
     # The driver decodes replies for its status addresses (MACHINE_STATUS,
-    # positions, CARD_ID, bed size) itself and does not forward them to reply
-    # listeners, so a GET_SETTING typed in the command pane would show nothing.
-    # These helpers add a raw reply listener on the session transport (which
-    # notifies every reply) and display only the addresses just queried.
+    # positions, CARD_ID, bed size, features, mainboard version) itself and
+    # does not forward them to reply listeners, so a GET_SETTING typed in the
+    # command pane — or included in a run script such as /scan_mem — would show
+    # nothing. These helpers add a raw reply listener on the session transport
+    # (which notifies every reply) and display only the addresses just queried.
+    # Addresses from a script are armed at run time by
+    # _arm_explicit_replies_for_script().
 
     def _resolve_mt_address(self, token: str) -> int | None:
         """Resolve an MT mnemonic or numeric GET_SETTING address token."""
@@ -5132,6 +5147,26 @@ class TuiAdapter(App):
         with self._explicit_reply_lock:
             self._explicit_reply_addrs[address] = time.monotonic() + _EXPLICIT_REPLY_TTL
         self._ensure_explicit_reply_listener()
+
+    def _arm_explicit_replies_for_script(self, script: list[str]) -> None:
+        """Arm one-shot display of driver-handled GET_SETTING addresses in a script.
+
+        The driver consumes replies to its status addresses (positions, machine
+        status, CARD_ID, bed size, features, mainboard version) and does not
+        forward them, so a script such as ``/scan_mem`` would silently drop
+        them. Register each handled address so the raw transport listener in
+        ``_on_explicit_reply`` displays its reply once.
+
+        Must be called at run time (just before ``driver.run``), not when the
+        script is generated: periodic status polls re-query these addresses
+        roughly every second and would otherwise consume the TTL entries before
+        the script is even sent.
+        """
+        for cmd in self._parser.parse_lines(script):
+            if cmd.get("mnemonic") == "GET_SETTING":
+                params = cmd.get("params", [])
+                if params and self._is_resolvable_address(params[0]):
+                    self._register_explicit_query(params[0])
 
     def _ensure_explicit_reply_listener(self) -> None:
         """Register the raw reply listener on the current session transport."""
@@ -5210,6 +5245,7 @@ class TuiAdapter(App):
 
         def _run() -> None:
             try:
+                self._arm_explicit_replies_for_script(script)
                 self._ruida_driver.run(script, auto_checksum=auto_checksum)
                 self._script_count += len(script)
                 self._update_status_bar()

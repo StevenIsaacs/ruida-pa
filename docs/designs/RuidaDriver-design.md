@@ -252,6 +252,9 @@ When a status change occurs the corresponding event is sent to registered listen
 - **PING_REPLIED**: The reply to the ping command has been received.
 - **QUERY_SENT**: The query `GET_SETTING` command list has been sent.
 - **QUERY_RECEIVED**: The reply to the query list has been received.
+- **TRANSPORT_MALFORMED_REPLY**: A reply chunk shorter than the 9-byte minimum was received (re-surfaced from `TransportEvent.MALFORMED_REPLY`). Diagnostic only; does not affect the connection.
+- **TRANSPORT_REPLY_ERROR**: Reply data failed transport validation (re-surfaced from `TransportEvent.REPLY_ERROR`). Diagnostic only.
+- **TRANSPORT_UNEXPECTED_REPLY**: A reply had a valid 0xDA header but an unexpected second byte (re-surfaced from `TransportEvent.UNEXPECTED_REPLY`). Diagnostic only.
 #### Connection and Machine Status Monitoring
 A thread named `_status_monitor` is used to automatically open a session for communicating with a Ruida controller and then monitor both communications and Ruida controller status.
 
@@ -351,6 +354,8 @@ These are communications status events which are sent to status listeners. Possi
 - **REPLY_RECEIVED**: A GET_SETTING reply has been received.
 - **REPLY_FORWARDED**: A GET_SETTING reply has been forwarded to listeners.
 - **REPLY_ERROR**: An error in reply data was detected.
+- **UNEXPECTED_REPLY**: A reply has a valid 0xDA header but an unexpected second byte.
+- **MALFORMED_REPLY**: A reply is shorter than the 9-byte minimum (incomplete/malformed), e.g. from a truncated packet during a transport switch.
 Status events are forwarded to each registered listener.
 #### Reply Listeners
 When data is received from the Ruida controller it is unswizzled and then parsed into individual replies which are then forwarded to each of the registered listeners as a list having the type `list[bytearray]`. It is the responsibility of a listener to select only the replies it is interested in.
@@ -399,9 +404,9 @@ def _package(self, data):
 		return _payload
 ```
 ##### Unpacking Data
-Data received from a Ruida controller is always in response to one or more `GET_SETTING` (memory read) commands and there is no checksum. All `GET_SETTING` data is the same size so can be divided into a reply list in a straight forward manner. The data is first un-swizzled and then divided into one or more reply data packets of nine bytes each (the size of a `GET_SETTING` reply). 
+Data received from a Ruida controller is always in response to one or more `GET_SETTING` (memory read) commands and there is no checksum. When replies are pending (`REPLY_PENDING`) the handshake thread first accumulates all reply packets into a single buffer — reading until the `_inter_packet_timeout` gap — and only then unpacks it. This is necessary because a reply can span packet boundaries and may not start on a packet edge, which is especially true for USB where `read()` returns arbitrary byte counts. The accumulated data is then un-swizzled and divided into one or more reply data packets. A reply is at least nine bytes (`[0xDA, 0x01, msb, lsb, d0..d4]`) and may be longer for variable-length values such as a C-string; because reply value bytes are 7-bit, each reply ends at the next high-bit byte (the next reply's 0xDA) or the end of the data.
 
-Each packet is confirmed to be a reply to a `GET_SETTING` command (first byte is 0xDA) before being added to the packet list. If the first byte is not a 0xDA then a **REPLY_ERROR** is sent to the status listeners and the unpacking process is truncated. Valid reply data is still sent to reply listeners.
+Each packet is confirmed to be a reply to a `GET_SETTING` command before being added to the packet list. If the first byte is not a 0xDA then a **REPLY_ERROR** is sent to the status listeners and the unpacking process is truncated. If a packet is shorter than the nine-byte minimum a **MALFORMED_REPLY** is sent and the malformed packet is skipped (the scan continues so later valid replies are preserved). If the second byte is not 0x01 an **UNEXPECTED_REPLY** is sent and the unpacking process is truncated. Valid reply data is still sent to reply listeners.
 #### Handshake Thread
 Once a transport interface has been opened a thread is started to run a brute force state machine to deal with Ruida controller specific command and response sequencing.
 
@@ -409,7 +414,7 @@ When communicating with a Ruida controller using a UDP transport the controller 
 - **IDLE**: Waiting for data from the App to be sent to the Controller. This is a loop which blocks for a short period of time (timeout is 200mS) on the send queue. The timeout is necessary so that the state can also check for the shutdown signal. The `write` method queues packets to the send queue which will then unblock this thread.
 - **SEND**: This is an interim state where a packet is sent using the active transport.
 - **ACK_PENDING**: A package has been sent to the controller and an ACK is expected in response. NOTE: This state is used only for UDP connections. USB connections do not involve ACKs.
-- **REPLY_PENDING**: One or more GET_SETTING commands have been sent to the controller and an equal number of data replies are expected.
+- **REPLY_PENDING**: One or more GET_SETTING commands have been sent to the controller and an equal number of data replies are expected. All reply packets are accumulated into a single buffer before unpacking, since a reply can span packet boundaries (especially USB).
 This illustrates the various handshake states. 
 
 **In regards to a gross timeout**: On some OSs when waiting on an interface the Ctrl-C keystroke will not be recognized and a UI can become unresponsive. Because of this a gross timeout is handled by doing a number of normal timeouts until the gross time has been exceeded (implemented using a counter).

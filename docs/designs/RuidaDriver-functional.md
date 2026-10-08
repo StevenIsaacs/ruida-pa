@@ -144,6 +144,7 @@ class TransportEvent(Enum):
     REPLY_FORWARDED   # Reply data unpacked and forwarded to listeners
     REPLY_ERROR       # Reply data did not pass validation
     UNEXPECTED_REPLY  # Reply has valid 0xDA header but unexpected second byte
+    MALFORMED_REPLY   # Reply shorter than the 9-byte minimum (incomplete/malformed)
 ```
 
 ### 3.5 Ruida Transport Coordinator — `RdTransport`
@@ -233,7 +234,7 @@ stateDiagram-v2
     ACK_PENDING --> IDLE: non-ACK data (REPLY_ERROR)
     ACK_PENDING --> IDLE: Timeout (TIMEOUT)
 
-    REPLY_PENDING --> IDLE: Data received, unpacked,\nforwarded to listeners
+    REPLY_PENDING --> IDLE: All reply packets accumulated,\nunpacked, forwarded to listeners
     REPLY_PENDING --> IDLE: Timeout (TIMEOUT)
 
     IDLE --> [*]: Shutdown
@@ -253,7 +254,7 @@ stateDiagram-v2
 | `ACK_PENDING` | Received 0xC6 ACK byte; no reply expected | `IDLE` |
 | `ACK_PENDING` | Received non-ACK data | `REPLY_ERROR` → `IDLE` |
 | `ACK_PENDING` | Timeout | `TIMEOUT` → `IDLE` |
-| `REPLY_PENDING` | Data received, unpacked, forwarded | `IDLE` |
+| `REPLY_PENDING` | All reply packets accumulated, then unpacked and forwarded | `IDLE` |
 | `REPLY_PENDING` | Timeout | `TIMEOUT` → `IDLE` |
 
 **Note:** On failure transitions, the corresponding `TransportEvent` is fired to all status listeners before the state machine returns to `IDLE`.
@@ -264,10 +265,13 @@ stateDiagram-v2
 def _unpack_replies(data: bytes) -> list[bytearray]
 ```
 
+In the handshake thread's `REPLY_PENDING` state, all reply packets are first accumulated into a single `data` buffer (reading until the `_inter_packet_timeout` gap) before `_unpack_replies` is called once. This is required because a reply can span packet boundaries — a reply does not necessarily start on a packet edge, which is especially true for USB where `read()` returns arbitrary byte counts.
+
 1. **Unswizzle** the received data.
-2. Split into 9-byte chunks (each `GET_SETTING` reply is 9 bytes).
+2. Split into chunks (each `GET_SETTING` reply is at least 9 bytes; variable-length values such as a C-string may be longer, ending at the next high-bit byte).
 3. Validate each chunk:
    - First byte must be `0xDA` (SETTING command); if not, fire `REPLY_ERROR` and truncate.
+   - Chunk must be at least 9 bytes; if shorter, fire `MALFORMED_REPLY` and skip the chunk (scan continues).
    - Second byte must be `0x01` (GET_SETTING sub-command); if not, fire `UNEXPECTED_REPLY` and truncate.
 4. Valid chunks are collected and forwarded to reply listeners.
 
@@ -334,6 +338,9 @@ class RdStatusEvent(Enum):
     MACHINE_STATUS_MOVING    # Machine is moving (bit 0)
     MACHINE_STATUS_PAUSED  # Job paused (bit 1)
     MACHINE_STATUS_JOB_RUNNING  # Job is running (bit 2)
+    TRANSPORT_MALFORMED_REPLY   # Re-surfaced TransportEvent.MALFORMED_REPLY (diagnostic)
+    TRANSPORT_REPLY_ERROR       # Re-surfaced TransportEvent.REPLY_ERROR (diagnostic)
+    TRANSPORT_UNEXPECTED_REPLY  # Re-surfaced TransportEvent.UNEXPECTED_REPLY (diagnostic)
 ```
 
 ### 4.2 Status Monitor — `RdStatus`
@@ -1196,7 +1203,7 @@ flowchart TD
 
 | Layer | Guards |
 |---|---|
-| **L4 Transport** | `_wait_for_data()` checks `_shutdown` before each poll iteration. `_unpack_replies()` validates 0xDA header and 0x01 sub-byte, truncating on mismatch. |
+| **L4 Transport** | `_wait_for_data()` checks `_shutdown` before each poll iteration. `_unpack_replies()` validates the 0xDA header, the 9-byte minimum length, and the 0x01 sub-byte, truncating on framing errors and skipping malformed chunks. |
 | **L4 Handshake** | Timeouts fire `TIMEOUT` event and return to `IDLE`. Shutdown detected in any state via `_shutdown_event`. |
 | **L5 Status** | Every state function checks `_shutdown` before and after `_wait_for_event`. Transport not open → `CONNECTING`. `SEND_PING` and `SEND_QUERY` guard against missing commands (None/empty). `PING_REPLY` has retry loop with exhaustion → `RESYNC`. |
 | **L5 Session** | `connect()` clears `_connected_event` before starting. `timeout` parameter has millisecond interface (converted to seconds for `Event.wait()`). Temporary listener unregistered in `finally`. |
@@ -1215,7 +1222,7 @@ flowchart TD
 Handled at all levels:
 - `RdStatus._wait_for_event()` defaults include `DROPPED` and `CLOSED` for responsiveness.
 - Any state detecting `DROPPED`/`CLOSED` transitions to `CONNECTING`.
-- The `REPLY_ERROR` and `UNEXPECTED_REPLY` events are fired to status listeners for diagnostics but do not trigger a full disconnect.
+- The `REPLY_ERROR`, `UNEXPECTED_REPLY` and `MALFORMED_REPLY` events are fired to status listeners for diagnostics but do not trigger a full disconnect.
 
 ### 10.4 Checksum Edge Cases
 

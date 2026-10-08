@@ -309,13 +309,13 @@ typed query shows its reply once.
 | `/power_scale [status\|on\|off\|max_speed <v>\|floor <v>]` | Show or configure GlueScript effective-min power scaling. `status` (default) shows enabled/max_cut_speed/power_floor; `on`/`off` toggle the flag; `max_speed <v>`/`floor <v>` set the config. |
 | `/monitor [on\|off]`  | `/monitor` immediate update; `/monitor on` auto-update every 15s; `/monitor off` disable. |
 | `/protect on\|off\|status` | Toggle protect mode. When on, SET_SETTING commands are blocked to prevent hardware damage. |
-| `/scan_mem`           | Generate a GET_SETTING script for all MT memory addresses, staged into the loaded script; then `/run` to run or `/list` to review. |
+| `/scan_mem`           | Generate a GET_SETTING script for all MT memory addresses, staged into the loaded script; then `/run` to run or `/list` to review. Replies from driver-handled status addresses (positions, machine status, CARD_ID, bed size, features, mainboard version) are also shown in the log via the explicit-reply mechanism. |
 | `/clear`              | Clear all log panels, loaded script, head/tail, and monitor totals.          |
 | `/stop`               | Cancel pending session connection or stop script execution. Also on Escape.  |
 | `/status on`          | Enable reply logging (controller responses shown in log).                    |
 | `/status off`         | Disable reply logging.                                                       |
 | `/status status`      | Show whether reply logging is currently enabled.                             |
-| `/status connection [on\|off\|status]` | Enable/disable transport-event logging; `status` shows the current state.    |
+| `/status connection [on\|off\|status]` | Enable/disable transport-event logging; `status` shows the current state. Reply-warning events (`TRANSPORT_MALFORMED_REPLY`, `TRANSPORT_REPLY_ERROR`, `TRANSPORT_UNEXPECTED_REPLY`) are always shown regardless of this setting. |
 | `/rpclog [on\|off\|status]` | Toggle verbose RPC server logging (no args toggles).                         |
 | `/quit`               | Exit the TUI. Also on Ctrl+C.                                                |
 

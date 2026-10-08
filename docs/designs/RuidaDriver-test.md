@@ -105,8 +105,18 @@ These tests require no controller. They verify the core wire-format logic using 
 | **Steps** | 1. Prepare such data.<br>2. Call `_unpack_replies(data)`.<br>3. Verify `UNEXPECTED_REPLY` event was fired.<br>4. Verify the chunk is excluded from the returned list. |
 | **Expected result** | `UNEXPECTED_REPLY` fired. Invalid chunk excluded. |
 
-#### Test 2.1.7: `_has_get_setting()` — GET_SETTING Detection
+#### Test 2.1.7: `_unpack_replies()` — Malformed (Short) Reply
 - [x] Test 2.1.7
+
+| Field | Value |
+|-------|-------|
+| **Objective** | Verify that a chunk shorter than the 9-byte minimum fires `MALFORMED_REPLY`, is excluded, and does not stop parsing of following valid replies. |
+| **Prerequisites** | Swizzled data containing a short (e.g. 4-byte) `0xDA 0x01 …` chunk followed by a valid 9-byte reply. |
+| **Steps** | 1. Prepare such data.<br>2. Call `_unpack_replies(data)`.<br>3. Verify `MALFORMED_REPLY` event was fired.<br>4. Verify the short chunk is excluded and the following valid reply is returned. |
+| **Expected result** | `MALFORMED_REPLY` fired. Malformed chunk excluded; later valid reply returned. |
+
+#### Test 2.1.8: `_has_get_setting()` — GET_SETTING Detection
+- [x] Test 2.1.8
 
 | Field | Value |
 |-------|-------|
