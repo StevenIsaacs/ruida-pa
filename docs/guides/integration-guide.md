@@ -799,6 +799,9 @@ gluescript transcript so a persisted `.cglu` replays it. Emit it after `declare_
 | `get_gluescript` | `()` | `list[str]` | No |
 | `get_rpascript` | `()` | `list[str]` | No |
 | `job_complete` | `(property)` | `bool` | No |
+| **Introspection** | | | |
+| `get_version` | `()` | `str` | No |
+| `version_mismatch` | `(property)` | `bool` | No |
 
 **Returns for live commands:** Movement jogs, homing, and job-control commands
 generate AND send in a single call on both transports — direct `RdDriver` and
@@ -816,6 +819,14 @@ composes head + staged + tail scripts around the job — when `job` is omitted
 it runs the rpascript most recently staged by `stage_gluescript()`. A job
 authored over RPC is retained in the driver and can be executed after
 `rpc_driver.start()`.
+
+**Version introspection:** `get_version()` returns the ruida-pa version of
+the server process; the `version_mismatch` property compares it with the
+client's local `rpalib.version.__version__`. An app adapter should check
+this after connecting and warn (or refuse) on a mismatch, since the RPC
+surface can differ between versions. A raw service root from a server
+older than this feature raises `AttributeError` on `get_version()` — treat
+that as an unknown/incompatible server.
 
 **Speed tracking:** `declare_layer()` records its `speed` argument as the
 current layer's cut speed; each `cut_speed()` call overrides it. The flush
@@ -1050,6 +1061,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |
 | Listeners | `register_status_listener`, `register_error_listener`, `register_reply_listener`, and the `unregister_*` counterparts | Over RPC matched by equality, not identity (see §3.5) |
 | Properties | `gluescript`, `rpascript`, `job_complete`, `is_connected`, `machine_status`, `protect_enabled` | `gluescript`/`job_complete` are live local on both; `rpascript` is a server snapshot over RPC (see §4.3) |
+| Version | `get_version`, `version_mismatch` | RPC-only on the wrapper; the direct driver shares the process version (`rpalib.version.__version__`) |
 | Protection | `set_protect` | Blocks settings writes when enabled |
 | Format utilities | `format_reply_value`, `format_reply`, `format_reply_list`, `decode_status_value` | Static on direct driver, instance methods over RPC |
 | Jog & home | `jog_set_xy_speed`, `jog_set_z_speed`, `jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`, `jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to`, `jog_xy_rel`, `jog_x_rel`, `jog_y_rel`, `jog_z_rel`, `jog_u_rel`, `home`, `home_z`, `home_u` | Live-only commands, forwarded immediately |
@@ -1058,8 +1070,10 @@ Both classes implement the same surface; the table summarizes the groups.
 Identical call sites mean a job authored against one transport runs unchanged
 against the other — except the wrapper-only getters `get_gluescript()` and
 `get_rpascript()`, which have no direct counterpart (use the
-`gluescript`/`rpascript` attributes instead). The same testing patterns in
-§5 apply to both.
+`gluescript`/`rpascript` attributes instead), and the wrapper-only version
+accessors `get_version()`/`version_mismatch` (a direct adapter is in the same
+process as its driver, so its local `__version__` is authoritative). The same
+testing patterns in §5 apply to both.
 
 ### 4.3 Behavioral Differences
 
@@ -1075,6 +1089,7 @@ before switching.
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
 | Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min_power > max_power`, `min_power` below the power floor) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard; a corrupted `max_cut_speed` surfaces as `ValueError` at the next `cut_*` action (flush), not at `power_range()` |
 | `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
+| Version reporting | Shares the process version (`rpalib.version.__version__`) | `get_version()` reports the SERVER process version; `version_mismatch` compares it with the client's, so a client/server version mismatch is detectable (see §3.7) |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
 `power_range` constraint violations (no declared layer) raise `ValueError`

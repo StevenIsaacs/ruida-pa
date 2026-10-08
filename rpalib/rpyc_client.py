@@ -139,6 +139,15 @@ the direct RdDriver surface, so an app adapter needs no separate
 direct-vs-RPC path. The z/u move and cut stubs (``move_z_to``,
 ``move_u_to``, ``cut_z_to``, ``cut_u_to``) raise ``NotImplementedError``
 exactly as the direct driver does.
+
+Version reporting
+-----------------
+``get_version()`` returns the ruida-pa version of the server process, and
+the ``version_mismatch`` property compares it with this client's local
+``rpalib.version.__version__``. An app adapter uses the latter to detect
+a client/server version mismatch over RPC. There is no direct-driver
+counterpart: a direct adapter already runs in the same process as its
+driver, so its local ``__version__`` is authoritative.
 """
 
 from __future__ import annotations
@@ -155,6 +164,7 @@ from rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
     gluescript_signature,
 )
+from rpalib.version import __version__
 from ruidadriver.rd_gluescript import GlueScript, JobRunningError
 
 logger = logging.getLogger(__name__)
@@ -819,6 +829,28 @@ class RpcRdDriver(GlueScript):
         if self._closed:
             return False
         return bool(self._svc.is_connected())
+
+    def get_version(self) -> str:
+        """Return the ruida-pa version of the server process.
+
+        Forwarded passthrough to the server's ``get_version()``. An app
+        adapter compares this with its own local
+        ``rpalib.version.__version__`` (or reads ``version_mismatch``)
+        to detect a client/server version mismatch.
+        """
+        return str(self._svc.get_version())
+
+    @property
+    def version_mismatch(self) -> bool:
+        """True when the server's ruida-pa version differs from this client's.
+
+        Convenience wrapper around ``get_version()`` and this process's
+        ``rpalib.version.__version__``. Reads False once the driver is
+        closed, without hitting the closed sentinel.
+        """
+        if self._closed:
+            return False
+        return self.get_version() != __version__
 
     # ------------------------------------------------------------------ #
     #  Lifecycle and execution — forwarded passthroughs

@@ -5662,6 +5662,15 @@ class TuiAdapter(App):
         """AppAdapter interface — TUI creates sessions on demand via command input."""
         pass
 
+    def get_version(self) -> str:
+        """AppAdapter interface — the ruida-pa version serving this session.
+
+        Exposed over RPC so an application adapter can compare this value
+        with its own ``rpalib.version.__version__`` to detect a
+        client/server version mismatch.
+        """
+        return __version__
+
     def _reset_for_takeover(
         self, resolved_udp: str, resolved_usb: str, magic: int | None
     ) -> None:
