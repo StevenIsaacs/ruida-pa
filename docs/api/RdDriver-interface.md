@@ -394,6 +394,9 @@ Session-level events fired to status listeners:
 | `PING_REPLIED` | Ping acknowledgment received |
 | `QUERY_SENT` | Status query commands transmitted |
 | `QUERY_RECEIVED` | Status query replies received |
+| `TRANSPORT_MALFORMED_REPLY` | Transport received a chunk shorter than the 9-byte reply minimum (diagnostic) |
+| `TRANSPORT_REPLY_ERROR` | Transport reply failed validation (diagnostic) |
+| `TRANSPORT_UNEXPECTED_REPLY` | Reply had a valid 0xDA header but unexpected second byte (diagnostic) |
 <!-- table not formatted: invalid structure -->
 
 ### `StatusDict` (TypedDict)

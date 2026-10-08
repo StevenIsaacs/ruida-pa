@@ -57,6 +57,7 @@ class RdTransport:
     NETWORK_PROTOCOLS = ("udp", "tcp")
 
     _HANDSHAKE_TIMEOUT = 0.2  # 200ms — queue poll interval
+    _MIN_REPLY_LEN = 9  # GET_SETTING reply: [0xDA, 0x01, msb, lsb, d0..d4]
 
     def __init__(self) -> None:
         self._udp: UdpTransport | None = None
@@ -73,7 +74,7 @@ class RdTransport:
         self._timeout = 500  # ms per-call timeout
         self._gross_timeout = 15000  # ms overall gross timeout
         self._use_gross_timeout = False
-        self._inter_packet_timeout = 50  # ms between reply packets (multi-packet replies)
+        self._inter_packet_timeout = 50  # ms gap between packets of a multi-packet reply
 
         # Queues for handshake thread
         self._send_queue: queue.Queue[list[bytearray]] = queue.Queue(maxsize=256)
@@ -266,6 +267,11 @@ class RdTransport:
         with the high bit set (the next reply's 0xDA) or the end of the data.
         This frames both the common 5-byte values and variable-length values
         (e.g. a C-string such as MEM_MAINBOARD_VERSION).
+
+        A properly formed reply is at least 9 bytes; a shorter chunk indicates
+        an incomplete/malformed datagram (e.g. a truncated packet during a
+        transport switch). Such chunks fire MALFORMED_REPLY and are excluded,
+        but scanning continues so any following valid replies are preserved.
         """
         raw = self._swizzler.unswizzle(bytearray(data))
         replies: list[bytearray] = []
@@ -280,7 +286,13 @@ class RdTransport:
             while j < length and not (raw[j] & 0x80):
                 j += 1
             chunk = raw[i:j]
-            if len(chunk) < 2 or chunk[1] != 0x01:
+            if len(chunk) < self._MIN_REPLY_LEN:
+                # Incomplete/malformed reply — skip it (j is the next 0xDA or
+                # the end) so later valid replies are still returned.
+                self._notify_status(TransportEvent.MALFORMED_REPLY)
+                i = j
+                continue
+            if chunk[1] != 0x01:
                 # Reply starts with 0xDA but second byte is unexpected — could be
                 # an undiscovered reply type; notify rather than silently dropping.
                 self._notify_status(TransportEvent.UNEXPECTED_REPLY)
@@ -414,23 +426,23 @@ class RdTransport:
                         # Mid-batch failure: advance to next packet or go IDLE
                         advance_batch()
                         continue
-                    # First reply packet received — accumulate replies
-                    replies = self._unpack_replies(data)
-                    # Read additional reply packets (controller may split
-                    # responses across multiple UDP datagrams)
-                    while replies:
+                    # First reply packet received — accumulate ALL reply
+                    # packets before framing: a single reply can span packet
+                    # boundaries (especially USB, where read() returns
+                    # arbitrary byte counts), so a reply may not start on a
+                    # packet edge. Keep reading until the inter-packet gap.
+                    data = bytearray(data)
+                    while True:
                         try:
-                            data = self._wait_for_data(self._inter_packet_timeout)
+                            more = self._wait_for_data(self._inter_packet_timeout)
                         except OSError:
                             self._notify_status(TransportEvent.READ_ERROR)
                             self._log_connection("[TRANSPORT] READ_ERROR")
                             break
-                        if data is None:
-                            break  # No more data — all reply packets consumed
-                        more = self._unpack_replies(data)
-                        if not more:
-                            break  # Invalid or partial data — stop accumulating
-                        replies.extend(more)
+                        if more is None:
+                            break  # No more data within the inter-packet gap
+                        data.extend(more)
+                    replies = self._unpack_replies(bytes(data))
                     if replies:
                         self._notify_reply_listeners(replies)
                         self._notify_status(TransportEvent.REPLY_FORWARDED)
