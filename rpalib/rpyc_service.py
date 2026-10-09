@@ -11,7 +11,7 @@ authentication and TLS support:
 - properties: is_connected, machine_status
 - static format utilities: format_reply_value, format_reply,
   format_reply_list
-- introspection: registered_listener_count
+- introspection: registered_listener_count, get_version
 - GlueScript job authoring, live-only commands, and getters
 
 Clients call these without the ``exposed_`` prefix
@@ -833,6 +833,17 @@ class RpycTuiService(rpyc.Service):
     def exposed_machine_status(self) -> dict[int, Any]:
         result = self._adapter.machine_status
         self._rpc_info(f"[RPC] RPC machine_status -> {len(result)} items")
+        return result
+
+    def exposed_get_version(self) -> str:
+        """Return the ruida-pa version of the process serving this session.
+
+        Lets a remote application adapter compare the server's version with
+        its own local ``rpalib.version.__version__`` to detect a
+        client/server mismatch.
+        """
+        result = self._adapter.get_version()
+        self._rpc_info(f"[RPC] RPC get_version -> {result}")
         return result
 
     # --- Static format utilities ---

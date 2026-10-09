@@ -10,6 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from rpalib.version import __version__
+
 
 class AppAdapter(ABC):
     """Abstract base class for Ruida application adapters.
@@ -67,6 +69,19 @@ class AppAdapter(ABC):
         raise RuntimeError(
             "Adapter not initialized. Call create_driver_and_session() first."
         )
+
+    def get_version(self) -> str:
+        """Return the ruida-pa version this adapter is running.
+
+        The default returns the version of the ruida-pa package in this
+        process. Subclasses serving a remote session (e.g. over RPC) may
+        override it, but the library version is normally the correct
+        answer for both the direct and server-side cases. Over RPC, an
+        application adapter compares this value with its own
+        ``rpalib.version.__version__`` to detect a client/server version
+        mismatch.
+        """
+        return __version__
 
     def start(self) -> None:
         """Start the adapter. Default implementation is a no-op."""
