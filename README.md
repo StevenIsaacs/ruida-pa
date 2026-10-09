@@ -2,6 +2,8 @@
 
 A comprehensive Python-based protocol analyzer for analyzing Ruida CNC controller communications. This tool parses network packet captures from tshark/Wireshark to decode and interpret the binary Ruida protocol used in laser cutters, engravers, and CNC machines.
 
+The same project also ships a controller **driver** (`RdDriver`) for applications that need to *control* a Ruida machine, not just analyze its traffic. An application integrates the driver through an **application-specific adapter** that maps the application's own jobs, layers, and toolpaths onto the driver API — either in-process or remotely over RPC.
+
 NOTE: This is a project which is rapidly evolving. New features and changes are added almost daily. If you clone or fork this project you may want to update regularly. Once all planned features have been added a more controlled release process will be used.
 
 ## Features
@@ -15,6 +17,8 @@ NOTE: This is a project which is rapidly evolving. New features and changes are 
 - **Move and Cut Plotting**: When enabled moves and cut lines are plotted using Bokeh
 - **Automation-friendly**: `rpa.py` accepts a tshark log file and produces structured, text-based output suitable for scripting, pipelines, and CI/CD systems.
 - **Script Generation and Plot Export**: `--generate-rd` and `--save-plot` flags for binary `.rd` output and headless HTML plot export
+- **Controller Driver**: `RdDriver` connects to a Ruida controller over UDP, TCP, or USB serial, executes jobs built with the high-level GlueScript API, and reports status, replies, and errors through listeners
+- **Application Integration**: an application-specific adapter bridges an external application to `RdDriver`, directly in-process or remotely over RPyC (`RpcRdDriver`)
 
 This tool is designed to be used to discover and diagnose problems related to UDP communications with a Ruida controller. Much of the Ruida protocol is unknown and new commands or parameters may be discovered during analysis. The nature of such discovery often requires new experiments or parsing algorithms when new information is learned. Because of this the best experience using this tool is within VSCode or its forks like VSCodium and Antigravity. These IDEs allow stepping through the code to observe the analyzer's behavior along with side by side display of moves and cuts. And, when needed, this tool can be hacked to refine analysis. If you create a hack which can be useful to others please consider contributing it to this project.
 
@@ -264,6 +268,38 @@ NOTE: The TUI is intended to be used only for discovery and diagnostic purposes 
 
 If an unhandled exception occurs, a persistent error screen displays the
 traceback with Rich formatting. Press any key to exit the TUI.
+
+## Driver & Application Integration
+
+RPA is more than an analyzer: it also ships a controller driver that can be embedded in an external application. `RdDriver` (in `ruidadriver/`) is the high-level driver layer. It connects to a Ruida controller over UDP, TCP (e.g. RDC8445S), or USB serial, encodes and queues rpascript for background execution, tracks machine status, and forwards status/reply/error events to registered listeners.
+
+Because `RdDriver` subclasses `GlueScript`, the high-level job-authoring API — `declare_job()`, `declare_layer()`, `move_xy_to()`, `cut_xy_to()`, `power()`, and the rest — is part of the driver itself. Build a job, call `stage_gluescript()` to assemble the low-level rpascript, then `run_job()` to execute it (optionally wrapping every job with head/tail scripts).
+
+An application does not call `RdDriver` directly; it uses an **application-specific adapter** that maps the application's own concepts (jobs, layers, toolpaths, machine state) onto the driver API. The same adapter can run in-process against `RdDriver`, or remotely against a TUI-hosted RPC server via `RpcRdDriver` (`rpalib/rpyc_client.py`), which mirrors the full driver surface over RPyC.
+
+```python
+from ruidadriver.ruida_driver import RdDriver
+
+driver = RdDriver()
+driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
+driver.register_error_listener(lambda e: print(f"[ERROR] {e}"))
+
+driver.declare_job("Panel Cut", ref_point="MACHINE")
+driver.declare_layer("Engrave", "#000000", mode="VECTOR",
+                     speed=300.0, min_power_1=15.0, max_power_1=60.0)
+driver.move_xy_to(10.0, 10.0)
+driver.cut_xy_to(210.0, 10.0)
+driver.cut_xy_to(210.0, 110.0)
+driver.cut_xy_to(10.0, 110.0)
+driver.end_job()
+
+driver.stage_gluescript()          # assemble low-level rpascript
+driver.start(udp_host="192.168.1.100")
+driver.run_job()                   # execute in the background
+driver.stop()
+```
+
+The full driver surface — lifecycle, listeners, head/tail scripts, GlueScript authoring, live jog/home/job-control commands, and the RPC path — is documented in the [Integration Guide](docs/guides/integration-guide.md) and the [RdDriver interface reference](docs/api/RdDriver-interface.md).
 
 ## Script Generation & Round-Trip Testing
 
