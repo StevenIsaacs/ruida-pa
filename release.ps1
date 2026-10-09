@@ -45,7 +45,17 @@ New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 # --- Build pip wheel ---
 if (-not $DistOnly) {
     Write-Host "--- Building pip wheel ---"
-    pip wheel --no-deps -w $releaseDir .
+    python scripts/pypi_readme.py write
+    $readmeWritten = ($LASTEXITCODE -eq 0)
+    try {
+        pip wheel --no-deps -w $releaseDir .
+    }
+    finally {
+        if ($readmeWritten) {
+            python scripts/pypi_readme.py restore
+            $readmeWritten = $false
+        }
+    }
     Write-Host "Wheel built."
     Write-Host ""
 }

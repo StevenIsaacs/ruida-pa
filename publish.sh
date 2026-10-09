@@ -82,7 +82,16 @@ _restore_version () {
     _patched=false
   fi
 }
-trap _restore_version EXIT
+
+# Absolutize README links for PyPI, restoring the working copy afterwards.
+_readme_written=false
+_restore_readme () {
+  if [ "$_readme_written" = true ]; then
+    python scripts/pypi_readme.py restore || true
+    _readme_written=false
+  fi
+}
+trap '_restore_readme; _restore_version' EXIT
 
 if [ "$_test" = true ]; then
   _sha=$(git rev-parse --short HEAD 2>/dev/null) || { echo "Error: not in a git repository (cannot derive commit ID)"; exit 1; }
@@ -94,7 +103,10 @@ fi
 
 echo "Building RPA v$_version for PyPI..."
 rm -rf dist/ build/ *.egg-info
+python scripts/pypi_readme.py write
+_readme_written=true
 python -m build
+_restore_readme
 
 _restore_version
 

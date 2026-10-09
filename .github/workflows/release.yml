@@ -39,7 +39,11 @@ jobs:
       - name: Build wheel
         run: |
           pip install build
+          python scripts/pypi_readme.py write
           python -m build
+      - name: Restore README
+        if: always()
+        run: python scripts/pypi_readme.py restore
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
