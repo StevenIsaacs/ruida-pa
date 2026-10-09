@@ -58,6 +58,7 @@ print(data['project']['version'])
 
 $originalVersion = $version
 $patched = $false
+$readmeWritten = $false
 
 try {
     if ($Test) {
@@ -77,9 +78,18 @@ try {
     Write-Host "Building RPA v$version for PyPI..."
     Remove-Item -Recurse -Force "dist","build" -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force "*.egg-info" -ErrorAction SilentlyContinue
+    python scripts/pypi_readme.py write
+    $readmeWritten = ($LASTEXITCODE -eq 0)
     python -m build
+    if ($readmeWritten) {
+        python scripts/pypi_readme.py restore
+        $readmeWritten = $false
+    }
 }
 finally {
+    if ($readmeWritten) {
+        python scripts/pypi_readme.py restore
+    }
     if ($patched) {
         Set-PyProjectVersion $originalVersion
     }

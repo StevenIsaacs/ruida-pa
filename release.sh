@@ -5,6 +5,16 @@ _self=$(basename "$0")
 _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$_script_dir"
 
+# Absolutize README links for the built wheel, restoring the working copy afterwards.
+_readme_written=false
+_restore_readme () {
+  if [ "$_readme_written" = true ]; then
+    python3 scripts/pypi_readme.py restore || true
+    _readme_written=false
+  fi
+}
+trap _restore_readme EXIT
+
 usage () {
   cat <<EOF
 Usage: $_self [--dist-only] [--wheel-only]
@@ -58,7 +68,10 @@ mkdir -p "$_release_dir"
 # --- Build pip wheel ---
 if [ "$_dist_only" = false ]; then
   echo "--- Building pip wheel ---"
+  python3 scripts/pypi_readme.py write
+  _readme_written=true
   pip wheel --no-deps -w "$_release_dir" .
+  _restore_readme
   echo "Wheel built."
   echo ""
 fi
