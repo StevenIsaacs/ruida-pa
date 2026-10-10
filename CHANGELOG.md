@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-10-10
+
+### Added
+
+- `GlueScript.scan_rows()` — a run-chunked raster-fill for the MeerK40t
+  integration plan: a raster job is emitted as roughly one rpascript line per
+  power-run instead of ~3 lines per pixel. Consecutive equal-power pixels
+  collapse into a single `CUT_*` (or `MOVE_*` for a zero-power run),
+  `IMD_POWER_1`/`IMD_POWER_3` are change-gated through a `_current_imd_power`
+  shared with `power()`, bidirectional scans advance with a cross-axis-only
+  move, `horizontal=False` scans along Y, and the layer must be
+  IMAGE/DEPTHMAP (`ValueError` otherwise).
+- Canonical multi-line gluescript transcript serialization — a new
+  `_format_gluescript_call`/`_render_literal`/`_record` serializer lets any
+  gluescript command span physical lines for readability (a `scan_rows(...)`
+  call is recorded as one logical command); `RpcRdDriver.sync()` joins
+  continuation lines so wrapped commands re-stage correctly.
+- `RdDriver.start()`'s network-host argument renamed `udp_host` → `network_host`
+  (accurate for both UDP and TCP). `network_host` is primary; `udp_host`
+  remains a **deprecated alias** emitting a `DeprecationWarning` (supplying
+  both raises `ValueError`). Applied consistently across `RpcRdDriver.start`,
+  `TuiAdapter.start`, `RpycTuiService.exposed_start`, and `RdTransport.open`.
+- The `.rds`/TUI `session start` command now uses `host=` as primary, with
+  `udp=` normalized as a deprecated alias; the internal
+  `_start_udp_host`/`_last_udp_host`/`_udp_host` attributes were renamed to
+  `_network_host`.
+- The integration guide and API reference document the `protocol` argument of
+  `start()` (UDP/TCP selection for port-50200 controllers such as the
+  RDC8445S); the stale `start()` and `configure()` signatures in the docs were
+  corrected.
+- Version bump to 0.23.0.
+
 ## [0.22.0] - 2026-10-02
 
 ### Added

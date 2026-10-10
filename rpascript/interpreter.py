@@ -227,6 +227,12 @@ class ScriptParser:
                 for token in tokens[2:]:
                     key, _, val = token.partition("=")
                     kwargs[key.lower()] = None if val.lower() == "none" else val
+                if "udp" in kwargs and "host" not in kwargs:
+                    self._warning_callback(
+                        f'{line_num}: "udp=" is deprecated; use "host="',
+                        "session start host=<IP> usb=<device>",
+                    )
+                    kwargs["host"] = kwargs.pop("udp")
                 return {
                     "type": "SESSION_START",
                     "mnemonic": "SESSION_START",
@@ -669,7 +675,7 @@ class ScriptInterpreter:
 
                 driver = RdDriver()
                 opened = driver.start(
-                    udp_host=params.get("udp", ""),
+                    network_host=params.get("host", ""),
                     usb_device=params.get("usb", ""),
                     magic=_magic,
                     protocol=_protocol,
@@ -677,7 +683,7 @@ class ScriptInterpreter:
                 if not opened:
                     self._out.write(
                         f"# ERROR: Failed to open transport to Ruida controller "
-                        f"(udp={params.get('udp', '')}, usb={params.get('usb', '')})\n"
+                        f"(host={params.get('host', '')}, usb={params.get('usb', '')})\n"
                     )
                     return
 

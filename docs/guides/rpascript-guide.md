@@ -28,14 +28,15 @@ multiple lines."""
 ### Session Meta-Commands
 
 ```rds
-session start udp=192.168.1.100
-session start udp=192.168.1.100 usb=ttyUSB0 to=10s
+session start host=192.168.1.100
+session start host=192.168.1.100 usb=ttyUSB0 to=10s
 session end
 ```
 
 - `session start` — Opens a transport connection. Requires at least
-  `udp=<IP>` or `usb=<device>`. The optional `to=<timeout>` sets the
+  `host=<IP>` or `usb=<device>`. The optional `to=<timeout>` sets the
   connection timeout (e.g., `10s`, `5000ms`; default 5000ms).
+  (`udp=` remains a deprecated alias for `host=`.)
 - `session end` — Closes the active session.
 - These are processed by `RdDriver.start()` / `RdDriver.stop()`, not
   sent to the controller as commands.
@@ -556,7 +557,7 @@ Scripts are passed as lists of strings:
 from ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
-driver.start(udp_host="192.168.1.100")
+driver.start(network_host="192.168.1.100")
 
 script = [
     "HOME_XY",

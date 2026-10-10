@@ -136,7 +136,7 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | Verify the handshake thread transitions through IDLE → SEND → ACK_PENDING → REPLY_PENDING → IDLE when a ping is sent over UDP. |
 | **Prerequisites** | Controller on network at `192.168.1.100`. `.venv` active. |
-| **Steps** | 1. Launch TUI: `rpa-script --tui`.<br>2. Type `session start udp=192.168.1.100` and press Enter.<br>3. Observe the TUI status log for `PING_SENT` and `PING_REPLIED` events.<br>4. Optionally: Set a breakpoint in `rd_transport.py` handshake thread to step through IDLE → SEND → ACK_PENDING → REPLY_PENDING transitions. |
+| **Steps** | 1. Launch TUI: `rpa-script --tui`.<br>2. Type `session start host=192.168.1.100` and press Enter.<br>3. Observe the TUI status log for `PING_SENT` and `PING_REPLIED` events.<br>4. Optionally: Set a breakpoint in `rd_transport.py` handshake thread to step through IDLE → SEND → ACK_PENDING → REPLY_PENDING transitions. |
 | **Expected result** | Status log shows `PING_SENT` followed by `PING_REPLIED` within ~1s. No timeout errors. |
 
 #### Test 2.2.2: Ping Failure → DISCONNECTED → RECONNECTED
@@ -156,7 +156,7 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | Verify that `rpa` capture shows swizzled packets with correct checksums when a session is active. |
 | **Prerequisites** | Controller on network. `rpa` installed (part of project). |
-| **Steps** | 1. Start a UDP session: `rpa-script --tui`, then `session start udp=192.168.1.100`.<br>2. Simultaneously run `./capture 192.168.1.100 session-test.log` in another terminal.<br>3. After capturing a few pings, stop the capture.<br>4. Run `rpa session-test.log` and examine the decoded output. |
+| **Steps** | 1. Start a UDP session: `rpa-script --tui`, then `session start host=192.168.1.100`.<br>2. Simultaneously run `./capture 192.168.1.100 session-test.log` in another terminal.<br>3. After capturing a few pings, stop the capture.<br>4. Run `rpa session-test.log` and examine the decoded output. |
 | **Expected result** | Decoded packets show the expected command bytes. The swizzle/checksum can be verified by cross-referencing the raw hex dump in `session-test-vrb.tshark`. |
 
 ---
@@ -206,7 +206,7 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | Verify the 8-state status monitor transitions through CONNECTING → WAIT_TO_PING → SEND_PING → PING_REPLY → WAIT_TO_POLL, with `CONNECTED`, `PING_SENT`, `PING_REPLIED` events appearing in the TUI. |
 | **Prerequisites** | Controller at `192.168.1.100`. `.venv` active. |
-| **Steps** | 1. `rpa-script --tui`.<br>2. `session start udp=192.168.1.100`.<br>3. Observe the TUI status log. |
+| **Steps** | 1. `rpa-script --tui`.<br>2. `session start host=192.168.1.100`.<br>3. Observe the TUI status log. |
 | **Expected result** | Within seconds: `CONNECTED`, then periodic `PING_SENT` / `PING_REPLIED` pairs cycling every ~5s. No `DISCONNECTED` or timeout events. |
 
 #### Test 3.2.2: Query Cycle — QUERY_SENT / QUERY_RECEIVED
@@ -434,9 +434,9 @@ These tests require no controller. They verify the core wire-format logic using 
 
 | Field | Value |
 |-------|-------|
-| **Objective** | Verify `session start udp=192.168.1.100` in the TUI produces a valid connection. |
+| **Objective** | Verify `session start host=192.168.1.100` in the TUI produces a valid connection. |
 | **Prerequisites** | TUI running. Controller at `192.168.1.100`. |
-| **Steps** | 1. In the command input, type `session start udp=192.168.1.100` and press Enter.<br>2. Observe the log area — should show `[STATUS] CONNECTED`.<br>3. Observe the side panel — status section should show events. |
+| **Steps** | 1. In the command input, type `session start host=192.168.1.100` and press Enter.<br>2. Observe the log area — should show `[STATUS] CONNECTED`.<br>3. Observe the side panel — status section should show events. |
 | **Expected result** | Log shows `[STATUS] CONNECTED`. Side panel populates with status events. No error messages. |
 
 #### Test 5.2.4: Command via TUI → Reply Data
@@ -653,7 +653,7 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | Verify that commands sent from the TUI appear correctly in a simultaneous network capture. |
 | **Prerequisites** | Controller on network. `rpa-script --tui` ready. `./capture` script available. |
-| **Steps** | 1. Start a packet capture: `./capture 192.168.1.100 integration-test.log` (in another terminal).<br>2. In TUI, start a session: `session start udp=192.168.1.100`.<br>3. Send a command: `GET_SETTING MEM_CARD_ID`.<br>4. After reply appears, stop the capture.<br>5. Run `rpa integration-test.log` to decode. |
+| **Steps** | 1. Start a packet capture: `./capture 192.168.1.100 integration-test.log` (in another terminal).<br>2. In TUI, start a session: `session start host=192.168.1.100`.<br>3. Send a command: `GET_SETTING MEM_CARD_ID`.<br>4. After reply appears, stop the capture.<br>5. Run `rpa integration-test.log` to decode. |
 | **Expected result** | The decoded capture shows the GET_SETTING command followed by a reply. The command bytes match expectations. |
 
 ### Test 6.2: Capture Decode Verification [ ]

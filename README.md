@@ -294,7 +294,7 @@ driver.cut_xy_to(10.0, 110.0)
 driver.end_job()
 
 driver.stage_gluescript()          # assemble low-level rpascript
-driver.start(udp_host="192.168.1.100")
+driver.start(network_host="192.168.1.100")
 driver.run_job()                   # execute in the background
 driver.stop()
 ```

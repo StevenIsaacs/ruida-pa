@@ -26,29 +26,33 @@ __init__() → start() → [run() ... run()] → stop()
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `start` | `(udp_host: str \| None = None, usb_device: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
+| `start` | `(network_host: str \| None = None, usb_device: str \| None = None, magic: int \| None = None, protocol: str \| None = None, udp_host: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. `udp_host` is a deprecated alias for `network_host`. |
 | `stop` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `start()`. |
 
 ### 2.1 `start()` — Connection Details
 
 ```python
-def start(self, udp_host: str | None = None, usb_device: str | None = None,
-          magic: int | None = None, protocol: str | None = None) -> bool
+def start(self, network_host: str | None = None, usb_device: str | None = None,
+          magic: int | None = None, protocol: str | None = None,
+          udp_host: str | None = None) -> bool
 ```
 
-1. If `udp_host`/`usb_device` are `None`, reuses values from the previous call.
-2. If `magic` is `None`, reuses the previous value (default `0x88`).
-3. `protocol` selects the network protocol for `udp_host`: `"udp"` (default)
+1. If `network_host`/`usb_device` are `None`, reuses values from the previous call.
+2. If `udp_host` is given (and `network_host` is not), it is used in place of
+   `network_host` and emits a `DeprecationWarning`; supplying both raises
+   `ValueError`.
+3. If `magic` is `None`, reuses the previous value (default `0x88`).
+4. `protocol` selects the network protocol for `network_host`: `"udp"` (default)
    or `"tcp"` (`RdTransport.NETWORK_PROTOCOLS`) for controllers that take the
    Ruida command stream over TCP port 50200 (e.g. the RDC8445S); `None`
    reuses the previous value; any other value raises `ValueError`.
-4. If a session already exists with different params (different
-   `udp_host`/`usb_device` **or** `protocol`), calls `stop()` first.
-5. If a session already exists with same params, returns `True` immediately (no-op).
-6. Creates `RdSession()`, calls `transport.configure()`.
-7. Calls `transport.open(udp_host=..., usb_device=..., protocol=...)` — UDP
+5. If a session already exists with different params (different
+   `network_host`/`usb_device` **or** `protocol`), calls `stop()` first.
+6. If a session already exists with same params, returns `True` immediately (no-op).
+7. Creates `RdSession()`, calls `transport.configure()`.
+8. Calls `transport.open(network_host=..., usb_device=..., protocol=...)` — UDP
    and/or USB.
-8. Starts the background script runner (registers listeners, configures ping/query commands, starts status monitor thread).
+9. Starts the background script runner (registers listeners, configures ping/query commands, starts status monitor thread).
 
 **Return value:** `True` if transport opened successfully on first attempt.  
 `False` if open failed — the status monitor will retry in background.  
@@ -521,7 +525,7 @@ driver = RdDriver()
 driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
 driver.register_error_listener(lambda m: print(f"[ERROR] {m}"))
 
-if not driver.start(udp_host="192.168.1.100"):
+if not driver.start(network_host="192.168.1.100"):
     print("Connection will retry in background...")
 
 driver.run(["GET_SETTING MEM_CARD_ID"])
@@ -559,7 +563,7 @@ class MyApp:
         print(f"Error: {message}")
 
     def run(self, host: str) -> None:
-        if self.driver.start(udp_host=host):
+        if self.driver.start(network_host=host):
             time.sleep(3)
             self.driver.stop()
 
@@ -585,7 +589,7 @@ def _handle_status(self, event):
 ## 11. Configuration Notes
 
 - **Transport:** UDP (Ethernet) is default. USB (serial via pyserial) is
-  optional — pass `usb_device=` instead of or in addition to `udp_host=`.
+  optional — pass `usb_device=` instead of or in addition to `network_host=`.
 - **Ping interval:** 5000ms default. Queries every 1000ms.
 - **Timeouts:** Per-command timeout 250ms, gross timeout 15s for long
   operations (home sequences, etc.).

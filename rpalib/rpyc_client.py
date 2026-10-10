@@ -170,6 +170,7 @@ from ruidadriver.rd_gluescript import (
     JobRunningError,
     _join_continuation_lines,
 )
+from ruidadriver.rd_transport import _resolve_network_host
 
 logger = logging.getLogger(__name__)
 
@@ -864,15 +865,16 @@ class RpcRdDriver(GlueScript):
 
     def start(
         self,
-        udp_host: str | None = None,
+        network_host: str | None = None,
         usb_device: str | None = None,
         magic: int | None = None,
         protocol: str | None = None,
+        udp_host: str | None = None,
     ) -> bool:
         """Start the server-side driver/session. Mirrors RdDriver.start()."""
         return bool(
             self._svc.start(
-                udp_host=udp_host,
+                network_host=_resolve_network_host(network_host, udp_host),
                 usb_device=usb_device,
                 magic=magic,
                 protocol=protocol,

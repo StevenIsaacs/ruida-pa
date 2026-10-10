@@ -6,7 +6,7 @@ Block comments are stripped by the rpascript interpreter.
 This whole paragraph is ignored when the file is parsed.
 """
 
-session start udp=127.0.0.1
+session start host=127.0.0.1
 
 REF_POINT_MACHINE
 SET_ABSOLUTE

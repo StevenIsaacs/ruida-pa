@@ -34,6 +34,7 @@ from rpyc.utils.factory import connect_stream
 from rpyc.utils.server import ThreadedServer
 
 from rpascript.tui_adapter import TuiAdapter
+from ruidadriver.rd_transport import _resolve_network_host
 
 _log = logging.getLogger(__name__)
 
@@ -279,18 +280,20 @@ class RpycTuiService(rpyc.Service):
 
     def exposed_start(
         self,
-        udp_host: str | None = None,
+        network_host: str | None = None,
         usb_device: str | None = None,
         magic: int | None = None,
         protocol: str | None = None,
+        udp_host: str | None = None,
     ) -> bool:
         self._rpc_info(
-            f"[RPC] RPC start(udp_host={udp_host!r}, "
+            f"[RPC] RPC start(network_host={network_host!r}, "
             f"usb_device={usb_device!r}, magic={'***' if magic is not None else None}, "
             f"protocol={protocol!r})"
         )
         return self._adapter.start(
-            udp_host=udp_host, usb_device=usb_device, magic=magic, protocol=protocol
+            network_host=_resolve_network_host(network_host, udp_host),
+            usb_device=usb_device, magic=magic, protocol=protocol,
         )
 
     def exposed_stop(self) -> None:

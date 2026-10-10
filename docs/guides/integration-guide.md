@@ -86,7 +86,7 @@ driver.end_job()
 # Stage the job into low-level rpascript (assembled from job/layer storage)
 driver.stage_gluescript()
 
-if not driver.start(udp_host="192.168.1.100"):
+if not driver.start(network_host="192.168.1.100"):
     print("Connection will retry in background...")
 
 # Compose head + job + tail and execute (no job argument — runs the
@@ -109,18 +109,21 @@ __init__() → start() → [run() ... run()] → stop()
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `start` | `(udp_host=None, usb_device=None, magic=None, protocol=None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
+| `start` | `(network_host=None, usb_device=None, magic=None, protocol=None, udp_host=None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
 | `stop` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `start()`. |
 
 **`start()` behavior notes:**
 - If params are `None`, reuses values from the previous call.
+- `network_host` is the network host (UDP or TCP). `udp_host` is a **deprecated
+  alias** — passing it (without `network_host`) works but emits a
+  `DeprecationWarning`; passing both raises `ValueError`.
 - `magic` selects the transport swizzle magic (default `0x88`, see §2.10);
   `None` keeps the previous value.
-- `protocol` selects the network protocol for `udp_host`: `"udp"` (default)
+- `protocol` selects the network protocol for `network_host`: `"udp"` (default)
   or `"tcp"` (`RdTransport.NETWORK_PROTOCOLS`) for controllers that take the
   Ruida command stream over TCP port 50200 (e.g. the RDC8445S); `None` keeps
   the previous value. An unsupported value raises `ValueError`.
-- If a session exists with different params (different `udp_host`/`usb_device`
+- If a session exists with different params (different `network_host`/`usb_device`
   **or** `protocol`), calls `stop()` first, then creates a fresh session.
 - If a session exists with the same params, returns `True` immediately (no-op).
 
@@ -268,7 +271,7 @@ been staged.
 
 ```python
 driver = RdDriver()
-driver.start(udp_host="192.168.1.100")
+driver.start(network_host="192.168.1.100")
 
 # Configure head (runs before every job)
 driver.set_head_script([
@@ -531,7 +534,7 @@ operator; an application adapter only connects to it. RpcRdDriver also
 forwards start()/stop() to the server-side driver, so a client that must manage
 the server-side session lifecycle (e.g. a test harness) can do so; the
 connect-only pattern above remains the recommended adapter contract. An RPC
-`start()` with a different `udp_host`/`usb_device` than the active
+`start()` with a different `network_host`/`usb_device` than the active
 server-side session stops that session and starts a fresh one — the TUI
 adapter resets its connection state so the TUI treats it as a clean
 re-connect. Same params, a magic-only change, or an empty-string param
@@ -607,7 +610,7 @@ print(f"Staged {len(rpc_driver.get_rpascript())} rpascript lines")
 # Later, once a controller is reachable, run it — run_job composes head +
 # staged + tail scripts around the job; with no job argument it runs the
 # rpascript most recently staged by stage_gluescript().
-rpc_driver.start(udp_host="192.168.1.100")
+rpc_driver.start(network_host="192.168.1.100")
 rpc_driver.run_job()
 ```
 
@@ -1093,7 +1096,7 @@ before switching.
 | `job_complete` | Local property | Local property (set by `end_job()`), consistent with the direct driver |
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
 | Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min_power > max_power`, `min_power` below the power floor) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard; a corrupted `max_cut_speed` surfaces as `ValueError` at the next `cut_*` action (flush), not at `power_range()` |
-| `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device`/`protocol` replaces the active server-side session |
+| `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `network_host`/`usb_device`/`protocol` replaces the active server-side session |
 | Version reporting | Shares the process version (`rpalib.version.__version__`) | `get_version()` reports the SERVER process version; `version_mismatch` compares it with the client's, so a client/server version mismatch is detectable (see §3.7) |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
@@ -1260,7 +1263,7 @@ from ruidadriver.ruida_driver import RdDriver
 import time
 
 driver = RdDriver()
-driver.start(udp_host="192.168.1.100")
+driver.start(network_host="192.168.1.100")
 driver.run(["MOVE_FAR_XY X=100mm Y=200mm" for _ in range(100)])
 
 # Cancel mid-execution — current iteration won't requeue
@@ -1276,7 +1279,7 @@ driver.cancel_script()
   that take the command stream over port 50200 (e.g. RDC8445S) — pass
   `protocol="tcp"` on `start()` (the `"udp"`/`"tcp"` values are
   `RdTransport.NETWORK_PROTOCOLS`). USB (serial via pyserial) is optional —
-  pass `usb_device=` instead of or in addition to `udp_host=`.
+  pass `usb_device=` instead of or in addition to `network_host=` (`udp_host=` remains a deprecated alias).
 - **Ping interval:** 5000ms default. Queries every 1000ms.
 - **Timeouts:** Per-command timeout 250ms, gross timeout 15s for long operations (home sequences, etc.).
 - **Connection retry:** Every 1000ms when not connected.

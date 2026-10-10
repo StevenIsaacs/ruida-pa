@@ -21,7 +21,7 @@ class RdSession:
 
     Usage::
         session = RdSession()
-        session.transport.open(udp_host='192.168.1.100')
+        session.transport.open(network_host='192.168.1.100')
         session.connect(timeout=5000)
         # ... use session.transport.write(...) ...
         session.disconnect()

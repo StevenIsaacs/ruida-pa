@@ -146,18 +146,19 @@ falls back to the terminal's OSC 52 sequence, which some terminals ignore.
 ### Connecting
 
 ```
-session start udp=192.168.1.100
-session start udp=192.168.1.100 usb=ttyUSB0 to=10s
-session start udp=192.168.1.58 proto=tcp
+session start host=192.168.1.100
+session start host=192.168.1.100 usb=ttyUSB0 to=10s
+session start host=192.168.1.58 proto=tcp
 ```
 
 Parameters:
-- `udp=<IP>` — Controller IP address (required if no USB)
+- `host=<IP>` — Controller IP address (required if no USB). (`udp=` remains a
+  deprecated alias for `host=`.)
 - `usb=<device>` — USB serial device (e.g., `ttyUSB0`, `/dev/ttyACM0`).
   Can be combined with UDP; USB is preferred when both are specified.
 - `to=<timeout>` — Connection timeout. Formats: `5s`, `5000ms`. Default: 5000ms.
 - `magic=0xNN` — Optional swizzle magic number (e.g., `magic=0x88`).
-- `proto=udp|tcp` — Optional network protocol for the `udp=` host. Default `udp`;
+- `proto=udp|tcp` — Optional network protocol for the `host=` endpoint. Default `udp`;
   use `tcp` for controllers that only accept TCP, such as the RDC8445S.
 
 The TUI remains responsive while connecting. Use `/stop` or **Escape** to cancel
@@ -193,7 +194,7 @@ processed in this order:
 ### 5.1 Session Meta-Commands
 
 ```
-session start udp=192.168.1.100
+session start host=192.168.1.100
 session end
 server start host=0.0.0.0 port=19001 cert=server.crt key=server.key token=secret
 server stop
@@ -333,10 +334,10 @@ typed query shows its reply once.
 | `/import` file not found                             | `File not found: <path>`                                              |
 | `/import` decode failure                             | `Decode error: <details>`                                             |
 | `/run` with no script loaded                        | `No script loaded. Use /load <path> first.`                           |
-| `/run` with no session                              | `No active session. Use 'session start udp=...' first.`               |
+| `/run` with no session                              | `No active session. Use 'session start host=...' first.`               |
 | `/run` with no job markers                          | `No job commands found (no START_JOB/EOF markers).`               |
 | `/frame` with no script loaded                       | `No script loaded. Use /load <path> first.`                           |
-| `/frame` with no session                             | `No active session. Use 'session start udp=<IP>' first.`               |
+| `/frame` with no session                             | `No active session. Use 'session start host=<IP>' first.`               |
 | `/dryrun` bad arg                                    | `Usage: /dryrun on\|off`                                                |
 | `/protect` bad arg                                   | `Usage: /protect on\|off\|status`                                        |
 | `/power_scale` bad arg                               | `Usage: /power_scale [status\|on\|off\|max_speed <v>\|floor <v>]`        |
@@ -754,7 +755,7 @@ rpa-script
 Imported 1423 lines from rdworks-test.log
 
 # Connect and execute
-session start udp=192.168.1.100
+session start host=192.168.1.100
 [STATUS] PING_REPLIED
 [STATUS] CONNECTED
 

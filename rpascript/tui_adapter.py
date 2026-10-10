@@ -74,7 +74,7 @@ from rpalib.ruida_transcoder import RdDecoder, RdEncoder
 from rpascript.encoding import encode_command, is_resolvable_address, parse_value
 from rpascript.interpreter import ScriptParser, reconstruct_script_line
 from ruidadriver.rd_status import RdStatusEvent
-from ruidadriver.rd_transport import parse_network_protocol
+from ruidadriver.rd_transport import _resolve_network_host, parse_network_protocol
 from ruidadriver.ruida_driver import RdDriver, StatusDict
 from ruidadriver.rd_gluescript import (
     GlueScript,
@@ -1038,7 +1038,7 @@ class TuiAdapter(App):
         self._rpc_auto_start_task: asyncio.Task | None = None
         super().__init__(*args, **kwargs)
         self._ruida_driver: RdDriver | None = None
-        self._last_udp_host: str = ""
+        self._last_network_host: str = ""
         self._last_usb_device: str = ""
         self._last_magic: int = 0x88
         self._last_protocol: str = "udp"
@@ -1113,7 +1113,7 @@ class TuiAdapter(App):
             "quit": "Exit the TUI",
             "status": r"Toggle logging: /status \[on|off|status] for status/reply, /status connection \[on|off|status] for transport events",
             "session": r"""session: Start or end a controller session
-  session start udp=<IP> usb=<device> to=<timeout> magic=0xNN proto=udp|tcp  Connect to a controller (to: optional, e.g. 5s or 5000ms; magic: optional swizzle magic number, e.g. magic=0x88; proto: optional network protocol, tcp for controllers such as the RDC8445S, default udp)
+  session start host=<IP> usb=<device> to=<timeout> magic=0xNN proto=udp|tcp  Connect to a controller (to: optional, e.g. 5s or 5000ms; magic: optional swizzle magic number, e.g. magic=0x88; proto: optional network protocol, tcp for controllers such as the RDC8445S, default udp)
   session end               Disconnect""",
             "server": r"""server: Start or stop the RPC server
   server start host=<IP> port=<N> cert=<path> key=<path> token=<token>  Start the RPC server
@@ -1443,7 +1443,7 @@ class TuiAdapter(App):
             else:
                 if self._ruida_driver is None:
                     self._log_error(
-                        "No active session. Use 'session start udp=<IP> usb=<device>' first."
+                        "No active session. Use 'session start host=<IP> usb=<device>' first."
                     )
                     return
                 try:
@@ -2273,7 +2273,7 @@ class TuiAdapter(App):
             return
         if self._ruida_driver is None or not self._ruida_driver.is_connected:
             self._log_error(
-                "No active session. Use 'session start udp=<IP> usb=<device>' first."
+                "No active session. Use 'session start host=<IP> usb=<device>' first."
             )
             return
         self._log_info(f"Executing {len(self._loaded_script)} lines...")
@@ -2930,7 +2930,7 @@ class TuiAdapter(App):
             return
         if self._ruida_driver is None or not self._ruida_driver.is_connected:
             self._log_error(
-                "No active session. Use 'session start udp=<IP>' first."
+                "No active session. Use 'session start host=<IP>' first."
             )
             return
 
@@ -4367,7 +4367,7 @@ class TuiAdapter(App):
             driver = self._ruida_driver
             if driver is None:
                 self._log_error(
-                    "No active session. Use 'session start udp=<IP> usb=<device>' first."
+                    "No active session. Use 'session start host=<IP> usb=<device>' first."
                 )
                 return
 
@@ -4692,7 +4692,7 @@ class TuiAdapter(App):
     # ------------------------------------------------------------------
 
     async def _start_session(
-        self, udp: str | None = None, usb: str | None = None, to: str | None = None,
+        self, host: str | None = None, usb: str | None = None, to: str | None = None,
         magic: str | None = None, proto: str | None = None,
     ) -> None:
         """Connect to a Ruida controller and start the script runner.
@@ -4704,14 +4704,14 @@ class TuiAdapter(App):
         """
         # Resolve None params against last-used values so params persist
         # across session end/start cycles even when RdDriver is discarded.
-        if udp is None:
-            udp = self._last_udp_host
+        if host is None:
+            host = self._last_network_host
         if usb is None:
             usb = self._last_usb_device
 
-        if not udp and not usb:
+        if not host and not usb:
             self._log_error(
-                "No connection parameters. Provide udp=<host> or usb=<device>."
+                "No connection parameters. Provide host=<addr> or usb=<device>."
             )
             return
 
@@ -4748,10 +4748,10 @@ class TuiAdapter(App):
         # Live session — reconnect immediately using last-used params.
         if self._ruida_driver is not None and self._ruida_driver._session is not None:
             self._ruida_driver.start(
-                udp_host=udp, usb_device=usb, magic=self._last_magic,
+                network_host=host, usb_device=usb, magic=self._last_magic,
                 protocol=self._last_protocol,
             )
-            self._last_udp_host = udp
+            self._last_network_host = host
             self._last_usb_device = usb
             return
 
@@ -4768,18 +4768,18 @@ class TuiAdapter(App):
 
         loop = asyncio.get_running_loop()
 
-        if udp:
-            resolved = await loop.run_in_executor(None, _resolve_hostname, udp, 50200)
+        if host:
+            resolved = await loop.run_in_executor(None, _resolve_hostname, host, 50200)
             if resolved is None:
                 self._log_error(
-                    f"Unable to resolve '{udp}'. Check the address and try again."
+                    f"Unable to resolve '{host}'. Check the address and try again."
                 )
                 return
-            udp = resolved
+            host = resolved
 
         try:
             self._log_info(
-                f"Connecting (udp={udp}, usb={usb}, proto={self._last_protocol})..."
+                f"Connecting (host={host}, usb={usb}, proto={self._last_protocol})..."
             )
 
             # Fresh driver when none exists (registers listeners, syncs
@@ -4796,10 +4796,10 @@ class TuiAdapter(App):
             self._ruida_driver = driver
 
             opened = driver.start(
-                udp_host=udp, usb_device=usb, magic=self._last_magic,
+                network_host=host, usb_device=usb, magic=self._last_magic,
                 protocol=self._last_protocol,
             )
-            self._last_udp_host = udp
+            self._last_network_host = host
             self._last_usb_device = usb
             if not opened:
                 self._log_info("Transport not available yet (retrying in background)")
@@ -5590,7 +5590,7 @@ class TuiAdapter(App):
         if self._ruida_driver is not None and self._ruida_driver._session is not None:
             transport = self._ruida_driver._session.transport
             if transport.is_udp or transport.is_tcp:
-                transport_info = transport._udp_host
+                transport_info = transport._network_host
             elif transport.is_usb:
                 transport_info = transport._usb_device
             else:
@@ -5687,7 +5687,7 @@ class TuiAdapter(App):
         return __version__
 
     def _reset_for_takeover(
-        self, resolved_udp: str, resolved_usb: str, magic: int | None
+        self, resolved_host: str, resolved_usb: str, magic: int | None
     ) -> None:
         """Reset TUI session state before a driver session takeover.
 
@@ -5697,22 +5697,23 @@ class TuiAdapter(App):
         """
         self._session_connected.clear()
         self._last_is_connected = None
-        self._last_udp_host = resolved_udp
+        self._last_network_host = resolved_host
         self._last_usb_device = resolved_usb
         if magic is not None:
             self._last_magic = magic
         # _session_disconnected self-corrects via status events; not reset here
         self._log_warning(
             f"RPC start() replacing active session "
-            f"(udp_host={resolved_udp}, usb_device={resolved_usb})"
+            f"(network_host={resolved_host}, usb_device={resolved_usb})"
         )
 
     def start(
         self,
-        udp_host: str | None = None,
+        network_host: str | None = None,
         usb_device: str | None = None,
         magic: int | None = None,
         protocol: str | None = None,
+        udp_host: str | None = None,
     ) -> bool:
         """Start the driver session, replacing an active session on change.
 
@@ -5721,16 +5722,17 @@ class TuiAdapter(App):
         session is already active, the incoming params are resolved against
         the driver's stored start values (None reuses the stored value): an
         active session is replaced (via the driver) only when the resolved
-        udp_host/usb_device is truthy AND different from the stored value,
+        network_host/usb_device is truthy AND different from the stored value,
         or when the resolved network protocol changes. Same params, a magic-only change, or an empty-string param keep the
         session (no-op). On a takeover the adapter resets its session state
         so the TUI treats it as a clean re-connect.
 
         Args:
-            udp_host: UDP host address or hostname. None reuses previous value.
+            network_host: Network host address or hostname. None reuses previous value.
             usb_device: USB serial device path. None reuses previous value.
             magic: Optional swizzle magic number (default 0x88).
             protocol: Network protocol, "udp" or "tcp". None reuses previous value.
+            udp_host: Deprecated alias for network_host.
 
         Returns:
             True if transport opened immediately, False if retry needed.
@@ -5740,23 +5742,28 @@ class TuiAdapter(App):
 
         driver = self._ruida_driver
         if driver._session is not None:
-            if udp_host is None:
-                udp_host = driver._start_udp_host
+            if network_host is None and udp_host is None:
+                network_host = driver._start_network_host
+            else:
+                network_host = _resolve_network_host(network_host, udp_host)
+                if network_host is None:
+                    network_host = driver._start_network_host
             if usb_device is None:
                 usb_device = driver._start_usb_device
             resolved_protocol = protocol or driver._start_protocol
             if (
-                (udp_host and udp_host != driver._start_udp_host)
+                (network_host and network_host != driver._start_network_host)
                 or (usb_device and usb_device != driver._start_usb_device)
                 or resolved_protocol != driver._start_protocol
             ):
-                self._reset_for_takeover(udp_host, usb_device, magic)
+                self._reset_for_takeover(network_host, usb_device, magic)
 
         result = driver.start(
-            udp_host=udp_host, usb_device=usb_device, magic=magic, protocol=protocol
+            network_host=network_host, usb_device=usb_device, magic=magic,
+            protocol=protocol,
         )
         self._log_info(
-            f"[RPC] driver.start(udp_host={udp_host!r}, usb_device={usb_device!r}, "
+            f"[RPC] driver.start(network_host={network_host!r}, usb_device={usb_device!r}, "
             f"magic={magic!r}, protocol={protocol!r}) -> {result}"
         )
         return result

@@ -362,17 +362,17 @@ When data is received from the Ruida controller it is unswizzled and then parsed
 #### API Implementation Specifics
 NOTE: Because the Ruida controller sends data only in response to a memory read command (GET_SETTING) there is no `read` method. Instead, receiving data from the controller requires registering as a Reply listener (see `register_reply_listener`).
 #### Methods
-`configure(udp_host: str, usb_device: str, magic: int=0x88, chunk_size=1024, timeout=250, gross_timeout=15000)`
+`configure(magic: int=0x88, chunk_size=1024, timeout=1000, gross_timeout=15000, inter_packet_timeout=50)`
 	 This must be called to configure the transport before attempting to call any other method in this class. If this is called after a transport has been opened then the active transport is automatically closed which will cause the Handshake Thread to re-establish a connection using the new configuration.
 	 Parameters:
-		  `udp_host`: The IP address or host name for a UDP communications with the Ruida controller.
-		  `usb_device`: The device name for the USB/Serial device.
 		  `chunk_size`: The maximum size of a chunk which can be sent to a Ruida controller.
 		  `magic`: Used to generate swizzle and unswizzle look-up tables (LUT) which are then used for packing and un-packing. NOTE: The swizzle LUTs are generated only when the `magic` changes.
 		  `timeout`: The normal timeout in milliseconds to use when waiting to receive data from the Ruida controller.
 		  `gross_timeout`: This is a very long timeout in milliseconds to use instead of a normal timeout. This is typically used when the Ruida controller is executing a power on or hard home sequence during which it is unresponsive to communications.
-`open()`
-	Opens the `transport` for communications. This first attempts to open the USB/Serial transport because of slightly better performance (no ACK handshake). If that attempt fails then `open` attempts to open the UDP interface. If both fail then False is returned. Otherwise, the handshake thread is started and True is returned. The `is_usb` and `is_udp` properties can then be used to determine which transport has been opened. Once a transport is successfully opened the handshake thread (below) is started.
+		  `inter_packet_timeout`: The gap in milliseconds between packets of a multi-packet reply.
+`open(network_host: str = "", usb_device: str = "", protocol: str = "", udp_host: str = "")`
+	Configures and opens the preferred transport. USB/serial is attempted first (slightly better performance — no ACK handshake); if that fails the network host is opened over the selected `protocol` (`"udp"` default or `"tcp"`). Empty-string args reuse the previous values. `udp_host` is a deprecated alias for
+	`network_host`. If both attempts fail then False is returned. Otherwise, the handshake thread is started and True is returned. The `is_usb`, `is_udp` and `is_tcp` properties can then be used to determine which transport has been opened. Once a transport is successfully opened the handshake thread (below) is started.
 `close()`
 	This shuts down the handshake thread and closes the active interface. 
 `write(commands: list[bytearray])`
@@ -548,7 +548,7 @@ The implementation sequence for each layer is:
 
 ## rpa-script Enhancements
 Currently, `rpa-script` supports only Ruida controller commands. In order to test L6 (RdDriver) and implement L7 (TuiAdapter) new scripting commands need to be added to support starting and stopping sessions. These commands should be lower case to make them visually distinctive in a text form and should include:
-- `session start udp=<host | ip | None> usb=<device | None>`: Start a session (RdSession) with the Ruida controller. NOTE: `None` indicates the transport is not used for the session.
+- `session start host=<host | ip | None> usb=<device | None>`: Start a session (RdSession) with the Ruida controller. NOTE: `None` indicates the transport is not used for the session.
 - `session end`: Terminate the session.
 No commands in the script are valid unless a session has been started and is running.
 # Credit Where Credit is Due

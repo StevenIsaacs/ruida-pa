@@ -157,7 +157,7 @@ class TransportEvent(Enum):
 
 ```python
 def configure(
-    udp_host: str = '',
+    network_host: str = '',
     usb_device: str = '',
     magic: int = 0x88,
     chunk_size: int = 1024,
@@ -179,7 +179,7 @@ def open() -> bool
 
 Opens the preferred transport:
 1. If `UsbTransport` was configured, attempts `usb.open(usb_device)`.
-2. If USB fails or is not configured, attempts `UdpTransport.open(udp_host, 50200)`.
+2. If USB fails or is not configured, attempts `UdpTransport.open(network_host, 50200)`.
 3. If both fail, returns `False`.
 
 On success, starts the handshake thread and fires `TransportEvent.OPENED`.
@@ -820,7 +820,7 @@ On `Input.Submitted`, the input is dispatched in this order:
 2. **`!` prefix** (e.g., `!session`, `!transport._package 0xAA`) → introspection mode. The rest of the line is parsed as an introspection expression: dotted path resolution against a named object map, optional space-separated arguments, optional parenthesized method call syntax. See §6.2.4.
 3. **`?`** (exactly `?` as the entire input) → alias for `/help`. Shows help text.
 4. **`/` prefix** (e.g., `/help`, `/load path/to/file.rds`) → slash-command dispatch. The command name (case-insensitive) is routed to its handler. Unknown commands produce an error message. See §6.2.5.
-5. **Session start** (`session start udp=<IP> usb=<device> to=<timeout>`):
+5. **Session start** (`session start host=<IP> usb=<device> to=<timeout>`):
    - Guard: if session already active → log error, return.
    - `to` is an optional timeout parameter (e.g. `5s`, `5000ms`). Defaults to 5000ms if omitted. Invalid formats produce an error.
    - Create `RdSession`, call `transport.configure()`.
@@ -895,7 +895,7 @@ All TUI meta-commands use the `/` prefix to distinguish them from Ruida controll
 - `/load` / `/head` / `/tail` binary file: `"File is not a valid text file: <path>"`
 - `/load` / `/head` / `/tail` empty file: `"File is empty or contains only blank lines: <path>"`
 - `/run` with no script loaded: `"No script loaded. Use /load <path> first."`
-- `/run` with no session: `"No active session. Use 'session start udp=...' first."`
+- `/run` with no session: `"No active session. Use 'session start host=...' first."`
 - `/list` with unknown subcommand: `"Usage: /list [job|script]"`
 - `/list script` with no script loaded: `"No script loaded. Use /load <path> first."`
 - `/list job` with no script loaded: `"No script loaded. Use /load <path> first."`
@@ -991,15 +991,15 @@ rpascript files are line-oriented plain text files with the following line types
 #### 7.1.2 Session Meta-Commands
 
 ```rds
-session start udp=192.168.1.100 usb=none
+session start host=192.168.1.100 usb=none
 session start usb=ttyUSB0
-session start udp=192.168.1.100 usb=ttyUSB0   # Both valid, USB preferred
-session start udp=192.168.1.100 to=10s         # With optional connection timeout
-session start udp=192.168.1.100 to=5000ms      # Same, specified in milliseconds
+session start host=192.168.1.100 usb=ttyUSB0   # Both valid, USB preferred
+session start host=192.168.1.100 to=10s         # With optional connection timeout
+session start host=192.168.1.100 to=5000ms      # Same, specified in milliseconds
 session end
 ```
 
-- `session start` requires at least one of `udp=` or `usb=`. Parameters set to `none` are treated as absent.
+- `session start` requires at least one of `host=` or `usb=` (`udp=` remains a deprecated alias). Parameters set to `none` are treated as absent.
 - `to=<timeout>` is an optional parameter specifying the connection timeout (e.g. `5s`, `5000ms`). Default is 5000ms.
 - `session end` terminates the active session.
 
