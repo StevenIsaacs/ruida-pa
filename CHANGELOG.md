@@ -35,6 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `start()` (UDP/TCP selection for port-50200 controllers such as the
   RDC8445S); the stale `start()` and `configure()` signatures in the docs were
   corrected.
+- Per-axis resolution of the memory-table (MT) axis blocks: the X/Y/Z/U
+  machine-setting mnemonics in the `0x002_`–`0x005_` blocks were renamed from
+  numbered `MEM_AXIS_*_1..4` to axis-suffixed canonical names (`MEM_PRECISION_X..U`,
+  `MEM_MAX_VELOCITY_X..U`, `MEM_START_VELOCITY_X..U`, `MEM_MAX_ACC_X..U`,
+  `MEM_BTN_START_VEL_X..U`, `MEM_BTN_ACC_X..U`, `MEM_ESTP_ACC_X..U`,
+  `MEM_HOME_OFFSET_X..U`, and `MEM_TRAVEL_Z/U` for the Z/U travel values), each
+  typed from `TBDU35` to a dim/speed/accel spec (`Vel:…mm/S`, `Acc:…mm/S2`,
+  `Prec:…mm`, `HomeOffset:…mm`) and `# Verified RDC8445S`. `MEM_BED_SIZE_X/Y`
+  and `MEM_AXIS_CONTROL_PARA_*`/`MEM_AXIS_BACKLASH_*` are unchanged. The old
+  names remain as deprecated aliases resolved in `ScriptParser`'s MT-mnemonic
+  lookup, so existing `.rds` scripts and `GET_SETTING`/`SET_SETTING` keep
+  working. The VSCode verified-mnemonic syntax list (66), the rsascript-guide,
+  and the per-axis decode formatting tests were updated.
 - Version bump to 0.23.0.
 
 ## [0.22.0] - 2026-10-02

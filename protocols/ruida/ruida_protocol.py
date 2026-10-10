@@ -143,6 +143,16 @@ CARD_ID = ("CardID:{}", "card_id", "uint_35")
 M_STAT = ("MStat:{}", "m_stat", "uint_35")
 M_FEATURES = ("MFeat:{}", "m_features", "uint_35")
 
+# Machine-axis settings (MT 0x002_..0x005_ per-axis X/Y/Z/U blocks).
+PRECISION = ("Prec:{:.3f}mm", "dim", "int_35")
+MAX_VELOCITY = ("Vel:{:.3f}mm/S", "speed", "int_35")
+START_VELOCITY = ("StartVel:{:.3f}mm/S", "speed", "int_35")
+MAX_ACC = ("Acc:{:.3f}mm/S2", "speed", "int_35")
+BTN_START_VEL = ("BtnVel:{:.3f}mm/S", "speed", "int_35")
+BTN_ACC = ("BtnAcc:{:.3f}mm/S2", "speed", "int_35")
+ESTP_ACC = ("EstpAcc:{:.3f}mm/S2", "speed", "int_35")
+HOME_OFFSET = ("HomeOffset:" + DIM_FMT, "dim", "int_35")
+
 # A memory access triggers special processing using MT.
 MEMORY = ("Addr:{:04X}", "mt", "mt")
 # An index into something -- unknown at this time.
@@ -278,48 +288,48 @@ MT = {
         0x1D: ("MEM_LASER_STANDBY_PULSE_2", TBDU35),
         0x1E: ("MEM_AUTO_TYPE_SPACE", TBD35),
         0x20: ("MEM_AXIS_CONTROL_PARA_1", TBDU35),
-        0x21: ("MEM_AXIS_PRECISION_1", TBDU35),
-        0x23: ("MEM_AXIS_MAX_VELOCITY_1", TBDU35),
-        0x24: ("MEM_AXIS_START_VELOCITY_1", TBDU35),
-        0x25: ("MEM_AXIS_MAX_ACC_1", TBDU35),
+        0x21: ("MEM_PRECISION_X", PRECISION),  # Verified RDC8445S
+        0x23: ("MEM_MAX_VELOCITY_X", MAX_VELOCITY),  # Verified RDC8445S
+        0x24: ("MEM_START_VELOCITY_X", START_VELOCITY),  # Verified RDC8445S
+        0x25: ("MEM_MAX_ACC_X", MAX_ACC),  # Verified RDC8445S
         0x26: ("MEM_BED_SIZE_X", XFARDIM),
-        0x27: ("MEM_AXIS_BTN_START_VEL_1", TBDU35),
-        0x28: ("MEM_AXIS_BTN_ACC_1", TBDU35),
-        0x29: ("MEM_AXIS_ESTP_ACC_1", TBDU35),
-        0x2A: ("MEM_AXIS_HOME_OFFSET_1", TBDU35),
+        0x27: ("MEM_BTN_START_VEL_X", BTN_START_VEL),  # Verified RDC8445S
+        0x28: ("MEM_BTN_ACC_X", BTN_ACC),  # Verified RDC8445S
+        0x29: ("MEM_ESTP_ACC_X", ESTP_ACC),  # Verified RDC8445S
+        0x2A: ("MEM_HOME_OFFSET_X", HOME_OFFSET),  # Verified RDC8445S
         0x2B: ("MEM_AXIS_BACKLASH_1", TBDU35),
         0x30: ("MEM_AXIS_CONTROL_PARA_2", TBDU35),
-        0x31: ("MEM_AXIS_PRECISION_2", TBDU35),
-        0x33: ("MEM_AXIS_MAX_VELOCITY_2", TBDU35),
-        0x34: ("MEM_AXIS_START_VELOCITY_2", TBDU35),
-        0x35: ("MEM_AXIS_MAX_ACC_2", TBDU35),
+        0x31: ("MEM_PRECISION_Y", PRECISION),  # Verified RDC8445S
+        0x33: ("MEM_MAX_VELOCITY_Y", MAX_VELOCITY),  # Verified RDC8445S
+        0x34: ("MEM_START_VELOCITY_Y", START_VELOCITY),  # Verified RDC8445S
+        0x35: ("MEM_MAX_ACC_Y", MAX_ACC),  # Verified RDC8445S
         0x36: ("MEM_BED_SIZE_Y", YFARDIM),
-        0x37: ("MEM_AXIS_BTN_START_VEL_2", TBDU35),
-        0x38: ("MEM_AXIS_BTN_ACC_2", TBDU35),
-        0x39: ("MEM_AXIS_ESTP_ACC_2", TBDU35),
-        0x3A: ("MEM_AXIS_HOME_OFFSET_2", TBDU35),
+        0x37: ("MEM_BTN_START_VEL_Y", BTN_START_VEL),  # Verified RDC8445S
+        0x38: ("MEM_BTN_ACC_Y", BTN_ACC),  # Verified RDC8445S
+        0x39: ("MEM_ESTP_ACC_Y", ESTP_ACC),  # Verified RDC8445S
+        0x3A: ("MEM_HOME_OFFSET_Y", HOME_OFFSET),  # Verified RDC8445S
         0x3B: ("MEM_AXIS_BACKLASH_2", TBDU35),
         0x40: ("MEM_AXIS_CONTROL_PARA_3", TBDU35),
-        0x41: ("MEM_AXIS_PRECISION_3", TBDU35),
-        0x43: ("MEM_AXIS_MAX_VELOCITY_3", TBDU35),
-        0x44: ("MEM_AXIS_START_VELOCITY_3", TBDU35),
-        0x45: ("MEM_AXIS_MAX_ACC_3", TBDU35),
-        0x46: ("MEM_AXIS_RANGE_3", TBDU35),
-        0x47: ("MEM_AXIS_BTN_START_VEL_3", TBDU35),
-        0x48: ("MEM_AXIS_BTN_ACC_3", TBDU35),
-        0x49: ("MEM_AXIS_ESTP_ACC_3", TBDU35),
-        0x4A: ("MEM_AXIS_HOME_OFFSET_3", TBDU35),
+        0x41: ("MEM_PRECISION_Z", PRECISION),  # Verified RDC8445S
+        0x43: ("MEM_MAX_VELOCITY_Z", MAX_VELOCITY),  # Verified RDC8445S
+        0x44: ("MEM_START_VELOCITY_Z", START_VELOCITY),  # Verified RDC8445S
+        0x45: ("MEM_MAX_ACC_Z", MAX_ACC),  # Verified RDC8445S
+        0x46: ("MEM_TRAVEL_Z", ZFARDIM),  # Verified RDC8445S
+        0x47: ("MEM_BTN_START_VEL_Z", BTN_START_VEL),  # Verified RDC8445S
+        0x48: ("MEM_BTN_ACC_Z", BTN_ACC),  # Verified RDC8445S
+        0x49: ("MEM_ESTP_ACC_Z", ESTP_ACC),  # Verified RDC8445S
+        0x4A: ("MEM_HOME_OFFSET_Z", HOME_OFFSET),  # Verified RDC8445S
         0x4B: ("MEM_AXIS_BACKLASH_3", TBDU35),
         0x50: ("MEM_AXIS_CONTROL_PARA_4", TBDU35),
-        0x51: ("MEM_AXIS_PRECISION_4", TBDU35),
-        0x53: ("MEM_AXIS_MAX_VELOCITY_4", TBDU35),
-        0x54: ("MEM_AXIS_START_VELOCITY_4", TBDU35),
-        0x55: ("MEM_AXIS_MAX_ACC_4", TBDU35),
-        0x56: ("MEM_AXIS_RANGE_4", TBDU35),
-        0x57: ("MEM_AXIS_BTN_START_VEL_4", TBDU35),
-        0x58: ("MEM_AXIS_BTN_ACC_4", TBDU35),
-        0x59: ("MEM_AXIS_ESTP_ACC_4", TBDU35),
-        0x5A: ("MEM_AXIS_HOME_OFFSET_4", TBDU35),
+        0x51: ("MEM_PRECISION_U", PRECISION),  # Verified RDC8445S
+        0x53: ("MEM_MAX_VELOCITY_U", MAX_VELOCITY),  # Verified RDC8445S
+        0x54: ("MEM_START_VELOCITY_U", START_VELOCITY),  # Verified RDC8445S
+        0x55: ("MEM_MAX_ACC_U", MAX_ACC),  # Verified RDC8445S
+        0x56: ("MEM_TRAVEL_U", UFARDIM),  # Verified RDC8445S
+        0x57: ("MEM_BTN_START_VEL_U", BTN_START_VEL),  # Verified RDC8445S
+        0x58: ("MEM_BTN_ACC_U", BTN_ACC),  # Verified RDC8445S
+        0x59: ("MEM_ESTP_ACC_U", ESTP_ACC),  # Verified RDC8445S
+        0x5A: ("MEM_HOME_OFFSET_U", HOME_OFFSET),  # Verified RDC8445S
         0x5B: ("MEM_AXIS_BACKLASH_4", TBDU35),
         0x60: ("MEM_MACHINE_TYPE_(0X1155,_0XAA55)", TBDU35),
         0x63: ("MEM_LASER_MIN_POWER_3", TBDU35),
@@ -419,6 +429,52 @@ IDXT = {
     0x00: {
         0x00: ("TBD", HEX14, HEX14, HEX14, HEX14, HEX14, HEX14, HEX14, HEX14, HEX14),
     },
+}
+
+# Deprecated mnemonic aliases → canonical names. The per-axis X/Y/Z/U memory
+# blocks (MT 0x002_..0x005_) were renamed from numbered _1.._4 (and the
+# MEM_AXIS_RANGE_3/4 travel names) to axis-suffixed canonical names; the old
+# names still resolve through ScriptParser._build_mt_map(). MEM_BED_SIZE_X/Y
+# are retained as the canonical X/Y travel names.
+MT_MNEMONIC_ALIASES = {
+    # X axis (MT 0x002_)
+    "MEM_AXIS_PRECISION_1": "MEM_PRECISION_X",
+    "MEM_AXIS_MAX_VELOCITY_1": "MEM_MAX_VELOCITY_X",
+    "MEM_AXIS_START_VELOCITY_1": "MEM_START_VELOCITY_X",
+    "MEM_AXIS_MAX_ACC_1": "MEM_MAX_ACC_X",
+    "MEM_AXIS_BTN_START_VEL_1": "MEM_BTN_START_VEL_X",
+    "MEM_AXIS_BTN_ACC_1": "MEM_BTN_ACC_X",
+    "MEM_AXIS_ESTP_ACC_1": "MEM_ESTP_ACC_X",
+    "MEM_AXIS_HOME_OFFSET_1": "MEM_HOME_OFFSET_X",
+    # Y axis (MT 0x003_)
+    "MEM_AXIS_PRECISION_2": "MEM_PRECISION_Y",
+    "MEM_AXIS_MAX_VELOCITY_2": "MEM_MAX_VELOCITY_Y",
+    "MEM_AXIS_START_VELOCITY_2": "MEM_START_VELOCITY_Y",
+    "MEM_AXIS_MAX_ACC_2": "MEM_MAX_ACC_Y",
+    "MEM_AXIS_BTN_START_VEL_2": "MEM_BTN_START_VEL_Y",
+    "MEM_AXIS_BTN_ACC_2": "MEM_BTN_ACC_Y",
+    "MEM_AXIS_ESTP_ACC_2": "MEM_ESTP_ACC_Y",
+    "MEM_AXIS_HOME_OFFSET_2": "MEM_HOME_OFFSET_Y",
+    # Z axis (MT 0x004_)
+    "MEM_AXIS_PRECISION_3": "MEM_PRECISION_Z",
+    "MEM_AXIS_MAX_VELOCITY_3": "MEM_MAX_VELOCITY_Z",
+    "MEM_AXIS_START_VELOCITY_3": "MEM_START_VELOCITY_Z",
+    "MEM_AXIS_MAX_ACC_3": "MEM_MAX_ACC_Z",
+    "MEM_AXIS_RANGE_3": "MEM_TRAVEL_Z",
+    "MEM_AXIS_BTN_START_VEL_3": "MEM_BTN_START_VEL_Z",
+    "MEM_AXIS_BTN_ACC_3": "MEM_BTN_ACC_Z",
+    "MEM_AXIS_ESTP_ACC_3": "MEM_ESTP_ACC_Z",
+    "MEM_AXIS_HOME_OFFSET_3": "MEM_HOME_OFFSET_Z",
+    # U axis (MT 0x005_)
+    "MEM_AXIS_PRECISION_4": "MEM_PRECISION_U",
+    "MEM_AXIS_MAX_VELOCITY_4": "MEM_MAX_VELOCITY_U",
+    "MEM_AXIS_START_VELOCITY_4": "MEM_START_VELOCITY_U",
+    "MEM_AXIS_MAX_ACC_4": "MEM_MAX_ACC_U",
+    "MEM_AXIS_RANGE_4": "MEM_TRAVEL_U",
+    "MEM_AXIS_BTN_START_VEL_4": "MEM_BTN_START_VEL_U",
+    "MEM_AXIS_BTN_ACC_4": "MEM_BTN_ACC_U",
+    "MEM_AXIS_ESTP_ACC_4": "MEM_ESTP_ACC_U",
+    "MEM_AXIS_HOME_OFFSET_4": "MEM_HOME_OFFSET_U",
 }
 
 # Reply table

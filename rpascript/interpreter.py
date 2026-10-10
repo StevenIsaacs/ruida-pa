@@ -5,7 +5,7 @@ Parses human-readable script files into structured command tuples,
 supporting comment stripping and command/expected-reply directives.
 """
 
-from protocols.ruida.ruida_protocol import ACK, CT, MT
+from protocols.ruida.ruida_protocol import ACK, CT, MT, MT_MNEMONIC_ALIASES
 from rpalib.rpa_swizzler import RpaSwizzler
 from rpalib.ruida_transcoder import RdEncoder
 from rpascript.encoding import (
@@ -461,7 +461,9 @@ class ScriptParser:
         """Build {mnemonic: (msb, lsb)} mapping from MT table.
 
         Enables resolution of memory-address mnemonics (e.g. MEM_IO_ENABLE)
-        to their MSB/LSB byte pair for encoding.
+        to their MSB/LSB byte pair for encoding. Deprecated mnemonic aliases
+        (see ``MT_MNEMONIC_ALIASES``) resolve to the same address as their
+        canonical names, so old scripts keep working unchanged.
         """
         _map: dict[str, tuple[int, int]] = {}
         for msb, entries in MT.items():
@@ -470,6 +472,8 @@ class ScriptParser:
                     name = entry[0]
                     if isinstance(name, str):
                         _map[name] = (msb, lsb)
+        for alias, canonical in MT_MNEMONIC_ALIASES.items():
+            _map[alias] = _map[canonical]
         return _map
 
     # ------------------------------------------------------------------
