@@ -3472,6 +3472,21 @@ class TuiAdapter(App):
             lambda: self._ensure_gluescript_driver().power_range(min_power, max_power)
         )
 
+    def gluescript_scan_rows(
+        self,
+        rows: list[list[float]],
+        origin: tuple[float, float],
+        step: tuple[float, float],
+        bidirectional: bool = True,
+        horizontal: bool = True,
+    ) -> None:
+        """Raster-fill the current IMAGE/DEPTHMAP layer (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().scan_rows(
+                rows, origin, step, bidirectional, horizontal
+            )
+        )
+
     def set_max_cut_speed(self, speed: float) -> None:
         """Set the GlueScript max cut speed (mm/s) for effective-min power
         scaling (session-less).

@@ -48,6 +48,21 @@
     ],
     "description": "Set the min/max power ramp range for the layer (accel/decel)"
   },
+  "scan_rows": {
+    "prefix": "scan_rows",
+    "body": [
+      "scan_rows(",
+      "    [",
+      "        [${1:0.0}],",
+      "    ],",
+      "    (${2:0.0}, ${3:0.0}),",
+      "    (${4:0.1}, ${5:0.1}),",
+      "    ${6:True},",
+      "    ${7:True},",
+      ")"
+    ],
+    "description": "Raster-fill the current IMAGE/DEPTHMAP layer using run-chunked scan rows (rows[r][c] power per pixel; 0.0 = laser off)"
+  },
   "set_mode": {
     "prefix": "set_mode",
     "body": [

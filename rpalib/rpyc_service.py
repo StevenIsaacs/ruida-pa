@@ -475,6 +475,24 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info(f"[RPC] gluescript power_range({min_power}, {max_power})")
         return self._exposed_gluescript("power_range", min_power, max_power)
 
+    def exposed_scan_rows(
+        self,
+        rows: list[list[float]],
+        origin: tuple[float, float],
+        step: tuple[float, float],
+        bidirectional: bool = True,
+        horizontal: bool = True,
+    ) -> None:
+        self._rpc_info(f"[RPC] gluescript scan_rows({len(rows)} rows)")
+        # Deep-convert the nested netref rows list on the handler thread
+        # (the generic _exposed_gluescript conversion is shallow).
+        rows = [[float(value) for value in row] for row in rows]
+        origin = tuple(float(value) for value in origin)
+        step = tuple(float(value) for value in step)
+        return self._exposed_gluescript(
+            "scan_rows", rows, origin, step, bidirectional, horizontal
+        )
+
     def exposed_set_mode(self, mode: str) -> None:
         self._rpc_info(f"[RPC] gluescript set_mode({mode!r})")
         return self._exposed_gluescript("set_mode", mode)

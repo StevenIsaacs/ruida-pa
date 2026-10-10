@@ -105,7 +105,7 @@ move_xy_to(...) / cut_xy_to(...) / power(...) / air_assist_on() / air_assist_off
     ↓
 declare_layer(mode=..., ...)
     ↓
-move_xy_to(...) / cut_xy_to(...) / power(...) / air_assist_on() / air_assist_off()
+move_xy_to(...) / cut_xy_to(...) / power(...) / scan_rows(...) / air_assist_on() / air_assist_off()
     ↓
 end_job()
     ↓
@@ -643,6 +643,53 @@ Only laser head 1 is currently wired in rpascript. Selecting any other head
 logs a warning
 (`select_laser(2) ignored - only laser head 1 is currently wired in
 rpascript`) and emits nothing, so the job keeps a single-head transcript.
+
+#### `scan_rows(rows, origin, step, bidirectional=True, horizontal=True)`
+
+Raster-fill the current `IMAGE`/`DEPTHMAP` layer using **run-chunked scan
+rows** — roughly one line per power-run instead of three lines per pixel (the
+per-pixel `power()` + `move`/`cut` equivalent). It is intended for hosts (e.g.
+MeerK40t) that convert a raster to a row-major power matrix before sending.
+
+- **`rows`** — row-major power percentages; `rows[r][c]` is the power (0-100)
+  at pixel `(c, r)`; `0.0` = laser off.
+- **`origin`** — `(x, y)` of pixel `(0, 0)`, in mm absolute job-reference
+  coords.
+- **`step`** — `(step_x, step_y)` pixel pitch in mm.
+- **`bidirectional`** — alternate scan direction between rows (a cross-axis
+  move only); `False` returns along the scan axis.
+- **`horizontal`** — scan axis: `True` scans along X (rows advance in Y),
+  `False` scans along Y (rows advance in X).
+
+Consecutive pixels whose power matches (within 0.5%) collapse into one run: a
+single `CUT_NEAR_X`/`CUT_FAR_X` (`_Y` for a vertical scan) spans the run, and a
+`0.0` run emits a `MOVE_*` instead. `IMD_POWER_1` and `IMD_POWER_3` are
+emitted only when the run's power differs from the last emitted value —
+`_current_imd_power` is shared with `power()`, so the two styles interleave
+cleanly in one layer.
+
+Raises `ValueError` when no layer is declared, when the layer mode is not
+`IMAGE`/`DEPTHMAP`, or when `rows`/`origin`/`step` are malformed (ragged or
+empty rows, non-finite or zero step).
+
+```python
+driver.scan_rows(
+    [
+        [0.0, 50.0, 50.0, 0.0],
+        [0.0, 50.0, 50.0, 0.0],
+    ],
+    (10.0, 10.0),
+    (0.1, 0.1),
+    True,
+    True,
+)
+# Row 0: MOVE to (10,10), IMD_POWER 50, CUT along X; row 1: cross-axis move,
+# IMD_POWER 0, MOVE along X; etc. - one rpascript line per power run.
+```
+
+Note the transcript records the call as **one logical command** that may be
+serialized across multiple physical lines (see §6.2); the positional form
+above is the canonical `.cglu` representation.
 
 #### `jog_xy_to(x: float, y: float)`
 
@@ -1203,15 +1250,32 @@ move_xy_to(100.0, 50.0)                      # position head
 
 ### Canonical Normalization
 
-After loading, the transcript is normalized to **canonical single-line
-positional form**. Regardless of how the authored file is laid out — multi-line
-spans, keyword arguments, whitespace — `/gluescript list` and the autosave
-show the canonical lines, not the authored formatting:
+After loading, the transcript is normalized to **canonical positional
+form** — one logical command per line (`declare_layer`, `move_xy_to`, ...).
+A command is emitted on a **single physical line when it fits** within the
+wrap width (100 chars) and on **multiple physical lines otherwise**; nested
+containers (notably `scan_rows(...)`'s `rows` matrix) are expanded one element
+per line, indented. Both forms are valid `.cglu` — the load pipeline's
+multi-line span rule reconstructs the logical call — so the normalization
+simply means the wrapped form is produced deterministically and is identical
+whenever the same call is staged or re-staged. Regardless of how the authored
+file is laid out — multi-line spans, keyword arguments, whitespace —
+`/gluescript list` and the autosave show the canonical lines, not the authored
+formatting:
 
 ```
 0: declare_job('My Job', 'MACHINE', [0.0, 0.0], 1, 1, 0.0, 0.0)
 1: declare_layer('Layer 1', '#000000', 'VECTOR', 'NONE', 300.0, 20.0, 15.0, 60.0)
-2: move_xy_to(100.0, 50.0)
+2: scan_rows(
+      [
+          [0.0, 50.0, 50.0, 0.0],
+          [0.0, 50.0, 50.0, 0.0],
+      ],
+      (10.0, 10.0),
+      (0.1, 0.1),
+      True,
+      True,
+   )
 3: end_job()
 ```
 

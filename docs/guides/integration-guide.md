@@ -459,8 +459,8 @@ While the controller is running a job, every GlueScript command except the
 job-control commands (`pause`, `resume`, `stop_job`, `reset`) and the
 guard-exempt config setter `set_power_scaling_enabled` raises
 `JobRunningError` — a `RuntimeError` subclass — instead of executing. The
-guarded set (46 commands) covers authoring (`declare_job`, `declare_layer`,
-move/cut, `power`, ...), staging (`stage_gluescript`,
+guarded set (47 commands) covers authoring (`declare_job`, `declare_layer`,
+move/cut, `power`, `scan_rows`, ...), staging (`stage_gluescript`,
 `stage_gluescript_delta`), execution (`run`, `run_job`), jogs, and homing.
 
 Adapters should catch `JobRunningError` around guarded calls and either

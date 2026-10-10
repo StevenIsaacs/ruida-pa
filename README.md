@@ -66,9 +66,9 @@ Type a snippet prefix in a `.cglu` or `.rds` file and select it from the
 IntelliSense completion list (or press `Ctrl+Space`), then tab through the
 placeholders to fill in values.
 
-GlueScript method snippets (22) cover the persisted layer actions and
+GlueScript method snippets (23) cover the persisted layer actions and
 job/layer declarations: `declare_job`, `declare_layer`, `end_job`, `comment`,
-`inline`, `power`, `power_range`, `air_assist_on`,
+`inline`, `power`, `power_range`, `scan_rows`, `air_assist_on`,
 `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`,
 `select_laser`, `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`,
 `cut_x_to`, `cut_y_to`.
@@ -273,7 +273,7 @@ traceback with Rich formatting. Press any key to exit the TUI.
 
 RPA is more than an analyzer: it also ships a controller driver that can be embedded in an external application. `RdDriver` (in `ruidadriver/`) is the high-level driver layer. It connects to a Ruida controller over UDP, TCP (e.g. RDC8445S), or USB serial, encodes and queues rpascript for background execution, tracks machine status, and forwards status/reply/error events to registered listeners.
 
-Because `RdDriver` subclasses `GlueScript`, the high-level job-authoring API — `declare_job()`, `declare_layer()`, `move_xy_to()`, `cut_xy_to()`, `power()`, and the rest — is part of the driver itself. Build a job, call `stage_gluescript()` to assemble the low-level rpascript, then `run_job()` to execute it (optionally wrapping every job with head/tail scripts).
+Because `RdDriver` subclasses `GlueScript`, the high-level job-authoring API — `declare_job()`, `declare_layer()`, `move_xy_to()`, `cut_xy_to()`, `power()`, `scan_rows()` (run-chunked raster fill), and the rest — is part of the driver itself. Build a job, call `stage_gluescript()` to assemble the low-level rpascript, then `run_job()` to execute it (optionally wrapping every job with head/tail scripts).
 
 An application does not call `RdDriver` directly; it uses an **application-specific adapter** that maps the application's own concepts (jobs, layers, toolpaths, machine state) onto the driver API. The same adapter can run in-process against `RdDriver`, or remotely against a TUI-hosted RPC server via `RpcRdDriver` (`rpalib/rpyc_client.py`), which mirrors the full driver surface over RPyC.
 

@@ -686,8 +686,8 @@ job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
 prevents a job in flight from being corrupted by authoring, staging, jog,
 home, or run commands.
 
-**Guarded command set.** `GlueScript._GUARDED_COMMANDS` (46 commands) is
-derived from `REGISTRY_METHODS` (47 registry methods) minus
+**Guarded command set.** `GlueScript._GUARDED_COMMANDS` (47 commands) is
+derived from `REGISTRY_METHODS` (48 registry methods) minus
 `JOB_CONTROL_COMMANDS` (4) and `GUARD_EXEMPT_COMMANDS` (1 —
 `set_power_scaling_enabled`, a config setter that stays togglable while a
 job runs), plus the four staging/run entry points

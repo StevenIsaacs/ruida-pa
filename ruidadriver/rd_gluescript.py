@@ -51,6 +51,7 @@ REGISTRY_METHODS = [
     "cut_y_to",
     "power",
     "power_range",
+    "scan_rows",
     "set_power_scaling_enabled",
     "set_mode",
     "set_overscan",
@@ -197,6 +198,16 @@ class GlueScript:
 
     _version = __version__
 
+    # Canonical transcript serialization. A logical gluescript command is
+    # emitted on a single physical line when it fits within
+    # _TRANSCRIPT_WRAP_WIDTH; otherwise it is wrapped across physical lines
+    # (see _format_gluescript_call / _render_literal). Wrapped lines rely on
+    # the bracket-continuation rule in _join_continuation_lines for reload and
+    # re-staging, and the wrapping is deterministic so the client and the RPC
+    # server rebuild byte-identical transcripts.
+    _TRANSCRIPT_WRAP_WIDTH: int = 100
+    _TRANSCRIPT_INDENT: int = 4
+
     # Jog commands are live-only: movement jogs execute live on the
     # controller and are never part of a saved job (they also mutate
     # _current_x/_current_y/_current_z/_current_u as a side effect, so they
@@ -258,8 +269,8 @@ class GlueScript:
         JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS
     )
     # Every registry command except the job-control and guard-exempt
-    # commands, plus the staging/run entry points — 46 commands total
-    # (47 registry methods − 4 JOB_CONTROL − 1 GUARD_EXEMPT + 4 extra).
+    # commands, plus the staging/run entry points — 47 commands total
+    # (48 registry methods − 4 JOB_CONTROL − 1 GUARD_EXEMPT + 4 extra).
     # The move_z_to/move_u_to/cut_z_to/cut_u_to stubs are unguarded but
     # moot: they raise NotImplementedError before any guard could matter.
     _GUARDED_COMMANDS: frozenset[str] = (
@@ -322,6 +333,11 @@ class GlueScript:
         # Effective overscan of the current layer (mirrors the overscan
         # lines emitted for the current layer; reset per declare_layer).
         self._current_layer_overscan: str = "NONE"
+        # Last immediate (IMD) power emitted for the current layer, shared
+        # by power() and scan_rows() so consecutive equal-power runs collapse
+        # into a single IMD_POWER emission. None means nothing has been
+        # emitted yet in the layer. Reset per layer and per job.
+        self._current_imd_power: float | None = None
 
         # Per-layer bounding box (reset each declare_layer)
         self._layer_trx: float = float('inf')
@@ -560,6 +576,79 @@ class GlueScript:
         return expanded
 
     # ------------------------------------------------------------------ #
+    #  Canonical transcript serialization
+    # ------------------------------------------------------------------ #
+
+    def _render_literal(
+        self, value: Any, indent: int, width: int
+    ) -> list[str]:
+        """Render a Python literal, wrapping containers across lines.
+
+        Returns physical lines. The first line carries no leading indent;
+        any continuation lines carry their own absolute indentation (>= the
+        given ``indent``). Scalars use ``repr`` so the literal round-trips
+        through ``ast.literal_eval``. Lists and tuples are kept inline when
+        they fit within ``width``; otherwise one element is emitted per
+        line, indented, with a trailing comma, keeping brackets balanced so
+        ``_join_continuation_lines`` reconstructs the exact value.
+        """
+        if not isinstance(value, (list, tuple)):
+            return [repr(value)]
+        inline = repr(value)
+        if "\n" not in inline and indent + len(inline) <= width:
+            return [inline]
+        opener, closer = ("[", "]") if isinstance(value, list) else ("(", ")")
+        if not value:
+            return [opener + closer]
+        child = indent + self._TRANSCRIPT_INDENT
+        lines = [opener]
+        for item in value:
+            item_lines = self._render_literal(item, child, width)
+            item_lines = [
+                (" " * child) + ln if index == 0 else ln
+                for index, ln in enumerate(item_lines)
+            ]
+            item_lines[-1] += ","
+            lines.extend(item_lines)
+        lines.append((" " * indent) + closer)
+        return lines
+
+    def _format_gluescript_call(self, name: str, *args: Any) -> list[str]:
+        """Serialize a command call to one or more physical transcript lines.
+
+        Emits a single physical line when the rendered call fits within
+        ``_TRANSCRIPT_WRAP_WIDTH``; otherwise wraps with one argument per
+        line. The output is deterministic (a pure function of ``name`` and
+        the argument ``repr``s) so the client and the RPC server produce
+        byte-identical transcripts, and it stays parseable by
+        ``ast.literal_eval`` after ``_join_continuation_lines``.
+        """
+        single = f"{name}({', '.join(repr(a) for a in args)})"
+        if "\n" not in single and len(single) <= self._TRANSCRIPT_WRAP_WIDTH:
+            return [single]
+        child = self._TRANSCRIPT_INDENT
+        lines = [f"{name}("]
+        for arg in args:
+            arg_lines = self._render_literal(arg, child, self._TRANSCRIPT_WRAP_WIDTH)
+            arg_lines = [
+                (" " * child) + ln if index == 0 else ln
+                for index, ln in enumerate(arg_lines)
+            ]
+            arg_lines[-1] += ","
+            lines.extend(arg_lines)
+        lines.append(")")
+        return lines
+
+    def _record(self, name: str, *args: Any) -> None:
+        """Append a canonical command call to the gluescript transcript.
+
+        All authoring methods route their transcript writes through this
+        helper so the multi-line wrapping policy is applied uniformly (see
+        ``_format_gluescript_call``).
+        """
+        self.gluescript.extend(self._format_gluescript_call(name, *args))
+
+    # ------------------------------------------------------------------ #
     #  Phase 1: Foundation
     # ------------------------------------------------------------------ #
 
@@ -585,6 +674,7 @@ class GlueScript:
         self._layer = 0
         self._current_layer_mode = "VECTOR"
         self._current_layer_overscan = "NONE"
+        self._current_imd_power = None
         self._layer_trx = float('inf')
         self._layer_try = float('inf')
         self._layer_blx = -float('inf')
@@ -617,7 +707,7 @@ class GlueScript:
         if not comments:
             return
         for line in comments:
-            self.gluescript.append(f"comment({[line]!r})")
+            self._record("comment", [line])
             if not line.startswith("#"):
                 line = "# " + line
             self._job_header.append(line)
@@ -674,7 +764,7 @@ class GlueScript:
                 raise TypeError(
                     f"inline() commands must be strings, got {type(cmd).__name__}: {cmd!r}"
                 )
-            self.gluescript.append(f"inline({[cmd]!r})")
+            self._record("inline", [cmd])
             self._route_positional(cmd)
 
     # ------------------------------------------------------------------ #
@@ -736,9 +826,8 @@ class GlueScript:
         self._abs_xy = abs_xy
 
         # gluescript
-        self.gluescript.append(
-            f"declare_job({label!r}, {ref_point!r}, {abs_xy!r}, "
-            f"{columns!r}, {rows!r}, {xstep!r}, {ystep!r})"
+        self._record(
+            "declare_job", label, ref_point, abs_xy, columns, rows, xstep, ystep
         )
 
         # rpascript — job header (assembled later by stage_gluescript)
@@ -779,7 +868,7 @@ class GlueScript:
 
         self._job_complete = True
         self._assembling = False
-        self.gluescript.append("end_job()")
+        self._record("end_job")
         self._on_action_boundary()
 
     @property
@@ -875,6 +964,9 @@ class GlueScript:
         self._layer += 1
         self._current_layer_mode = mode
         self._current_layer_overscan = resolved_overscan
+        # The IMD power tracking is per-layer: a new layer must always
+        # emit power for its first pixel/run.
+        self._current_imd_power = None
         # Snapshot the declared speed: power_range() scales the effective
         # minimum from this value until cut_speed() overrides it.
         self._current_layer_speed = speed
@@ -905,10 +997,9 @@ class GlueScript:
         self._power_dirty = False
 
         # gluescript (positional args only — matches _parse_gluescript_line)
-        self.gluescript.append(
-            f"declare_layer({label!r}, {color!r}, {mode!r}, "
-            f"{overscan!r}, {speed!r}, {frequency!r}, "
-            f"{min_power_1!r}, {max_power_1!r})"
+        self._record(
+            "declare_layer", label, color, mode, overscan, speed, frequency,
+            min_power_1, max_power_1,
         )
 
         # rpascript — store in _layer_attributes (assembled later by
@@ -1397,9 +1488,162 @@ class GlueScript:
         if percent is None:
             logger.warning("power() called without a percentage value")
             return
-        self.gluescript.append(f"power({percent!r})")
-        self._layer_actions.setdefault(self._layer, []).append(f"IMD_POWER_1 Power:{percent:.1f}%")
-        self._layer_actions.setdefault(self._layer, []).append(f"IMD_POWER_3 Power:{percent:.1f}%")
+        self._record("power", percent)
+        self._emit_imd_power(percent)
+
+    def _emit_imd_power(self, percent: float) -> None:
+        """Emit immediate-power rpascript for head 1 and head 3.
+
+        Shared by ``power()`` and ``scan_rows()`` so the two styles
+        interleave through a single ``_current_imd_power`` tracking value.
+        """
+        self._layer_actions.setdefault(self._layer, []).append(
+            f"IMD_POWER_1 Power:{percent:.1f}%"
+        )
+        self._layer_actions.setdefault(self._layer, []).append(
+            f"IMD_POWER_3 Power:{percent:.1f}%"
+        )
+        self._current_imd_power = percent
+
+    def scan_rows(
+        self,
+        rows: list[list[float]],
+        origin: tuple[float, float],
+        step: tuple[float, float],
+        bidirectional: bool = True,
+        horizontal: bool = True,
+    ) -> None:
+        """Raster-fill the current IMAGE/DEPTHMAP layer using run-chunked
+        scan rows (compact — roughly one line per power-run, not three lines
+        per pixel).
+
+        Consecutive same-power pixels collapse into a single ``CUT_*`` (or
+        ``MOVE_*`` for a zero-power run) spanning the run; ``IMD_POWER_1``
+        and ``IMD_POWER_3`` are emitted only when the run's power differs
+        from the last emitted value. ``_current_imd_power`` is shared with
+        ``power()`` so the two styles interleave cleanly in one layer.
+
+        Args:
+            rows: row-major power percentages. ``rows[r][c]`` is the power
+                (0-100) at pixel (c, r); 0.0 = laser off.
+            origin: (x, y) of pixel (0, 0), in mm absolute job-reference
+                coords.
+            step: (step_x, step_y) pixel pitch in mm.
+            bidirectional: alternate scan direction between rows (with a
+                cross-axis-only move; otherwise rows return along the scan
+                axis).
+            horizontal: scan axis — True scans along X (rows advance in Y),
+                False scans along Y (rows advance in X).
+
+        Raises:
+            ValueError: If no layer is declared, the layer mode is not
+                IMAGE/DEPTHMAP, or rows/origin/step are invalid.
+        """
+        if self._layer < 1:
+            raise ValueError(
+                "scan_rows() requires a declared layer — call "
+                "declare_layer() first"
+            )
+        if self._current_layer_mode not in ("IMAGE", "DEPTHMAP"):
+            raise ValueError(
+                f"scan_rows() requires an IMAGE/DEPTHMAP layer, "
+                f"not {self._current_layer_mode!r}"
+            )
+        try:
+            ox, oy = (float(v) for v in origin)
+            sx, sy = (float(v) for v in step)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"scan_rows() origin/step must be (x, y) number pairs, "
+                f"got {origin!r} / {step!r}"
+            ) from exc
+        if (
+            not math.isfinite(ox) or not math.isfinite(oy)
+            or not math.isfinite(sx) or not math.isfinite(sy)
+        ):
+            raise ValueError(
+                f"scan_rows() origin/step must be finite, got "
+                f"{origin!r} / {step!r}"
+            )
+        if sx == 0.0 or sy == 0.0:
+            raise ValueError(f"scan_rows() step must be non-zero, got {step!r}")
+        if not rows or not all(isinstance(row, (list, tuple)) and row for row in rows):
+            raise ValueError(
+                "scan_rows() requires a non-empty rectangular rows matrix"
+            )
+        ncols = len(rows[0])
+        if any(len(row) != ncols for row in rows):
+            raise ValueError(
+                "scan_rows() rows must be rectangular (equal column counts)"
+            )
+        rows = [[float(value) for value in row] for row in rows]
+        nrows = len(rows)
+        self._record(
+            "scan_rows", rows, (ox, oy), (sx, sy),
+            bool(bidirectional), bool(horizontal),
+        )
+        self._flush_layer_settings()
+        # The scan axis follows column index c; the cross axis follows row
+        # index r. Row r's scan direction alternates when bidirectional.
+        scan_step, scan_origin = (sx, ox) if horizontal else (sy, oy)
+        cross_step, cross_origin = (sy, oy) if horizontal else (sx, ox)
+
+        def to_xy(scan_val: float, cross_val: float) -> tuple[float, float]:
+            if horizontal:
+                return scan_val, cross_val
+            return cross_val, scan_val
+
+        for r in range(nrows):
+            row = rows[r]
+            cross_val = cross_origin + cross_step * r
+            forward = (not bidirectional) or (r % 2 == 0)
+            cols_list = (
+                list(range(ncols)) if forward else list(range(ncols - 1, -1, -1))
+            )
+            # Move (laser off) to the start of this row.
+            if r == 0 or not bidirectional:
+                start_col = 0 if forward else ncols - 1
+                scan_start = scan_origin + scan_step * start_col
+                x, y = to_xy(scan_start, cross_val)
+                self._emit_move_xy(x, y)
+            else:
+                # Bidirectional: the head already rests at this row's start
+                # scan position (the previous row ended there); advance the
+                # cross axis only.
+                if horizontal:
+                    self._emit_move_y(cross_val)
+                else:
+                    self._emit_move_x(cross_val)
+            # Walk runs within this row in scan order.
+            idx = 0
+            while idx < ncols:
+                power = row[cols_list[idx]]
+                end = idx
+                while (
+                    end + 1 < ncols
+                    and math.isclose(
+                        row[cols_list[end + 1]], power,
+                        rel_tol=0.0, abs_tol=0.5,
+                    )
+                ):
+                    end += 1
+                if self._current_imd_power is None or not math.isclose(
+                    power, self._current_imd_power, rel_tol=0.0, abs_tol=0.5
+                ):
+                    self._emit_imd_power(power)
+                end_col = cols_list[end]
+                scan_val = scan_origin + scan_step * end_col
+                if math.isclose(power, 0.0, rel_tol=0.0, abs_tol=1e-9):
+                    if horizontal:
+                        self._emit_move_x(scan_val)
+                    else:
+                        self._emit_move_y(scan_val)
+                else:
+                    if horizontal:
+                        self._emit_cut_x(scan_val)
+                    else:
+                        self._emit_cut_y(scan_val)
+                idx = end + 1
 
     def set_max_cut_speed(self, speed: float) -> None:
         """Set the maximum cut speed (mm/s) used by effective-min power scaling.
@@ -1446,7 +1690,7 @@ class GlueScript:
         re-stage reset block.
         """
         self.power_scaling_enabled = bool(enabled)
-        self.gluescript.append(f"set_power_scaling_enabled({bool(enabled)!r})")
+        self._record("set_power_scaling_enabled", bool(enabled))
 
     def _effective_min_power(
         self, min_power: float, max_power: float, cut_speed: float
@@ -1593,9 +1837,7 @@ class GlueScript:
                 f"# warning: max_power_1 {resolved_max_power}% exceeds the "
                 f"recommended maximum of 70%"
             )
-        self.gluescript.append(
-            f"power_range({orig_min_power!r}, {orig_max_power!r})"
-        )
+        self._record("power_range", orig_min_power, orig_max_power)
         # Save the resolved settings as pending state; the next cut_*
         # action flushes them, scaling the minimum against the current
         # layer speed at flush time.
@@ -1637,7 +1879,7 @@ class GlueScript:
                 f"Invalid layer mode: {mode!r}. "
                 f"Valid options: {', '.join(self._layer_modes)}"
             )
-        self.gluescript.append(f"set_mode({mode!r})")
+        self._record("set_mode", mode)
         if mode == self._current_layer_mode:
             return
         self._current_layer_mode = mode
@@ -1676,7 +1918,7 @@ class GlueScript:
                 f"Invalid overscan mode: {overscan!r}. "
                 f"Valid options: {', '.join(self._overscan_modes)}"
             )
-        self.gluescript.append(f"set_overscan({overscan!r})")
+        self._record("set_overscan", overscan)
         if overscan == self._current_layer_overscan:
             return
         self._layer_actions.setdefault(self._layer, []).extend(
@@ -1689,7 +1931,7 @@ class GlueScript:
 
         Expands to AIR_ASSIST_ON in the rpascript layer actions.
         """
-        self.gluescript.append("air_assist_on()")
+        self._record("air_assist_on")
         self._layer_actions.setdefault(self._layer, []).append("AIR_ASSIST_ON")
 
     def air_assist_off(self) -> None:
@@ -1697,7 +1939,7 @@ class GlueScript:
 
         Expands to AIR_ASSIST_OFF in the rpascript layer actions.
         """
-        self.gluescript.append("air_assist_off()")
+        self._record("air_assist_off")
         self._layer_actions.setdefault(self._layer, []).append("AIR_ASSIST_OFF")
 
     def cut_speed(self, speed: float) -> None:
@@ -1711,7 +1953,7 @@ class GlueScript:
         records the speed for effective-min power scaling: the flush scales
         the pending power minimum from this value.
         """
-        self.gluescript.append(f"cut_speed({speed!r})")
+        self._record("cut_speed", speed)
         self._current_layer_speed = speed
         self._speed_dirty = True
 
@@ -1722,7 +1964,7 @@ class GlueScript:
         actions — the speed command is not yet wired into rpascript, so
         the value is preserved in the transcript only.
         """
-        self.gluescript.append(f"move_speed({speed!r})")
+        self._record("move_speed", speed)
         self._layer_actions.setdefault(self._layer, []).append(f"# move_speed({speed!r})")
         self._comment_only_used = True
 
@@ -1735,7 +1977,7 @@ class GlueScript:
         from the layer's declared frequency — a frequency change only
         takes effect when followed by a power change.
         """
-        self.gluescript.append(f"frequency({frequency!r})")
+        self._record("frequency", frequency)
         if frequency != self._current_layer_frequency:
             self._frequency_changed = True
         self._current_layer_frequency = frequency
@@ -1752,7 +1994,7 @@ class GlueScript:
                 "pwm(%s) duration exceeds the 1000us (1mS) maximum laser pulse width",
                 duration,
             )
-        self.gluescript.append(f"pwm({duration!r})")
+        self._record("pwm", duration)
         self._layer_actions.setdefault(self._layer, []).append(f"# pwm({duration!r})")
         self._comment_only_used = True
 
@@ -1763,7 +2005,7 @@ class GlueScript:
         other head logs a warning and emits nothing, so the job keeps a
         single-head transcript.
         """
-        self.gluescript.append(f"select_laser({laser!r})")
+        self._record("select_laser", laser)
         if laser == 1:
             self._layer_actions.setdefault(self._layer, []).append("LASER_DEVICE_1")
         else:
@@ -1774,13 +2016,17 @@ class GlueScript:
 
     def move_xy_to(self, x: float, y: float) -> None:
         """Move to absolute XY coordinate relative to job reference point."""
+        self._record("move_xy_to", x, y)
+        self._emit_move_xy(x, y)
+
+    def _emit_move_xy(self, x: float, y: float) -> None:
+        """Emit a move action (no transcript line); see move_xy_to()."""
         delta_x = x - self._current_x
         delta_y = y - self._current_y
         form_x = self._choose_move_form(delta_x)
         form_y = self._choose_move_form(delta_y)
         # Use the more restrictive form
         form = "NEAR" if form_x == "NEAR" and form_y == "NEAR" else "FAR"
-        self.gluescript.append(f"move_xy_to({x!r}, {y!r})")
         self._layer_actions.setdefault(self._layer, []).append(
             f"MOVE_{form}_XY {self._format_coord(form, 'X', x, delta_x)} "
             f"{self._format_coord(form, 'Y', y, delta_y)}"
@@ -1795,9 +2041,13 @@ class GlueScript:
         This is a layer action: the emitted command is recorded in the
         current layer's action list.
         """
+        self._record("move_x_to", x)
+        self._emit_move_x(x)
+
+    def _emit_move_x(self, x: float) -> None:
+        """Emit a move-along-X action (no transcript line); see move_x_to()."""
         delta_x = x - self._current_x
         form = self._choose_move_form(delta_x)
-        self.gluescript.append(f"move_x_to({x!r})")
         if form == "NEAR":
             line = f"MOVE_NEAR_X {self._format_coord(form, 'X', x, delta_x)}"
         else:
@@ -1814,9 +2064,13 @@ class GlueScript:
         This is a layer action: the emitted command is recorded in the
         current layer's action list.
         """
+        self._record("move_y_to", y)
+        self._emit_move_y(y)
+
+    def _emit_move_y(self, y: float) -> None:
+        """Emit a move-along-Y action (no transcript line); see move_y_to()."""
         delta_y = y - self._current_y
         form = self._choose_move_form(delta_y)
-        self.gluescript.append(f"move_y_to({y!r})")
         if form == "NEAR":
             line = f"MOVE_NEAR_Y {self._format_coord(form, 'Y', y, delta_y)}"
         else:
@@ -1905,13 +2159,17 @@ class GlueScript:
 
     def cut_xy_to(self, x: float, y: float) -> None:
         """Cut to absolute XY coordinate relative to job reference point."""
+        self._record("cut_xy_to", x, y)
+        self._emit_cut_xy(x, y)
+
+    def _emit_cut_xy(self, x: float, y: float) -> None:
+        """Emit a cut action (no transcript line); see cut_xy_to()."""
         self._flush_layer_settings()
         delta_x = x - self._current_x
         delta_y = y - self._current_y
         form_x = self._choose_move_form(delta_x)
         form_y = self._choose_move_form(delta_y)
         form = "NEAR" if form_x == "NEAR" and form_y == "NEAR" else "FAR"
-        self.gluescript.append(f"cut_xy_to({x!r}, {y!r})")
         self._layer_actions.setdefault(self._layer, []).append(
             f"CUT_{form}_XY {self._format_coord(form, 'X', x, delta_x)} "
             f"{self._format_coord(form, 'Y', y, delta_y)}"
@@ -1926,10 +2184,14 @@ class GlueScript:
         This is a layer action: the emitted command is recorded in the
         current layer's action list.
         """
+        self._record("cut_x_to", x)
+        self._emit_cut_x(x)
+
+    def _emit_cut_x(self, x: float) -> None:
+        """Emit a cut-along-X action (no transcript line); see cut_x_to()."""
         self._flush_layer_settings()
         delta_x = x - self._current_x
         form = self._choose_move_form(delta_x)
-        self.gluescript.append(f"cut_x_to({x!r})")
         if form == "NEAR":
             line = f"CUT_NEAR_X {self._format_coord(form, 'X', x, delta_x)}"
         else:
@@ -1946,10 +2208,14 @@ class GlueScript:
         This is a layer action: the emitted command is recorded in the
         current layer's action list.
         """
+        self._record("cut_y_to", y)
+        self._emit_cut_y(y)
+
+    def _emit_cut_y(self, y: float) -> None:
+        """Emit a cut-along-Y action (no transcript line); see cut_y_to()."""
         self._flush_layer_settings()
         delta_y = y - self._current_y
         form = self._choose_move_form(delta_y)
-        self.gluescript.append(f"cut_y_to({y!r})")
         if form == "NEAR":
             line = f"CUT_NEAR_Y {self._format_coord(form, 'Y', y, delta_y)}"
         else:
@@ -2137,6 +2403,7 @@ class GlueScript:
             self._comment_only_used = False
             self._inline_prelude = []
             self._inline_epilogue = []
+            self._current_imd_power = None
             self._layer_trx = float('inf')
             self._layer_try = float('inf')
             self._layer_blx = -float('inf')
