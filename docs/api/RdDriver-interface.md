@@ -32,15 +32,23 @@ __init__() → start() → [run() ... run()] → stop()
 ### 2.1 `start()` — Connection Details
 
 ```python
-def start(self, udp_host: str | None = None, usb_device: str | None = None) -> bool
+def start(self, udp_host: str | None = None, usb_device: str | None = None,
+          magic: int | None = None, protocol: str | None = None) -> bool
 ```
 
-1. If `udp_host`/`usb_device` are `None`, reuses values from previous call.
-2. If a session already exists with different params, calls `stop()` first.
-3. If a session already exists with same params, returns `True` immediately (no-op).
-4. Creates `RdSession()`, calls `transport.configure()`.
-5. Calls `transport.open(udp_host=..., usb_device=...)` — UDP and/or USB.
-6. Starts the background script runner (registers listeners, configures ping/query commands, starts status monitor thread).
+1. If `udp_host`/`usb_device` are `None`, reuses values from the previous call.
+2. If `magic` is `None`, reuses the previous value (default `0x88`).
+3. `protocol` selects the network protocol for `udp_host`: `"udp"` (default)
+   or `"tcp"` (`RdTransport.NETWORK_PROTOCOLS`) for controllers that take the
+   Ruida command stream over TCP port 50200 (e.g. the RDC8445S); `None`
+   reuses the previous value; any other value raises `ValueError`.
+4. If a session already exists with different params (different
+   `udp_host`/`usb_device` **or** `protocol`), calls `stop()` first.
+5. If a session already exists with same params, returns `True` immediately (no-op).
+6. Creates `RdSession()`, calls `transport.configure()`.
+7. Calls `transport.open(udp_host=..., usb_device=..., protocol=...)` — UDP
+   and/or USB.
+8. Starts the background script runner (registers listeners, configures ping/query commands, starts status monitor thread).
 
 **Return value:** `True` if transport opened successfully on first attempt.  
 `False` if open failed — the status monitor will retry in background.  

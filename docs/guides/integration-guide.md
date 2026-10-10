@@ -109,14 +109,19 @@ __init__() → start() → [run() ... run()] → stop()
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `start` | `(udp_host=None, usb_device=None, magic=None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
+| `start` | `(udp_host=None, usb_device=None, magic=None, protocol=None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
 | `stop` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `start()`. |
 
 **`start()` behavior notes:**
 - If params are `None`, reuses values from the previous call.
 - `magic` selects the transport swizzle magic (default `0x88`, see §2.10);
   `None` keeps the previous value.
-- If a session exists with different params, calls `stop()` first, then creates a fresh session.
+- `protocol` selects the network protocol for `udp_host`: `"udp"` (default)
+  or `"tcp"` (`RdTransport.NETWORK_PROTOCOLS`) for controllers that take the
+  Ruida command stream over TCP port 50200 (e.g. the RDC8445S); `None` keeps
+  the previous value. An unsupported value raises `ValueError`.
+- If a session exists with different params (different `udp_host`/`usb_device`
+  **or** `protocol`), calls `stop()` first, then creates a fresh session.
 - If a session exists with the same params, returns `True` immediately (no-op).
 
 **`stop()` behavior notes:**
@@ -1088,7 +1093,7 @@ before switching.
 | `job_complete` | Local property | Local property (set by `end_job()`), consistent with the direct driver |
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
 | Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min_power > max_power`, `min_power` below the power floor) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard; a corrupted `max_cut_speed` surfaces as `ValueError` at the next `cut_*` action (flush), not at `power_range()` |
-| `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device` replaces the active server-side session |
+| `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `udp_host`/`usb_device`/`protocol` replaces the active server-side session |
 | Version reporting | Shares the process version (`rpalib.version.__version__`) | `get_version()` reports the SERVER process version; `version_mismatch` compares it with the client's, so a client/server version mismatch is detectable (see §3.7) |
 | Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
@@ -1267,7 +1272,11 @@ driver.cancel_script()
 
 ## 6. Configuration Notes
 
-- **Transport:** UDP (Ethernet) is default. USB (serial via pyserial) is optional — pass `usb_device=` instead of or in addition to `udp_host=`.
+- **Transport:** UDP (Ethernet) is default. TCP is available for controllers
+  that take the command stream over port 50200 (e.g. RDC8445S) — pass
+  `protocol="tcp"` on `start()` (the `"udp"`/`"tcp"` values are
+  `RdTransport.NETWORK_PROTOCOLS`). USB (serial via pyserial) is optional —
+  pass `usb_device=` instead of or in addition to `udp_host=`.
 - **Ping interval:** 5000ms default. Queries every 1000ms.
 - **Timeouts:** Per-command timeout 250ms, gross timeout 15s for long operations (home sequences, etc.).
 - **Connection retry:** Every 1000ms when not connected.
