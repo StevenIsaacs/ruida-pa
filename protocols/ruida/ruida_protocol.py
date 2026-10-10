@@ -275,9 +275,9 @@ MT = {
         0x0C: ("MEM_HOME_VELOCITY", TBDU35),
         0x0E: ("MEM_ENG_VERT_VELOCITY", TBDU35),
         0x10: ("MEM_SYSTEM_CONTROL_MODE", TBDU35),
-        0x11: ("MEM_LASER_PWM_FREQUENCY_1", TBDU35),
-        0x12: ("MEM_LASER_MIN_POWER_1", TBDU35),
-        0x13: ("MEM_LASER_MAX_POWER_1", TBDU35),
+        0x11: ("MEM_LASER_PWM_FREQUENCY_1", TBDU35),  # Verified RDC6442S
+        0x12: ("MEM_LASER_MIN_POWER_1", TBDU35),  # Verified RDC6442S
+        0x13: ("MEM_LASER_MAX_POWER_1", TBDU35),  # Verified RDC6442S
         0x16: ("MEM_LASER_ATTENUATION", TBDU35),
         0x17: ("MEM_LASER_PWM_FREQUENCY_2", TBDU35),
         0x18: ("MEM_LASER_MIN_POWER_2", TBDU35),
@@ -292,7 +292,7 @@ MT = {
         0x23: ("MEM_MAX_VELOCITY_X", MAX_VELOCITY),  # Verified RDC8445S
         0x24: ("MEM_START_VELOCITY_X", START_VELOCITY),  # Verified RDC8445S
         0x25: ("MEM_MAX_ACC_X", MAX_ACC),  # Verified RDC8445S
-        0x26: ("MEM_BED_SIZE_X", XFARDIM),
+        0x26: ("MEM_BED_SIZE_X", XFARDIM),  # Verified RDC6442S
         0x27: ("MEM_BTN_START_VEL_X", BTN_START_VEL),  # Verified RDC8445S
         0x28: ("MEM_BTN_ACC_X", BTN_ACC),  # Verified RDC8445S
         0x29: ("MEM_ESTP_ACC_X", ESTP_ACC),  # Verified RDC8445S
@@ -303,7 +303,7 @@ MT = {
         0x33: ("MEM_MAX_VELOCITY_Y", MAX_VELOCITY),  # Verified RDC8445S
         0x34: ("MEM_START_VELOCITY_Y", START_VELOCITY),  # Verified RDC8445S
         0x35: ("MEM_MAX_ACC_Y", MAX_ACC),  # Verified RDC8445S
-        0x36: ("MEM_BED_SIZE_Y", YFARDIM),
+        0x36: ("MEM_BED_SIZE_Y", YFARDIM),  # Verified RDC6442S
         0x37: ("MEM_BTN_START_VEL_Y", BTN_START_VEL),  # Verified RDC8445S
         0x38: ("MEM_BTN_ACC_Y", BTN_ACC),  # Verified RDC8445S
         0x39: ("MEM_ESTP_ACC_Y", ESTP_ACC),  # Verified RDC8445S
@@ -391,7 +391,7 @@ MT = {
         0x11: ("MEM_TOTAL_LASER_WORK_TIME", TBDU35),
     },
     0x04: {
-        0x00: ("MEM_MACHINE_STATUS", M_STAT),
+        0x00: ("MEM_MACHINE_STATUS", M_STAT),  # Verified RDC6442S
         0x01: ("MEM_TOTAL_OPEN_TIME", TBDU35),
         0x02: ("MEM_TOTAL_WORK_TIME", TBDU35),
         0x03: ("MEM_TOTAL_WORK_NUMBER", TBDU35),
@@ -408,7 +408,7 @@ MT = {
         0x53: ("MEM_TOTAL_WORK_LENGTH_4", TBDU35),
     },
     0x05: {
-        0x7E: ("MEM_CARD_ID", CARD_ID),
+        0x7E: ("MEM_CARD_ID", CARD_ID),  # Verified RDC6442S
         0x7F: ("MEM_MAINBOARD_VERSION", CSTRING),  # Verified RDC6442S
     },
     0x06: {
@@ -493,27 +493,27 @@ REPLY = -1
 # Command table - port 50200
 CT = {
     0x80: {
-        0x00: ("MOVE_FAR_X", XFARDIM),
-        0x01: ("MOVE_FAR_Y", YFARDIM),
+        0x00: ("MOVE_FAR_X", XFARDIM),  # Verified RDC6442S
+        0x01: ("MOVE_FAR_Y", YFARDIM),  # Verified RDC6442S
         0x02: ("MOVE_FAR_U", UFARDIM),
-        0x03: ("MOVE_FAR_Z", ZFARDIM),
+        0x03: ("MOVE_FAR_Z", ZFARDIM),  # Verified RDC6442S
     },
-    0x88: ("MOVE_FAR_XY", XFARDIM, YFARDIM),  # Verified StevenIsaacs
-    0x89: ("MOVE_NEAR_XY", XNEARDIM, YNEARDIM),
-    0x8A: ("MOVE_NEAR_X", XNEARDIM),
-    0x8B: ("MOVE_NEAR_Y", YNEARDIM),
+    0x88: ("MOVE_FAR_XY", XFARDIM, YFARDIM),  # Verifired RDC6442S
+    0x89: ("MOVE_NEAR_XY", XNEARDIM, YNEARDIM),  # Verified RDC6442S
+    0x8A: ("MOVE_NEAR_X", XNEARDIM),  # Verified RDC6442S
+    0x8B: ("MOVE_NEAR_Y", YNEARDIM),  # Verified RDC6442S
     0xA0: {
         0x00: ("MOVE_FAR_A", AFARDIM),
         0x08: ("MOVE_FAR_U", UFARDIM),
     },
     0xA7: KT,
-    0xA8: ("CUT_FAR_XY", XFARDIM, YFARDIM),  # Verified StevenIsaacs
-    0xA9: ("CUT_NEAR_XY", XNEARDIM, YNEARDIM),
-    0xAA: ("CUT_NEAR_X", XNEARDIM),
-    0xAB: ("CUT_NEAR_Y", YNEARDIM),
+    0xA8: ("CUT_FAR_XY", XFARDIM, YFARDIM),  # Verifired RDC6442S
+    0xA9: ("CUT_NEAR_XY", XNEARDIM, YNEARDIM),  # Verified RDC6442S
+    0xAA: ("CUT_NEAR_X", XNEARDIM),  # Verified RDC6442S
+    0xAB: ("CUT_NEAR_Y", YNEARDIM),  # Verified RDC6442S
     0xC0: ("IMD_POWER_2", POWER),
     0xC1: ("END_POWER_2", POWER),
-    0xC2: ("IMD_POWER_3", POWER),
+    0xC2: ("IMD_POWER_3", POWER),  # Verified RDC6442S
     0xC3: ("END_POWER_3", POWER),
     0xC4: ("IMD_POWER_4", POWER),
     0xC5: ("END_POWER_4", POWER),
@@ -532,8 +532,8 @@ CT = {
         0x16: ("LASER_OFF_DELAY2", TIME),
         0x21: ("MIN_POWER_2", POWER),
         0x22: ("MAX_POWER_2", POWER),
-        0x31: ("LAYER_MIN_POWER_1", LAYER, POWER),  # Verified StevenIsaacs
-        0x32: ("LAYER_MAX_POWER_1", LAYER, POWER),  # Verified StevenIsaacs
+        0x31: ("LAYER_MIN_POWER_1", LAYER, POWER),  # Verifired RDC6442S
+        0x32: ("LAYER_MAX_POWER_1", LAYER, POWER),  # Verifired RDC6442S
         0x35: ("LAYER_MIN_POWER_3", LAYER, POWER),
         0x36: ("LAYER_MAX_POWER_3", LAYER, POWER),
         0x37: ("LAYER_MIN_POWER_4", LAYER, POWER),
@@ -544,41 +544,41 @@ CT = {
         0x51: ("THROUGH_POWER_2", POWER),
         0x55: ("THROUGH_POWER_3", POWER),
         0x56: ("THROUGH_POWER_4", POWER),
-        0x60: ("LAYER_FREQUENCY", LASER, LAYER, FREQUENCY),  # Verified LightBurn
+        0x60: ("LAYER_FREQUENCY", LASER, LAYER, FREQUENCY),  # Verified RDC6442S
     },
-    0xC7: ("IMD_POWER_1", POWER),
+    0xC7: ("IMD_POWER_1", POWER),  # Verified RDC6442S
     0xC8: ("END_POWER_1", POWER),
     0xC9: {
         0x02: ("SPEED_LASER_1", SPEED),
         0x03: ("SPEED_AXIS", SPEED),
-        0x04: ("CUT_SPEED_LASER_1", LAYER, SPEED),  # Verified StevenIsaacs
+        0x04: ("CUT_SPEED_LASER_1", LAYER, SPEED),  # Verifired RDC6442S
         0x05: ("FORCE_ENG_SPEED", SPEED),
         0x06: ("SPEED_AXIS_MOVE", SPEED),
     },
     0xCA: {
         0x01: {
-            0x00: "OVERSCAN_OFF",  # Verified StevenIsaacs using Lightburn and RDWorks
-            0x01: "OVERSCAN_H_BI",  # Verified StevenIsaacs using Lightburn and RDWorks
-            0x02: "OVERSCAN_H_UNI",  # Verified StevenIsaacs using Lightburn and RDWorks
-            0x03: "OVERSCAN_V_BI",  # Verified StevenIsaacs using Lightburn and RDWorks
-            0x04: "OVERSCAN_V_UNI",  # Verified StevenIsaacs using Lightburn and RDWorks
+            0x00: "OVERSCAN_OFF",  # Verifired RDC6442S
+            0x01: "OVERSCAN_H_BI",  # Verifired RDC6442S
+            0x02: "OVERSCAN_H_UNI",  # Verifired RDC6442S
+            0x03: "OVERSCAN_V_BI",  # Verifired RDC6442S
+            0x04: "OVERSCAN_V_UNI",  # Verifired RDC6442S
             0x05: "OVERSCAN_DIAGONAL",
             0x10: "LASER_DEVICE_0",
             0x11: "LASER_DEVICE_1",
-            0x12: "AIR_ASSIST_OFF",  # Verified StevenIsaacs
-            0x13: "AIR_ASSIST_ON",  # Verified StevenIsaacs
+            0x12: "AIR_ASSIST_OFF",  # Verifired RDC6442S
+            0x13: "AIR_ASSIST_ON",  # Verifired RDC6442S
             0x14: "DB_HEAD",
             0x30: "EN_LASER_2_OFFSET_0",
             0x31: "EN_LASER_2_OFFSET_1",
             0x55: "OVERSCAN_5",
         },
-        0x02: ("SELECT_LAYER", LAYER),  # Verified StevenIsaacs
+        0x02: ("SELECT_LAYER", LAYER),  # Verifired RDC6442S
         0x03: ("EN_LASER_TUBE_START", SWITCH),
         0x04: ("X_SIGN_MAP", VALUE),
         0x05: ("DEFAULT_COLOR", COLOR),
-        0x06: ("LAYER_COLOR", LAYER, COLOR),  # Verified StevenIsaacs
+        0x06: ("LAYER_COLOR", LAYER, COLOR),  # Verifired RDC6442S
         0x10: ("EN_EX_IO", VALUE),
-        0x22: ("LAST_LAYER", LAYER),  # Verified StevenIsaacs
+        0x22: ("LAST_LAYER", LAYER),  # Verifired RDC6442S
         0x30: ("U_FILE_ID", ID),
         0x40: ("ZU_MAP", VALUE),
         0x41: ("LAYER_ATTRIBUTES", LAYER, UINT7),
@@ -587,15 +587,15 @@ CT = {
     0xD0: {  # This was discovered with LightBurn
         0x29: ("SKIP", SKIP, 2)
     },
-    0xD7: "EOF",  # Verified StevenIsaacs
+    0xD7: "EOF",  # Verifired RDC6442S
     0xD8: {
-        0x00: "START_JOB",  # Verified StevenIsaacs
-        0x01: "STOP_JOB",
-        0x02: "PAUSE_JOB",
-        0x03: "RESUME_JOB",
-        0x10: "REF_POINT_MACHINE",  # Verified StevenIsaacs using Lightburn and RDWorks
-        0x11: "REF_POINT_ORIGIN",  # Verified StevenIsaacs using Lightburn and RDWorks
-        0x12: "REF_POINT_CURRENT",  # Verified StevenIsaacs using Lightburn and RDWorks
+        0x00: "START_JOB",  # Verifired RDC6442S
+        0x01: "STOP_JOB",  # Verified RDC6442S
+        0x02: "PAUSE_JOB",  # Verified RDC6442S
+        0x03: "RESUME_JOB",  # Verified RDC6442S
+        0x10: "REF_POINT_MACHINE",  # Verifired RDC6442S
+        0x11: "REF_POINT_ORIGIN",  # Verifired RDC6442S
+        0x12: "REF_POINT_CURRENT",  # Verifired RDC6442S
         0x20: "KEYDOWN_X_LEFT",
         0x21: "KEYDOWN_X_RIGHT",
         0x22: "KEYDOWN_Y_TOP",
@@ -604,8 +604,8 @@ CT = {
         0x25: "KEYDOWN_Z_DOWN",
         0x26: "KEYDOWN_U_FORWARD",
         0x27: "KEYDOWN_U_BACKWARDS",
-        0x2A: "HOME_XY",
-        0x2C: "HOME_Z",
+        0x2A: "HOME_XY",  # Verified RDC6442S
+        0x2C: "HOME_Z",  # Verified RDC6442S
         0x2D: "HOME_U",
         0x2E: "FOCUS_Z",  # Verified RDC8445S
         0x30: "KEYUP_LEFT",
@@ -618,35 +618,35 @@ CT = {
         0x37: "KEYUP_U_BACKWARDS",
     },
     0xD9: {
-        0x00: ("JOG_X", REL, XFARDIM),
-        0x01: ("JOG_Y", REL, YFARDIM),
-        0x02: ("JOG_Z", REL, ZFARDIM),
+        0x00: ("JOG_X", REL, XFARDIM),  # Verified RDC6442S
+        0x01: ("JOG_Y", REL, YFARDIM),  # Verified RDC6442S
+        0x02: ("JOG_Z", REL, ZFARDIM),  # Verified RDC6442S
         0x03: ("JOG_U", REL, UFARDIM),
         0x0F: ("JOG_FEED_AXIS", REL),
-        0x10: ("JOG_XY", REL, XFARDIM, YFARDIM),
+        0x10: ("JOG_XY", REL, XFARDIM, YFARDIM),  # Verified RDC6442S
         0x30: ("JOG_XYU", REL, XFARDIM, YFARDIM, UFARDIM),
     },
     0xDA: {  # SETTING
-        0x00: ("GET_SETTING", MEMORY),
-        0x01: ("SET_SETTING", MEMORY, TBDU35, TBDU35),
+        0x00: ("GET_SETTING", MEMORY),  # Verified RDC6442S
+        0x01: ("SET_SETTING", MEMORY, TBDU35, TBDU35),  # Verified RDC6442S
         0x05: ("GET_UNKNOWN", INDEX, TBDU35),
     },
     0xE5: {  # FILE
         0x00: ("DOCUMENT_FILE_UPLOAD", FNUM, UINT35, UINT35),
         0x02: "DOCUMENT_FILE_END",
-         0x05: ("END_JOB", FILE_SUM),  # Verified StevenIsaacs
+         0x05: ("END_JOB", FILE_SUM),  # Verifired RDC6442S
     },
     0xE6: {
         0x01: "SET_ABSOLUTE",
     },
     0xE7: {
-        0x00: "BLOCK_END",  # Verified StevenIsaacs
+        0x00: "BLOCK_END",  # Verifired RDC6442S
         0x01: ("SET_FILE_NAME", FNAME),
-        0x03: ("JOB_TOP_RIGHT", XFARDIM, YFARDIM),  # Verified StevenIsaacs
+        0x03: ("JOB_TOP_RIGHT", XFARDIM, YFARDIM),  # Verifired RDC6442S
         0x04: ("JOB_COPIES", COLUMNS, ROWS, XSTEP, YSTEP),
         0x05: ("ARRAY_DIRECTION", DIRECTION),
         0x06: ("FEED_REPEAT", UINT35, UINT35),
-        0x07: ("JOB_BOTTOM_LEFT", XFARDIM, YFARDIM),  # Verified StevenIsaacs
+        0x07: ("JOB_BOTTOM_LEFT", XFARDIM, YFARDIM),  # Verifired RDC6442S
         0x08: ("ARRAY_COPIES", COLUMNS, ROWS, XSTEP, YSTEP),
         0x09: ("FEED_LENGTH", INT35),
         0x0A: ("FEED_INFO", TBD35),
@@ -664,8 +664,8 @@ CT = {
         0x3A: "UNION_BLOCK_PROPERTY",
         0x50: ("DOCUMENT_TOP_RIGHT", XFARDIM, YFARDIM),
         0x51: ("DOCUMENT_BOTTOM_LEFT", XFARDIM, YFARDIM),
-        0x52: ("LAYER_TOP_RIGHT", LAYER, XFARDIM, YFARDIM),  # Verified StevenIsaacs
-        0x53: ("LAYER_BOTTOM_LEFT", LAYER, XFARDIM, YFARDIM),  # Verified StevenIsaacs
+        0x52: ("LAYER_TOP_RIGHT", LAYER, XFARDIM, YFARDIM),  # Verifired RDC6442S
+        0x53: ("LAYER_BOTTOM_LEFT", LAYER, XFARDIM, YFARDIM),  # Verifired RDC6442S
         0x54: ("PEN_OFFSET_AXIS", AXIS, OFFSET),
         0x55: ("LAYER_OFFSET_AXIS", AXIS, OFFSET),
         0x60: ("SET_CURRENT_ELEMENT_INDEX", UINT7),
@@ -680,7 +680,7 @@ CT = {
         0x04: "CALCULATE_DOCUMENT_TIME",
     },
     0xEA: ("ARRAY_START", UINT7),
-    0xEB: "ARRAY_END",  # Verified StevenIsaacs
+    0xEB: "ARRAY_END",  # Verifired RDC6442S
     0xF0: "REF_POINT_SET",
     0xF1: {
         0x00: ("ELEMENT_MAX_INDEX", UINT7),

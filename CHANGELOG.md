@@ -48,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lookup, so existing `.rds` scripts and `GET_SETTING`/`SET_SETTING` keep
   working. The VSCode verified-mnemonic syntax list (66), the rsascript-guide,
   and the per-axis decode formatting tests were updated.
+- Marked 29 more MT/CT mnemonics as `# Verified RDC6442S` (confirmed by probing
+  an RDC6442S): `MEM_LASER_PWM_FREQUENCY_1`, `MEM_LASER_MIN_POWER_1`,
+  `MEM_LASER_MAX_POWER_1`, `MEM_BED_SIZE_X/Y`, `MEM_MACHINE_STATUS`,
+  `MEM_CARD_ID`, `MOVE_FAR_X/Y/Z`, `MOVE_NEAR_XY/X/Y`, `CUT_NEAR_XY/X/Y`,
+  `IMD_POWER_1/3`, `STOP_JOB`, `PAUSE_JOB`, `RESUME_JOB`, `HOME_XY/Z`,
+  `JOG_X/Y/Z/XY`, and `GET_SETTING`/`SET_SETTING`; entries already verified
+  under another source were left unchanged. The VSCode verified-mnemonic syntax
+  list grew to 95 so the newly verified mnemonics render green.
 - Version bump to 0.23.0.
 
 ## [0.22.0] - 2026-10-02
