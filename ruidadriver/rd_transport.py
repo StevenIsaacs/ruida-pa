@@ -10,6 +10,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+import warnings
 from typing import Callable, Optional
 
 from protocols.ruida.ruida_protocol import ACK
@@ -42,6 +43,37 @@ def parse_network_protocol(value: str | None) -> str | None:
     return protocol
 
 
+def _resolve_network_host(network_host: str | None, udp_host: str | None) -> str | None:
+    """Resolve the network host argument, deprecating ``udp_host``.
+
+    ``network_host`` is the current name; ``udp_host`` is retained as a
+    deprecated keyword alias so existing callers keep working.
+
+    Args:
+        network_host: The network host (UDP or TCP) or None.
+        udp_host: Deprecated alias for network_host, or None when unused.
+
+    Returns:
+        The resolved host, or None when neither argument was supplied.
+
+    Raises:
+        ValueError: If both arguments are supplied.
+    """
+    if udp_host is not None and network_host is not None:
+        raise ValueError(
+            "Specify only one of network_host / udp_host "
+            "(udp_host is deprecated; use network_host)"
+        )
+    if udp_host is not None:
+        warnings.warn(
+            "'udp_host' is deprecated; use 'network_host'",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return udp_host
+    return network_host
+
+
 class RdTransport:
     """Ruida Transport coordinator.
 
@@ -49,7 +81,7 @@ class RdTransport:
     interface with automatic transport selection, swizzle packing,
     checksumming, and handshake sequencing in a background thread.
 
-    The network host (``_udp_host``) is reached over UDP or TCP depending
+    The network host (``_network_host``) is reached over UDP or TCP depending
     on the selected network protocol; TCP is used by newer controllers
     such as the RDC8445S.
     """
@@ -65,7 +97,7 @@ class RdTransport:
         self._usb: UsbTransport | None = None
         self._transport: Transport | None = None
 
-        self._udp_host = ""
+        self._network_host = ""
         self._usb_device = ""
         self._protocol = "udp"
 
@@ -110,21 +142,33 @@ class RdTransport:
         self._gross_timeout = gross_timeout
         self._inter_packet_timeout = inter_packet_timeout
 
-    def open(self, udp_host: str = "", usb_device: str = "", protocol: str = "") -> bool:
+    def open(
+        self,
+        network_host: str = "",
+        usb_device: str = "",
+        protocol: str = "",
+        udp_host: str = "",
+    ) -> bool:
         """Open the preferred transport (USB first, then the network host).
 
         Args:
-            udp_host: Network host address. Empty string reuses value from a previous `open()` call.
-            usb_device: USB device path. Empty string reuses value from a previous `open()` call.
+            network_host: Network host address. Empty string reuses value from
+                a previous `open()` call.
+            usb_device: USB device path. Empty string reuses value from a
+                previous `open()` call.
             protocol: Network protocol, "udp" or "tcp". Empty string reuses value from a
                 previous `open()` call (default "udp").
+            udp_host: Deprecated alias for network_host.
         """
         if protocol:
             if protocol not in self.NETWORK_PROTOCOLS:
                 raise ValueError(f"Unsupported network protocol: {protocol!r}")
             self._protocol = protocol
-        if udp_host:
-            self._udp_host = udp_host
+        host = _resolve_network_host(
+            network_host or None, udp_host or None
+        )
+        if host:
+            self._network_host = host
         if usb_device:
             if self._usb is None:
                 self._usb = UsbTransport()
@@ -137,7 +181,7 @@ class RdTransport:
         network = self._network_transport()
         if self._usb and self._usb.open(self._usb_device):
             self._transport = self._usb
-        elif network and network.open(self._udp_host, 50200):
+        elif network and network.open(self._network_host, 50200):
             self._transport = network
         else:
             return False
@@ -149,7 +193,7 @@ class RdTransport:
 
     def _network_transport(self) -> UdpTransport | TcpTransport | None:
         """Return the transport for the network host and selected protocol."""
-        if not self._udp_host:
+        if not self._network_host:
             return None
         if self._protocol == "tcp":
             if self._tcp is None:

@@ -48,6 +48,21 @@
     ],
     "description": "Set the min/max power ramp range for the layer (accel/decel)"
   },
+  "scan_rows": {
+    "prefix": "scan_rows",
+    "body": [
+      "scan_rows(",
+      "    [",
+      "        [${1:0.0}],",
+      "    ],",
+      "    (${2:0.0}, ${3:0.0}),",
+      "    (${4:0.1}, ${5:0.1}),",
+      "    ${6:True},",
+      "    ${7:True},",
+      ")"
+    ],
+    "description": "Raster-fill the current IMAGE/DEPTHMAP layer using run-chunked scan rows (rows[r][c] power per pixel; 0.0 = laser off)"
+  },
   "set_mode": {
     "prefix": "set_mode",
     "body": [
@@ -110,6 +125,34 @@
       "select_laser(${1:1})"
     ],
     "description": "Select the laser head (1-based); only head 1 is wired - emits LASER_DEVICE_1"
+  },
+  "dwell": {
+    "prefix": "dwell",
+    "body": [
+      "dwell(${1:100.0})"
+    ],
+    "description": "Fire the laser in place for duration milliseconds (expands to CUT_DWELL; the 'dwell on move' pattern)"
+  },
+  "add_delay": {
+    "prefix": "add_delay",
+    "body": [
+      "add_delay(${1:5.0})"
+    ],
+    "description": "Add delay milliseconds to each cut segment (expands to ADD_CUT_DELAY)"
+  },
+  "laser_on_delay": {
+    "prefix": "laser_on_delay",
+    "body": [
+      "laser_on_delay(${1:2.0})"
+    ],
+    "description": "Set the current layer's delay-before-laser-fires in milliseconds (expands to LASER_ON_DELAY)"
+  },
+  "laser_off_delay": {
+    "prefix": "laser_off_delay",
+    "body": [
+      "laser_off_delay(${1:3.0})"
+    ],
+    "description": "Set the current layer's delay-after-laser-stops in milliseconds (expands to LASER_OFF_DELAY)"
   },
   "move_xy_to": {
     "prefix": "move_xy_to",

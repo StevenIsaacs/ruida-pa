@@ -5,7 +5,7 @@ Parses human-readable script files into structured command tuples,
 supporting comment stripping and command/expected-reply directives.
 """
 
-from protocols.ruida.ruida_protocol import ACK, CT, MT
+from protocols.ruida.ruida_protocol import ACK, CT, MT, MT_MNEMONIC_ALIASES
 from rpalib.rpa_swizzler import RpaSwizzler
 from rpalib.ruida_transcoder import RdEncoder
 from rpascript.encoding import (
@@ -227,6 +227,12 @@ class ScriptParser:
                 for token in tokens[2:]:
                     key, _, val = token.partition("=")
                     kwargs[key.lower()] = None if val.lower() == "none" else val
+                if "udp" in kwargs and "host" not in kwargs:
+                    self._warning_callback(
+                        f'{line_num}: "udp=" is deprecated; use "host="',
+                        "session start host=<IP> usb=<device>",
+                    )
+                    kwargs["host"] = kwargs.pop("udp")
                 return {
                     "type": "SESSION_START",
                     "mnemonic": "SESSION_START",
@@ -455,7 +461,9 @@ class ScriptParser:
         """Build {mnemonic: (msb, lsb)} mapping from MT table.
 
         Enables resolution of memory-address mnemonics (e.g. MEM_IO_ENABLE)
-        to their MSB/LSB byte pair for encoding.
+        to their MSB/LSB byte pair for encoding. Deprecated mnemonic aliases
+        (see ``MT_MNEMONIC_ALIASES``) resolve to the same address as their
+        canonical names, so old scripts keep working unchanged.
         """
         _map: dict[str, tuple[int, int]] = {}
         for msb, entries in MT.items():
@@ -464,6 +472,8 @@ class ScriptParser:
                     name = entry[0]
                     if isinstance(name, str):
                         _map[name] = (msb, lsb)
+        for alias, canonical in MT_MNEMONIC_ALIASES.items():
+            _map[alias] = _map[canonical]
         return _map
 
     # ------------------------------------------------------------------
@@ -669,7 +679,7 @@ class ScriptInterpreter:
 
                 driver = RdDriver()
                 opened = driver.start(
-                    udp_host=params.get("udp", ""),
+                    network_host=params.get("host", ""),
                     usb_device=params.get("usb", ""),
                     magic=_magic,
                     protocol=_protocol,
@@ -677,7 +687,7 @@ class ScriptInterpreter:
                 if not opened:
                     self._out.write(
                         f"# ERROR: Failed to open transport to Ruida controller "
-                        f"(udp={params.get('udp', '')}, usb={params.get('usb', '')})\n"
+                        f"(host={params.get('host', '')}, usb={params.get('usb', '')})\n"
                     )
                     return
 

@@ -5,6 +5,72 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-10-10
+
+### Added
+
+- `GlueScript.scan_rows()` — a run-chunked raster-fill for the MeerK40t
+  integration plan: a raster job is emitted as roughly one rpascript line per
+  power-run instead of ~3 lines per pixel. Consecutive equal-power pixels
+  collapse into a single `CUT_*` (or `MOVE_*` for a zero-power run),
+  `IMD_POWER_1`/`IMD_POWER_3` are change-gated through a `_current_imd_power`
+  shared with `power()`, bidirectional scans advance with a cross-axis-only
+  move, `horizontal=False` scans along Y, and the layer must be
+  IMAGE/DEPTHMAP (`ValueError` otherwise).
+- Canonical multi-line gluescript transcript serialization — a new
+  `_format_gluescript_call`/`_render_literal`/`_record` serializer lets any
+  gluescript command span physical lines for readability (a `scan_rows(...)`
+  call is recorded as one logical command); `RpcRdDriver.sync()` joins
+  continuation lines so wrapped commands re-stage correctly.
+- `RdDriver.start()`'s network-host argument renamed `udp_host` → `network_host`
+  (accurate for both UDP and TCP). `network_host` is primary; `udp_host`
+  remains a **deprecated alias** emitting a `DeprecationWarning` (supplying
+  both raises `ValueError`). Applied consistently across `RpcRdDriver.start`,
+  `TuiAdapter.start`, `RpycTuiService.exposed_start`, and `RdTransport.open`.
+- The `.rds`/TUI `session start` command now uses `host=` as primary, with
+  `udp=` normalized as a deprecated alias; the internal
+  `_start_udp_host`/`_last_udp_host`/`_udp_host` attributes were renamed to
+  `_network_host`.
+- The integration guide and API reference document the `protocol` argument of
+  `start()` (UDP/TCP selection for port-50200 controllers such as the
+  RDC8445S); the stale `start()` and `configure()` signatures in the docs were
+  corrected.
+- Per-axis resolution of the memory-table (MT) axis blocks: the X/Y/Z/U
+  machine-setting mnemonics in the `0x002_`–`0x005_` blocks were renamed from
+  numbered `MEM_AXIS_*_1..4` to axis-suffixed canonical names (`MEM_PRECISION_X..U`,
+  `MEM_MAX_VELOCITY_X..U`, `MEM_START_VELOCITY_X..U`, `MEM_MAX_ACC_X..U`,
+  `MEM_BTN_START_VEL_X..U`, `MEM_BTN_ACC_X..U`, `MEM_ESTP_ACC_X..U`,
+  `MEM_HOME_OFFSET_X..U`, and `MEM_TRAVEL_Z/U` for the Z/U travel values), each
+  typed from `TBDU35` to a dim/speed/accel spec (`Vel:…mm/S`, `Acc:…mm/S2`,
+  `Prec:…mm`, `HomeOffset:…mm`) and `# Verified RDC8445S`. `MEM_BED_SIZE_X/Y`
+  and `MEM_AXIS_CONTROL_PARA_*`/`MEM_AXIS_BACKLASH_*` are unchanged. The old
+  names remain as deprecated aliases resolved in `ScriptParser`'s MT-mnemonic
+  lookup, so existing `.rds` scripts and `GET_SETTING`/`SET_SETTING` keep
+  working. The VSCode verified-mnemonic syntax list (66), the rsascript-guide,
+  and the per-axis decode formatting tests were updated.
+- Marked 29 more MT/CT mnemonics as `# Verified RDC6442S` (confirmed by probing
+  an RDC6442S): `MEM_LASER_PWM_FREQUENCY_1`, `MEM_LASER_MIN_POWER_1`,
+  `MEM_LASER_MAX_POWER_1`, `MEM_BED_SIZE_X/Y`, `MEM_MACHINE_STATUS`,
+  `MEM_CARD_ID`, `MOVE_FAR_X/Y/Z`, `MOVE_NEAR_XY/X/Y`, `CUT_NEAR_XY/X/Y`,
+  `IMD_POWER_1/3`, `STOP_JOB`, `PAUSE_JOB`, `RESUME_JOB`, `HOME_XY/Z`,
+  `JOG_X/Y/Z/XY`, and `GET_SETTING`/`SET_SETTING`; entries already verified
+  under another source were left unchanged. The VSCode verified-mnemonic syntax
+  list grew to 95 so the newly verified mnemonics render green.
+- The GlueScript delay family: `dwell(duration_ms)` fires the laser in place
+  (`CUT_DWELL` — the "dwell on move" pattern verified from RDWorks dot mode),
+  `add_delay(duration_ms)` adds a per-cut-segment delay (`ADD_CUT_DELAY`),
+  and `laser_on_delay`/`laser_off_delay` set the layer's laser-on/off delays
+  (`LASER_ON_DELAY`/`LASER_OFF_DELAY`). The `0xC6` CT mnemonics
+  `LASER_INTERVAL→CUT_DWELL` and `ADD_DELAY→ADD_CUT_DELAY` were renamed as a
+  clean replacement (no aliases). All four are plain layer actions (no
+  deferred-settings flush, `ValueError` on non-finite/negative durations),
+  registered for `.cglu` re-staging/RPC replay and the job-running guard
+  (registry 49→53, guarded 48→52), exposed over RPC (`exposed_*`) and the TUI
+  (`gluescript_*`), and covered by 35 new tests in `tests/test_dwell.py`. The
+  MeerK40t integration plan §10.2 "Dwell-on-move" item is marked implemented
+  (§2 mapping `laser_interval (dwell) → dwell(duration_ms)`).
+- Version bump to 0.23.0.
+
 ## [0.22.0] - 2026-10-02
 
 ### Added

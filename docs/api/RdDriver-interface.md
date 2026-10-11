@@ -26,21 +26,33 @@ __init__() → start() → [run() ... run()] → stop()
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `start` | `(udp_host: str \| None = None, usb_device: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
+| `start` | `(network_host: str \| None = None, usb_device: str \| None = None, magic: int \| None = None, protocol: str \| None = None, udp_host: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. `udp_host` is a deprecated alias for `network_host`. |
 | `stop` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `start()`. |
 
 ### 2.1 `start()` — Connection Details
 
 ```python
-def start(self, udp_host: str | None = None, usb_device: str | None = None) -> bool
+def start(self, network_host: str | None = None, usb_device: str | None = None,
+          magic: int | None = None, protocol: str | None = None,
+          udp_host: str | None = None) -> bool
 ```
 
-1. If `udp_host`/`usb_device` are `None`, reuses values from previous call.
-2. If a session already exists with different params, calls `stop()` first.
-3. If a session already exists with same params, returns `True` immediately (no-op).
-4. Creates `RdSession()`, calls `transport.configure()`.
-5. Calls `transport.open(udp_host=..., usb_device=...)` — UDP and/or USB.
-6. Starts the background script runner (registers listeners, configures ping/query commands, starts status monitor thread).
+1. If `network_host`/`usb_device` are `None`, reuses values from the previous call.
+2. If `udp_host` is given (and `network_host` is not), it is used in place of
+   `network_host` and emits a `DeprecationWarning`; supplying both raises
+   `ValueError`.
+3. If `magic` is `None`, reuses the previous value (default `0x88`).
+4. `protocol` selects the network protocol for `network_host`: `"udp"` (default)
+   or `"tcp"` (`RdTransport.NETWORK_PROTOCOLS`) for controllers that take the
+   Ruida command stream over TCP port 50200 (e.g. the RDC8445S); `None`
+   reuses the previous value; any other value raises `ValueError`.
+5. If a session already exists with different params (different
+   `network_host`/`usb_device` **or** `protocol`), calls `stop()` first.
+6. If a session already exists with same params, returns `True` immediately (no-op).
+7. Creates `RdSession()`, calls `transport.configure()`.
+8. Calls `transport.open(network_host=..., usb_device=..., protocol=...)` — UDP
+   and/or USB.
+9. Starts the background script runner (registers listeners, configures ping/query commands, starts status monitor thread).
 
 **Return value:** `True` if transport opened successfully on first attempt.  
 `False` if open failed — the status monitor will retry in background.  
@@ -264,15 +276,16 @@ While the controller is running a job, every GlueScript command except the
 job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
 `JobRunningError` — a `RuntimeError` subclass — instead of executing.
 
-**Guarded commands (46).** `GlueScript._GUARDED_COMMANDS` is every registry
+**Guarded commands (52).** `GlueScript._GUARDED_COMMANDS` is every registry
 command except `JOB_CONTROL_COMMANDS` and the guard-exempt
 `set_power_scaling_enabled` config setter, plus the staging/run entry points:
 
 - All authoring commands: `new_gluescript`, `comment`, `inline`,
   `declare_job`, `end_job`, `declare_layer`, `move_*_to`,
-  `cut_*_to`, `power`, `power_range`, `set_mode`, `set_overscan`,
-  `air_assist_on`/`air_assist_off`, `cut_speed`, `move_speed`, `frequency`,
-  `pwm`, `select_laser`.
+  `cut_*_to`, `power`, `power_range`, `scan_rows`, `set_mode`,
+  `set_overscan`, `air_assist_on`/`air_assist_off`, `cut_speed`,
+  `move_speed`, `frequency`, `pwm`, `select_laser`,
+  `dwell`, `add_delay`, `laser_on_delay`, `laser_off_delay`.
 - The config setter `set_power_scaling_enabled` (registered for replay but
   **not** guarded — it may be toggled while a job runs).
 - All jog and home commands: `jog_*` (including the `jog_set_*` config
@@ -513,7 +526,7 @@ driver = RdDriver()
 driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
 driver.register_error_listener(lambda m: print(f"[ERROR] {m}"))
 
-if not driver.start(udp_host="192.168.1.100"):
+if not driver.start(network_host="192.168.1.100"):
     print("Connection will retry in background...")
 
 driver.run(["GET_SETTING MEM_CARD_ID"])
@@ -551,7 +564,7 @@ class MyApp:
         print(f"Error: {message}")
 
     def run(self, host: str) -> None:
-        if self.driver.start(udp_host=host):
+        if self.driver.start(network_host=host):
             time.sleep(3)
             self.driver.stop()
 
@@ -577,7 +590,7 @@ def _handle_status(self, event):
 ## 11. Configuration Notes
 
 - **Transport:** UDP (Ethernet) is default. USB (serial via pyserial) is
-  optional — pass `usb_device=` instead of or in addition to `udp_host=`.
+  optional — pass `usb_device=` instead of or in addition to `network_host=`.
 - **Ping interval:** 5000ms default. Queries every 1000ms.
 - **Timeouts:** Per-command timeout 250ms, gross timeout 15s for long
   operations (home sequences, etc.).

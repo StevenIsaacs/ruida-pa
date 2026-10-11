@@ -26,9 +26,14 @@ def test_parse_network_protocol_rejects_unknown():
 
 
 def test_session_start_parses_proto():
-    cmd = ScriptParser().parse_lines(["session start udp=192.168.1.58 proto=tcp"])[0]
+    cmd = ScriptParser().parse_lines(["session start host=192.168.1.58 proto=tcp"])[0]
     assert cmd["type"] == "SESSION_START"
-    assert cmd["params"] == {"udp": "192.168.1.58", "proto": "tcp"}
+    assert cmd["params"] == {"host": "192.168.1.58", "proto": "tcp"}
+
+
+def test_session_start_udp_alias_normalizes_to_host():
+    cmd = ScriptParser().parse_lines(["session start udp=192.168.1.58 proto=tcp"])[0]
+    assert cmd["params"] == {"host": "192.168.1.58", "proto": "tcp"}
 
 
 def _run_session(monkeypatch, line):
@@ -42,24 +47,31 @@ def _run_session(monkeypatch, line):
 
 
 def test_script_session_passes_tcp_protocol(monkeypatch):
-    driver, _ = _run_session(monkeypatch, "session start udp=192.168.1.58 proto=tcp")
+    driver, _ = _run_session(monkeypatch, "session start host=192.168.1.58 proto=tcp")
     assert driver.start.call_args.kwargs["protocol"] == "tcp"
+    assert driver.start.call_args.kwargs["network_host"] == "192.168.1.58"
+
+
+def test_script_session_udp_alias_still_connects(monkeypatch):
+    driver, _ = _run_session(monkeypatch, "session start udp=192.168.1.58 proto=tcp")
+    assert driver.start.call_args.kwargs["network_host"] == "192.168.1.58"
 
 
 def test_script_session_defaults_protocol(monkeypatch):
-    driver, _ = _run_session(monkeypatch, "session start udp=192.168.1.10")
+    driver, _ = _run_session(monkeypatch, "session start host=192.168.1.10")
     assert driver.start.call_args.kwargs["protocol"] is None
+    assert driver.start.call_args.kwargs["network_host"] == "192.168.1.10"
 
 
 def test_script_session_rejects_unknown_protocol(monkeypatch):
-    driver, output = _run_session(monkeypatch, "session start udp=192.168.1.10 proto=sctp")
+    driver, output = _run_session(monkeypatch, "session start host=192.168.1.10 proto=sctp")
     driver.start.assert_not_called()
     assert "Unsupported network protocol" in output
 
 
 def _tui_with_driver():
     adapter = TuiAdapter.__new__(TuiAdapter)
-    adapter._last_udp_host = ""
+    adapter._last_network_host = ""
     adapter._last_usb_device = ""
     adapter._last_magic = 0x88
     adapter._last_protocol = "udp"
@@ -74,16 +86,17 @@ def _tui_with_driver():
 def test_tui_session_start_passes_tcp_protocol():
     adapter, driver = _tui_with_driver()
 
-    asyncio.run(adapter._start_session(udp="192.168.1.58", proto="tcp"))
+    asyncio.run(adapter._start_session(host="192.168.1.58", proto="tcp"))
 
     assert driver.start.call_args.kwargs["protocol"] == "tcp"
+    assert driver.start.call_args.kwargs["network_host"] == "192.168.1.58"
     assert adapter._last_protocol == "tcp"
 
 
 def test_tui_session_start_rejects_unknown_protocol():
     adapter, driver = _tui_with_driver()
 
-    asyncio.run(adapter._start_session(udp="192.168.1.58", proto="sctp"))
+    asyncio.run(adapter._start_session(host="192.168.1.58", proto="sctp"))
 
     driver.start.assert_not_called()
     adapter._log_error.assert_called_once()

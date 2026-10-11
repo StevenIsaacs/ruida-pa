@@ -127,7 +127,7 @@ def test_rd_transport_tcp_handshake_without_checksum(server, monkeypatch):
     rd.configure(magic=MAGIC, timeout=1000)
     replies = []
     rd.register_reply_listener(replies.append)
-    assert rd.open(udp_host="127.0.0.1", protocol="tcp")
+    assert rd.open(network_host="127.0.0.1", protocol="tcp")
     assert rd.is_tcp and not rd.is_udp
     rd.write([bytearray(CARD_ID_QUERY)])
 
@@ -156,7 +156,7 @@ def test_close_stream_closes_tcp_so_open_reconnects(server, monkeypatch):
     )
     rd = RdTransport()
     rd.configure(magic=MAGIC)
-    assert rd.open(udp_host="127.0.0.1", protocol="tcp")
+    assert rd.open(network_host="127.0.0.1", protocol="tcp")
     first, _ = server.accept()
 
     rd.close_stream()

@@ -165,7 +165,12 @@ from rpalib.gluescript_signature import (
     gluescript_signature,
 )
 from rpalib.version import __version__
-from ruidadriver.rd_gluescript import GlueScript, JobRunningError
+from ruidadriver.rd_gluescript import (
+    GlueScript,
+    JobRunningError,
+    _join_continuation_lines,
+)
+from ruidadriver.rd_transport import _resolve_network_host
 
 logger = logging.getLogger(__name__)
 
@@ -466,12 +471,14 @@ class RpcRdDriver(GlueScript):
         self._flushed_count = len(self._transcript)
         mode = "VECTOR"
         overscan = "NONE"
-        # The transcript is always canonical single-line positional:
-        # authoring methods emit repr()-based positional lines, and the
+        # The transcript is canonical positional: authoring methods emit
+        # repr()-based positional calls, optionally wrapped across multiple
+        # physical lines (see GlueScript._format_gluescript_call), and the
         # server transcript is rebuilt canonically by ``_replay_lines``.
-        # kwargs are therefore intentionally ignored and ``len(args) >= 4``
-        # is safe.
-        for line in self._transcript:
+        # Join continuation lines first so a wrapped declare_layer/set_mode/
+        # set_overscan is parsed as one logical command. kwargs are
+        # therefore intentionally ignored and ``len(args) >= 4`` is safe.
+        for line in _join_continuation_lines(self._transcript):
             try:
                 name, args, _kwargs = self._parse_gluescript_line(line)
             except (ValueError, SyntaxError):
@@ -858,15 +865,16 @@ class RpcRdDriver(GlueScript):
 
     def start(
         self,
-        udp_host: str | None = None,
+        network_host: str | None = None,
         usb_device: str | None = None,
         magic: int | None = None,
         protocol: str | None = None,
+        udp_host: str | None = None,
     ) -> bool:
         """Start the server-side driver/session. Mirrors RdDriver.start()."""
         return bool(
             self._svc.start(
-                udp_host=udp_host,
+                network_host=_resolve_network_host(network_host, udp_host),
                 usb_device=usb_device,
                 magic=magic,
                 protocol=protocol,

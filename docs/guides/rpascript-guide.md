@@ -28,14 +28,15 @@ multiple lines."""
 ### Session Meta-Commands
 
 ```rds
-session start udp=192.168.1.100
-session start udp=192.168.1.100 usb=ttyUSB0 to=10s
+session start host=192.168.1.100
+session start host=192.168.1.100 usb=ttyUSB0 to=10s
 session end
 ```
 
 - `session start` — Opens a transport connection. Requires at least
-  `udp=<IP>` or `usb=<device>`. The optional `to=<timeout>` sets the
+  `host=<IP>` or `usb=<device>`. The optional `to=<timeout>` sets the
   connection timeout (e.g., `10s`, `5000ms`; default 5000ms).
+  (`udp=` remains a deprecated alias for `host=`.)
 - `session end` — Closes the active session.
 - These are processed by `RdDriver.start()` / `RdDriver.stop()`, not
   sent to the controller as commands.
@@ -185,10 +186,10 @@ Each line is parsed as:
 | `MIN_POWER_2_LAYER` | `Layer={n} Power=%` | Min power for laser 2 per layer |
 | `MAX_POWER_2_LAYER` | `Layer={n} Power=%` | Max power for laser 2 per layer |
 | `THROUGH_POWER_1`  | `Power=%`       | Through (pierce) power for laser 1   |
-| `LASER_INTERVAL`   | `{:.3f}mS`      | Laser pulse interval                 |
+| `CUT_DWELL`        | `{:.3f}mS`      | Fire in place for a duration (dwell on move) |
 | `LASER_ON_DELAY`   | `{:.3f}mS`      | Delay before laser fires             |
 | `LASER_OFF_DELAY`  | `{:.3f}mS`      | Delay after laser stops              |
-| `ADD_DELAY`        | `{:.3f}mS`      | Additional delay per segment         |
+| `ADD_CUT_DELAY`    | `{:.3f}mS`      | Additional delay per cut segment     |
 | `FREQUENCY_LAYER`   | `Laser={n} Layer={n} Freq=KHz` | Frequency for a specific layer (CT mnemonic: `LAYER_FREQUENCY`) |
 
 ### 2.3 Speed
@@ -375,26 +376,36 @@ Mnemonics resolve to 2-byte memory addresses (MSB, LSB).
 | --------------------------- | --------- | --------------- | ------------------------------ |
 | `MEM_CARD_ID`               | `0x057E` | `int`           | Card identifier                |
 | `MEM_MAINBOARD_VERSION`     | `0x057F` | `str`           | Mainboard firmware version      |
-| `MEM_BED_SIZE_X`            | `0x0026` | `float`/`int`   | Bed width (X)                  |
-| `MEM_BED_SIZE_Y`            | `0x0036` | `float`/`int`   | Bed height (Y)                 |
+| `MEM_BED_SIZE_X`            | `0x0026` | `float`/`int`   | Bed width (X / X-axis travel)          |
+| `MEM_BED_SIZE_Y`            | `0x0036` | `float`/`int`   | Bed height (Y / Y-axis travel)         |
 
 ### Axis Configuration (Laser 1)
 
-| Mnemonic                    | Address   | Description                        |
-| --------------------------- | --------- | ---------------------------------- |
-| `MEM_G0_VELOCITY`           | `0x005`  | Rapid (G0) velocity                |
-| `MEM_HOME_VELOCITY`         | `0x00C`  | Home sequence velocity             |
-| `MEM_LASER_PWM_FREQUENCY_1` | `0x011`  | PWM frequency for laser 1          |
-| `MEM_LASER_MIN_POWER_1`     | `0x012`  | Minimum power setting for laser 1  |
-| `MEM_LASER_MAX_POWER_1`     | `0x013`  | Maximum power setting for laser 1  |
-| `MEM_AXIS_PRECISION_1`      | `0x021`  | Axis 1 precision (steps/mm)        |
-| `MEM_AXIS_MAX_VELOCITY_1`   | `0x023`  | Axis 1 maximum velocity            |
-| `MEM_AXIS_MAX_ACC_1`        | `0x025`  | Axis 1 maximum acceleration        |
-| `MEM_BED_SIZE_X`            | `0x026`  | Bed width (X)                      |
-| `MEM_BED_SIZE_Y`            | `0x036`  | Bed height (Y)                     |
+The X/Y/Z/U axis parameter blocks (`0x002_`/`0x003_`/`0x004_`/`0x005_`)
+use the same per-axis layout, named `…_X`/`…_Y`/`…_Z`/`…_U`:
 
-Axis 2 and Axis 3 follow the same pattern at offsets `0x030`+ and
-`0x040`+ respectively.
+| Mnemonic                    | Address   | Description                          |
+| --------------------------- | --------- | ------------------------------------ |
+| `MEM_G0_VELOCITY`           | `0x005`  | Rapid (G0) velocity                  |
+| `MEM_HOME_VELOCITY`         | `0x00C`  | Home sequence velocity               |
+| `MEM_LASER_PWM_FREQUENCY_1` | `0x011`  | PWM frequency for laser 1            |
+| `MEM_LASER_MIN_POWER_1`     | `0x012`  | Minimum power setting for laser 1    |
+| `MEM_LASER_MAX_POWER_1`     | `0x013`  | Maximum power setting for laser 1    |
+| `MEM_PRECISION_X`           | `0x021`  | X-axis step length (precision)       |
+| `MEM_MAX_VELOCITY_X`        | `0x023`  | X-axis maximum velocity              |
+| `MEM_START_VELOCITY_X`      | `0x024`  | X-axis start (jump-off) velocity     |
+| `MEM_MAX_ACC_X`             | `0x025`  | X-axis maximum acceleration          |
+| `MEM_BED_SIZE_X`            | `0x026`  | Bed width (X / X-axis travel)        |
+| `MEM_BTN_START_VEL_X`       | `0x027`  | X-axis keypad start velocity         |
+| `MEM_BTN_ACC_X`             | `0x028`  | X-axis keypad acceleration           |
+| `MEM_ESTP_ACC_X`            | `0x029`  | X-axis E-stop acceleration           |
+| `MEM_HOME_OFFSET_X`         | `0x02A`  | X-axis home offset                    |
+
+Y, Z and U follow the same layout at `0x030`+ (`MEM_*_Y`), `0x040`+ (`MEM_*_Z`)
+and `0x050`+ (`MEM_*_U`). The former numbered names (`MEM_AXIS_PRECISION_1..4`,
+`MEM_AXIS_MAX_VELOCITY_1..4`, `MEM_AXIS_BTN_START_VEL_1..4`, …) and the
+`MEM_AXIS_RANGE_3/4` travel names are deprecated aliases that still resolve.
+`MEM_BED_SIZE_X`/`MEM_BED_SIZE_Y` are retained at `0x026`/`0x036`.
 
 ### Example
 
@@ -556,7 +567,7 @@ Scripts are passed as lists of strings:
 from ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
-driver.start(udp_host="192.168.1.100")
+driver.start(network_host="192.168.1.100")
 
 script = [
     "HOME_XY",

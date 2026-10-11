@@ -2,9 +2,9 @@
   "session": {
     "prefix": "session",
     "body": [
-      "session start udp=${1:127.0.0.1}"
+      "session start host=${1:127.0.0.1}"
     ],
-    "description": "Start a live Ruida Script session on a UDP endpoint"
+    "description": "Start a live Ruida Script session on a network endpoint (UDP or TCP)"
   },
   "job-header": {
     "prefix": "job-header",
