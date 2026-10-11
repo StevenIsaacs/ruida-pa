@@ -56,6 +56,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `JOG_X/Y/Z/XY`, and `GET_SETTING`/`SET_SETTING`; entries already verified
   under another source were left unchanged. The VSCode verified-mnemonic syntax
   list grew to 95 so the newly verified mnemonics render green.
+- The GlueScript delay family: `dwell(duration_ms)` fires the laser in place
+  (`CUT_DWELL` — the "dwell on move" pattern verified from RDWorks dot mode),
+  `add_delay(duration_ms)` adds a per-cut-segment delay (`ADD_CUT_DELAY`),
+  and `laser_on_delay`/`laser_off_delay` set the layer's laser-on/off delays
+  (`LASER_ON_DELAY`/`LASER_OFF_DELAY`). The `0xC6` CT mnemonics
+  `LASER_INTERVAL→CUT_DWELL` and `ADD_DELAY→ADD_CUT_DELAY` were renamed as a
+  clean replacement (no aliases). All four are plain layer actions (no
+  deferred-settings flush, `ValueError` on non-finite/negative durations),
+  registered for `.cglu` re-staging/RPC replay and the job-running guard
+  (registry 49→53, guarded 48→52), exposed over RPC (`exposed_*`) and the TUI
+  (`gluescript_*`), and covered by 35 new tests in `tests/test_dwell.py`. The
+  MeerK40t integration plan §10.2 "Dwell-on-move" item is marked implemented
+  (§2 mapping `laser_interval (dwell) → dwell(duration_ms)`).
 - Version bump to 0.23.0.
 
 ## [0.22.0] - 2026-10-02

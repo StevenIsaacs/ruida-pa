@@ -644,6 +644,73 @@ logs a warning
 (`select_laser(2) ignored - only laser head 1 is currently wired in
 rpascript`) and emits nothing, so the job keeps a single-head transcript.
 
+#### `dwell(duration: float)`
+
+Fire the laser **in place** at the current position for `duration`
+milliseconds, then continue with the next action — the "dwell on move"
+pattern. The head does not move while the laser fires: position it first with
+`move_xy_to()`/`cut_xy_to()`, dwell, then move on. Expands to `CUT_DWELL`
+using the rpascript `TIME` format:
+
+```python
+driver.move_xy_to(365.0, 225.0)
+driver.dwell(100.0)
+driver.move_x_to(360.0)
+# Produces:
+#   MOVE_FAR_XY X=365.000mm Y=225.000mm
+#   CUT_DWELL 100.000mS
+#   MOVE_NEAR_X nearX=-5.000mm
+```
+
+This is the GlueScript equivalent of a MeerK40t `DwellCut` or the RDWorks
+"dots" processing mode. `duration` must be finite and `>= 0`, otherwise a
+`ValueError` is raised.
+
+#### `add_delay(duration: float)`
+
+Add `duration` milliseconds of delay to **each cut segment** in the current
+layer (the Ruida per-segment delay). Mirrors a MeerK40t `WaitCut`-style
+non-laser pause. Expands to `ADD_CUT_DELAY`:
+
+```python
+driver.add_delay(5.0)
+# Produces: ADD_CUT_DELAY 5.000mS
+```
+
+`duration` must be finite and `>= 0`, otherwise a `ValueError` is raised.
+
+#### `laser_on_delay(duration: float)`
+
+Set the current layer's **delay before the laser fires** to `duration`
+milliseconds. Expands to `LASER_ON_DELAY` at the call position:
+
+```python
+driver.laser_on_delay(2.0)
+# Produces: LASER_ON_DELAY 2.000mS
+```
+
+`duration` must be finite and `>= 0`, otherwise a `ValueError` is raised.
+
+#### `laser_off_delay(duration: float)`
+
+Set the current layer's **delay after the laser stops** to `duration`
+milliseconds. Expands to `LASER_OFF_DELAY` at the call position:
+
+```python
+driver.laser_off_delay(3.0)
+# Produces: LASER_OFF_DELAY 3.000mS
+```
+
+`duration` must be finite and `>= 0`, otherwise a `ValueError` is raised.
+
+All four delay methods are **saved-job commands** — persisted to, and replayed
+from, `.cglu` files alongside the other authoring actions. Unlike the
+deferred settings emitted by `cut_speed()`/`power_range()`, each is a plain
+action appended at the call position (like `air_assist_on()`/`select_laser()`):
+pending `cut_speed`/`power` settings stay pending until the next `cut_*`
+action. None of the four is comment-only — contrast with `pwm()`, which emits
+no real command.
+
 #### `scan_rows(rows, origin, step, bidirectional=True, horizontal=True)`
 
 Raster-fill the current `IMAGE`/`DEPTHMAP` layer using **run-chunked scan

@@ -276,7 +276,7 @@ While the controller is running a job, every GlueScript command except the
 job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
 `JobRunningError` — a `RuntimeError` subclass — instead of executing.
 
-**Guarded commands (47).** `GlueScript._GUARDED_COMMANDS` is every registry
+**Guarded commands (52).** `GlueScript._GUARDED_COMMANDS` is every registry
 command except `JOB_CONTROL_COMMANDS` and the guard-exempt
 `set_power_scaling_enabled` config setter, plus the staging/run entry points:
 
@@ -284,7 +284,8 @@ command except `JOB_CONTROL_COMMANDS` and the guard-exempt
   `declare_job`, `end_job`, `declare_layer`, `move_*_to`,
   `cut_*_to`, `power`, `power_range`, `scan_rows`, `set_mode`,
   `set_overscan`, `air_assist_on`/`air_assist_off`, `cut_speed`,
-  `move_speed`, `frequency`, `pwm`, `select_laser`.
+  `move_speed`, `frequency`, `pwm`, `select_laser`,
+  `dwell`, `add_delay`, `laser_on_delay`, `laser_off_delay`.
 - The config setter `set_power_scaling_enabled` (registered for replay but
   **not** guarded — it may be toggled while a job runs).
 - All jog and home commands: `jog_*` (including the `jog_set_*` config

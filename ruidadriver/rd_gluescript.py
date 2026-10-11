@@ -62,6 +62,10 @@ REGISTRY_METHODS = [
     "frequency",
     "pwm",
     "select_laser",
+    "dwell",
+    "add_delay",
+    "laser_on_delay",
+    "laser_off_delay",
     "jog_set_xy_speed",
     "jog_set_z_speed",
     "jog_set_u_speed",
@@ -269,8 +273,8 @@ class GlueScript:
         JOG_COMMANDS | HOME_COMMANDS | JOB_CONTROL_COMMANDS
     )
     # Every registry command except the job-control and guard-exempt
-    # commands, plus the staging/run entry points — 47 commands total
-    # (48 registry methods − 4 JOB_CONTROL − 1 GUARD_EXEMPT + 4 extra).
+    # commands, plus the staging/run entry points — 52 commands total
+    # (53 registry methods − 4 JOB_CONTROL − 1 GUARD_EXEMPT + 4 extra).
     # The move_z_to/move_u_to/cut_z_to/cut_u_to stubs are unguarded but
     # moot: they raise NotImplementedError before any guard could matter.
     _GUARDED_COMMANDS: frozenset[str] = (
@@ -2013,6 +2017,78 @@ class GlueScript:
                 "select_laser(%s) ignored - only laser head 1 is currently wired in rpascript",
                 laser,
             )
+
+    def dwell(self, duration: float) -> None:
+        """Fire the laser in place at the current position for ``duration``
+        milliseconds, then continue with the next action ("dwell on move").
+
+        The head does not move while the laser fires: position it first with
+        ``move_xy_to()``/``cut_xy_to()``, then dwell, then move on — the
+        GlueScript equivalent of a MeerK40t ``DwellCut`` / RDWorks "dot"
+        pause.
+
+        Args:
+            duration: Dwell time in milliseconds (>= 0).
+
+        Raises:
+            ValueError: If ``duration`` is not finite or is negative.
+        """
+        self._emit_delay_action("dwell", "CUT_DWELL", duration)
+
+    def add_delay(self, duration: float) -> None:
+        """Add ``duration`` milliseconds of delay to each cut segment in the
+        current layer (Ruida per-segment delay). Mirrors a MeerK40t
+        WaitCut-style non-laser pause.
+
+        Args:
+            duration: Delay in milliseconds (>= 0).
+
+        Raises:
+            ValueError: If ``duration`` is not finite or is negative.
+        """
+        self._emit_delay_action("add_delay", "ADD_CUT_DELAY", duration)
+
+    def laser_on_delay(self, duration: float) -> None:
+        """Set the current layer's delay-before-laser-fires to ``duration``
+        milliseconds.
+
+        Args:
+            duration: Delay in milliseconds (>= 0).
+
+        Raises:
+            ValueError: If ``duration`` is not finite or is negative.
+        """
+        self._emit_delay_action("laser_on_delay", "LASER_ON_DELAY", duration)
+
+    def laser_off_delay(self, duration: float) -> None:
+        """Set the current layer's delay-after-laser-stops to ``duration``
+        milliseconds.
+
+        Args:
+            duration: Delay in milliseconds (>= 0).
+
+        Raises:
+            ValueError: If ``duration`` is not finite or is negative.
+        """
+        self._emit_delay_action("laser_off_delay", "LASER_OFF_DELAY", duration)
+
+    def _emit_delay_action(
+        self, method: str, mnemonic: str, duration: float
+    ) -> None:
+        """Append one delay-family action to the current layer's action block.
+
+        ``method`` is the transcript method name (for re-staging/RPC replay);
+        ``mnemonic`` is the rpascript command. Like ``air_assist_on()`` /
+        ``select_laser()`` this is a plain action append — it does NOT trigger
+        a deferred-settings flush, so pending ``cut_speed()``/``power()``
+        settings stay deferred until the next ``cut_*`` action.
+        """
+        if not math.isfinite(duration) or duration < 0:
+            raise ValueError(f"{method} duration must be >= 0, got {duration}")
+        self._record(method, duration)
+        self._layer_actions.setdefault(self._layer, []).append(
+            f"{mnemonic} {duration:.3f}mS"
+        )
 
     def move_xy_to(self, x: float, y: float) -> None:
         """Move to absolute XY coordinate relative to job reference point."""

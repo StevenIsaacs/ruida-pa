@@ -3569,6 +3569,30 @@ class TuiAdapter(App):
             lambda: self._ensure_gluescript_driver().select_laser(laser)
         )
 
+    def gluescript_dwell(self, duration: float) -> None:
+        """Fire the laser in place for ``duration`` ms (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().dwell(duration)
+        )
+
+    def gluescript_add_delay(self, duration: float) -> None:
+        """Add delay to each cut segment (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().add_delay(duration)
+        )
+
+    def gluescript_laser_on_delay(self, duration: float) -> None:
+        """Set the layer's laser-on delay (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().laser_on_delay(duration)
+        )
+
+    def gluescript_laser_off_delay(self, duration: float) -> None:
+        """Set the layer's laser-off delay (session-less)."""
+        return self._gluescript_bridge(
+            lambda: self._ensure_gluescript_driver().laser_off_delay(duration)
+        )
+
     def gluescript_add_layer_action(
         self, layer: int, lines: list[str]
     ) -> None:
