@@ -5,17 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Changed
-
-- The driver lifecycle methods were renamed `start()`/`stop()` →
-  `connect()`/`disconnect()`, applied consistently across the whole
-  surface: `RdDriver`, `AppAdapter`, `TuiAdapter`, `RpcRdDriver`, and
-  `RpycTuiService` (`exposed_connect`/`exposed_disconnect`). The old
-  names remain as **deprecated aliases** emitting a `DeprecationWarning`
-  and are scheduled for removal in a future release. The runtime error
-  messages ("Call start() first.") were updated to "Call connect() first."
+## [0.23.0] - 2026-10-10
 
 ### Added
 
@@ -27,11 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value and is refreshed on every corresponding reply. Exposed over RPC
   via `TuiAdapter.current_status`, `RpcRdDriver.current_status`, and
   `RpycTuiService.exposed_current_status`.
-
-## [0.23.0] - 2026-10-10
-
-### Added
-
 - `GlueScript.scan_rows()` — a run-chunked raster-fill for the MeerK40t
   integration plan: a raster job is emitted as roughly one rpascript line per
   power-run instead of ~3 lines per pixel. Consecutive equal-power pixels
@@ -93,6 +78,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MeerK40t integration plan §10.2 "Dwell-on-move" item is marked implemented
   (§2 mapping `laser_interval (dwell) → dwell(duration_ms)`).
 - Version bump to 0.23.0.
+
+### Changed
+
+- The driver lifecycle methods were renamed `start()`/`stop()` →
+  `connect()`/`disconnect()`, applied consistently across the whole
+  surface: `RdDriver`, `AppAdapter`, `TuiAdapter`, `RpcRdDriver`, and
+  `RpycTuiService` (`exposed_connect`/`exposed_disconnect`). The old
+  names remain as **deprecated aliases** emitting a `DeprecationWarning`
+  and are scheduled for removal in a future release. The runtime error
+  messages ("Call start() first.") were updated to "Call connect() first."
 
 ## [0.22.0] - 2026-10-02
 
