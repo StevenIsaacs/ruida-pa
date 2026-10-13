@@ -1643,7 +1643,7 @@ rpa = driver.rpascript
 print(f"Generated {len(rpa)} rpascript lines")
 
 # Phase 6: Connect and run (requires RdDriver session)
-# driver.start(network_host="192.168.1.100")
+# driver.connect(network_host="192.168.1.100")
 # driver.run_job()
 ```
 

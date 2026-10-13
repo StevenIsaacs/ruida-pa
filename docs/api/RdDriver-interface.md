@@ -21,20 +21,24 @@ integrate by registering listeners and queuing rpascript commands.
 A driver instance must go through a strict lifecycle:
 
 ```
-__init__() → start() → [run() ... run()] → stop()
+__init__() → connect() → [run() ... run()] → disconnect()
 ```
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `start` | `(network_host: str \| None = None, usb_device: str \| None = None, magic: int \| None = None, protocol: str \| None = None, udp_host: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. `udp_host` is a deprecated alias for `network_host`. |
-| `stop` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `start()`. |
+| `connect` | `(network_host: str \| None = None, usb_device: str \| None = None, magic: int \| None = None, protocol: str \| None = None, udp_host: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. `udp_host` is a deprecated alias for `network_host`. |
+| `disconnect` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `connect()`. |
 
-### 2.1 `start()` — Connection Details
+`start()` / `stop()` remain as deprecated aliases for `connect()` /
+`disconnect()`, emitting a `DeprecationWarning`. They are scheduled for
+removal in a future release.
+
+### 2.1 `connect()` — Connection Details
 
 ```python
-def start(self, network_host: str | None = None, usb_device: str | None = None,
-          magic: int | None = None, protocol: str | None = None,
-          udp_host: str | None = None) -> bool
+def connect(self, network_host: str | None = None, usb_device: str | None = None,
+            magic: int | None = None, protocol: str | None = None,
+            udp_host: str | None = None) -> bool
 ```
 
 1. If `network_host`/`usb_device` are `None`, reuses values from the previous call.
@@ -47,7 +51,7 @@ def start(self, network_host: str | None = None, usb_device: str | None = None,
    Ruida command stream over TCP port 50200 (e.g. the RDC8445S); `None`
    reuses the previous value; any other value raises `ValueError`.
 5. If a session already exists with different params (different
-   `network_host`/`usb_device` **or** `protocol`), calls `stop()` first.
+   `network_host`/`usb_device` **or** `protocol`), calls `disconnect()` first.
 6. If a session already exists with same params, returns `True` immediately (no-op).
 7. Creates `RdSession()`, calls `transport.configure()`.
 8. Calls `transport.open(network_host=..., usb_device=..., protocol=...)` — UDP
@@ -58,10 +62,10 @@ def start(self, network_host: str | None = None, usb_device: str | None = None,
 `False` if open failed — the status monitor will retry in background.  
 The application can check `is_connected` later to confirm.
 
-### 2.2 `stop()` — Clean Teardown
+### 2.2 `disconnect()` — Clean Teardown
 
 ```python
-def stop(self) -> None
+def disconnect(self) -> None
 ```
 
 1. Sends shutdown sentinel to script queue, joins runner thread (2s timeout).
@@ -196,7 +200,7 @@ transcript. Failures raise `RuntimeError` instead of returning.
 
 **RpcRdDriver — full-surface RPC mirror.** `RpcRdDriver`
 (`rpalib/rpyc_client.py`) mirrors the full `RdDriver` surface described in
-this document — lifecycle and execution passthroughs (`start`, `stop`,
+this document — lifecycle and execution passthroughs (`connect`, `disconnect`,
 `run`, `run_job`, `cancel_script`, `set_protect`, head/tail setters and
 getters), the listener registration surface (`register_status_listener`,
 `register_error_listener`, `register_reply_listener` and their
@@ -399,7 +403,7 @@ Session-level events fired to status listeners:
 | `CONNECTED` | Controller responding to pings |
 | `DISCONNECTED` | Ping/query timeout or transport drop |
 | `RECONNECTED` | Connection auto-restored after failure |
-| `TERMINATED` | Session explicitly shut down by `stop()` |
+| `TERMINATED` | Session explicitly shut down by `disconnect()` |
 | `BLOCKED` | Status monitoring blocked for command flow |
 | `UNBLOCKED` | Status monitoring resumed |
 | `SCRIPT_ERROR` | Script encoding/parsing/execution error |
@@ -463,7 +467,7 @@ class StatusDict(TypedDict, total=False):
 ```
 ┌──────────────────────────────────┐
 │        Application Thread        │
-│  start(), run(), stop()          │
+│  connect(), run(), disconnect()  │
 │  register_*_listener()           │
 ├──────────────────────────────────┤
 │   Background Script Runner (L6)  │  ← daemon thread
@@ -485,7 +489,7 @@ class StatusDict(TypedDict, total=False):
 
 ### Key threading rules:
 
-1. **`start()` and `stop()` are blocking** — `stop()` joins the runner thread with 2s timeout and disconnects synchronously.
+1. **`connect()` and `disconnect()` are blocking** — `disconnect()` joins the runner thread with 2s timeout and disconnects synchronously.
 2. **`run()` is non-blocking** — appends to a `queue.Queue`; the runner thread processes asynchronously.
 3. **Listener callbacks fire from background threads** — applications must use thread-safe dispatch for UI updates.
 4. **All listener forwarding uses copy-on-iterate** under `RLock` — safe to register listeners from any thread.
@@ -497,9 +501,9 @@ class StatusDict(TypedDict, total=False):
 
 | Condition | Behavior |
 |-----------|----------|
-| `start()` with empty/unreachable host | Returns `False`; status monitor retries in background |
-| `start()` with different params than prior call | Calls `stop()` first, then creates fresh session |
-| `run()` before `start()` | Raises `RuntimeError("Script runner not started. Call start() first.")` |
+| `connect()` with empty/unreachable host | Returns `False`; status monitor retries in background |
+| `connect()` with different params than prior call | Calls `disconnect()` first, then creates fresh session |
+| `run()` before `connect()` | Raises `RuntimeError("Script runner not started. Call connect() first.")` |
 | `run([])` (empty script) | Silent no-op |
 | `run_job()` with `job=None` and nothing staged | Raises `RuntimeError("No gluescript staged. Call stage_gluescript() first.")` |
 | `stage_gluescript()` before `end_job()` | Raises `RuntimeError("end_job() must be called before stage_gluescript()")` |
@@ -526,12 +530,12 @@ driver = RdDriver()
 driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
 driver.register_error_listener(lambda m: print(f"[ERROR] {m}"))
 
-if not driver.start(network_host="192.168.1.100"):
+if not driver.connect(network_host="192.168.1.100"):
     print("Connection will retry in background...")
 
 driver.run(["GET_SETTING MEM_CARD_ID"])
 driver.run(["GET_SETTING MEM_MACHINE_STATUS"])
-driver.stop()
+driver.disconnect()
 ```
 
 ### Full Integration with Event Handling
@@ -564,9 +568,9 @@ class MyApp:
         print(f"Error: {message}")
 
     def run(self, host: str) -> None:
-        if self.driver.start(network_host=host):
+        if self.driver.connect(network_host=host):
             time.sleep(3)
-            self.driver.stop()
+            self.driver.disconnect()
 
 MyApp().run("192.168.1.100")
 ```

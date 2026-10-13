@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import types
+import warnings
 import threading
 import gc
 import time
@@ -3281,7 +3282,7 @@ class TuiAdapter(App):
         self._explicit_reply_transport = None
         with self._explicit_reply_lock:
             self._explicit_reply_addrs.clear()
-        driver.stop()
+        driver.disconnect()
         self._ruida_driver = None
 
     # ------------------------------------------------------------------
@@ -4723,7 +4724,7 @@ class TuiAdapter(App):
 
         Creates an RdDriver (or reuses a detached one from session-less
         gluescript use), registers TUI listeners, then calls
-        driver.start() which creates the session, opens the transport,
+        driver.connect() which creates the session, opens the transport,
         starts the script runner and status monitor, and returns.
         """
         # Resolve None params against last-used values so params persist
@@ -4771,7 +4772,7 @@ class TuiAdapter(App):
 
         # Live session — reconnect immediately using last-used params.
         if self._ruida_driver is not None and self._ruida_driver._session is not None:
-            self._ruida_driver.start(
+            self._ruida_driver.connect(
                 network_host=host, usb_device=usb, magic=self._last_magic,
                 protocol=self._last_protocol,
             )
@@ -4819,7 +4820,7 @@ class TuiAdapter(App):
             # half-started driver). On the detached-reuse path this is a no-op.
             self._ruida_driver = driver
 
-            opened = driver.start(
+            opened = driver.connect(
                 network_host=host, usb_device=usb, magic=self._last_magic,
                 protocol=self._last_protocol,
             )
@@ -5716,7 +5717,7 @@ class TuiAdapter(App):
         """Reset TUI session state before a driver session takeover.
 
         Clears the connection event and last-known state so the TUI treats
-        the imminent stop/restart inside RdDriver.start() as a clean
+        the imminent stop/restart inside RdDriver.connect() as a clean
         re-connect.
         """
         self._session_connected.clear()
@@ -5727,11 +5728,11 @@ class TuiAdapter(App):
             self._last_magic = magic
         # _session_disconnected self-corrects via status events; not reset here
         self._log_warning(
-            f"RPC start() replacing active session "
+            f"RPC connect() replacing active session "
             f"(network_host={resolved_host}, usb_device={resolved_usb})"
         )
 
-    def start(
+    def connect(
         self,
         network_host: str | None = None,
         usb_device: str | None = None,
@@ -5739,10 +5740,10 @@ class TuiAdapter(App):
         protocol: str | None = None,
         udp_host: str | None = None,
     ) -> bool:
-        """Start the driver session, replacing an active session on change.
+        """Connect the driver session, replacing an active session on change.
 
-        Emulates RdDriver.start(). Creates a new RdDriver if none exists,
-        registers TUI listeners, and delegates to RdDriver.start(). When a
+        Emulates RdDriver.connect(). Creates a new RdDriver if none exists,
+        registers TUI listeners, and delegates to RdDriver.connect(). When a
         session is already active, the incoming params are resolved against
         the driver's stored start values (None reuses the stored value): an
         active session is replaced (via the driver) only when the resolved
@@ -5782,22 +5783,59 @@ class TuiAdapter(App):
             ):
                 self._reset_for_takeover(network_host, usb_device, magic)
 
-        result = driver.start(
+        result = driver.connect(
             network_host=network_host, usb_device=usb_device, magic=magic,
             protocol=protocol,
         )
         self._log_info(
-            f"[RPC] driver.start(network_host={network_host!r}, usb_device={usb_device!r}, "
+            f"[RPC] driver.connect(network_host={network_host!r}, usb_device={usb_device!r}, "
             f"magic={magic!r}, protocol={protocol!r}) -> {result}"
         )
         return result
 
-    def stop(self) -> None:
-        """AppAdapter interface — stop the driver if running."""
+    def start(
+        self,
+        network_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+        protocol: str | None = None,
+        udp_host: str | None = None,
+    ) -> bool:
+        """Deprecated alias for :meth:`connect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`connect`.
+        """
+        warnings.warn(
+            "TuiAdapter.start() is deprecated; use connect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.connect(
+            network_host=network_host,
+            usb_device=usb_device,
+            magic=magic,
+            protocol=protocol,
+            udp_host=udp_host,
+        )
+
+    def disconnect(self) -> None:
+        """AppAdapter interface — disconnect the driver if running."""
         if self._ruida_driver is not None:
-            self._log_info("[RPC] driver.stop()")
+            self._log_info("[RPC] driver.disconnect()")
             self._release_driver()
             self._session_connected.clear()
+
+    def stop(self) -> None:
+        """Deprecated alias for :meth:`disconnect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`disconnect`.
+        """
+        warnings.warn(
+            "TuiAdapter.stop() is deprecated; use disconnect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.disconnect()
 
     def run(
         self,
@@ -5860,7 +5898,7 @@ class TuiAdapter(App):
         underlying driver if active, raises RuntimeError otherwise.
         """
         if self._ruida_driver is None:
-            raise RuntimeError("No active driver. Call start() first.")
+            raise RuntimeError("No active driver. Call connect() first.")
         self._ruida_driver.register_status_listener(listener)
         self._log_info(f"[RPC] register_status_listener({listener!r})")
 
@@ -5870,7 +5908,7 @@ class TuiAdapter(App):
         Emulates RdDriver.register_error_listener().
         """
         if self._ruida_driver is None:
-            raise RuntimeError("No active driver. Call start() first.")
+            raise RuntimeError("No active driver. Call connect() first.")
         self._ruida_driver.register_error_listener(listener)
         self._log_info(f"[RPC] register_error_listener({listener!r})")
 
@@ -5880,7 +5918,7 @@ class TuiAdapter(App):
         Emulates RdDriver.register_reply_listener().
         """
         if self._ruida_driver is None:
-            raise RuntimeError("No active driver. Call start() first.")
+            raise RuntimeError("No active driver. Call connect() first.")
         self._ruida_driver.register_reply_listener(listener)
         self._log_info(f"[RPC] register_reply_listener({listener!r})")
 
@@ -5935,7 +5973,7 @@ class TuiAdapter(App):
         driver is active (same guard as register_*_listener).
         """
         if self._ruida_driver is None:
-            raise RuntimeError("No active driver. Call start() first.")
+            raise RuntimeError("No active driver. Call connect() first.")
         self._ruida_driver.set_protect(enabled)
         self._log_info(f"[RPC] set_protect({enabled})")
 

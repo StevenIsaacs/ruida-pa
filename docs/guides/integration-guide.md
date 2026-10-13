@@ -86,13 +86,13 @@ driver.end_job()
 # Stage the job into low-level rpascript (assembled from job/layer storage)
 driver.stage_gluescript()
 
-if not driver.start(network_host="192.168.1.100"):
+if not driver.connect(network_host="192.168.1.100"):
     print("Connection will retry in background...")
 
 # Compose head + job + tail and execute (no job argument — runs the
 # rpascript most recently staged by stage_gluescript())
 driver.run_job()
-driver.stop()
+driver.disconnect()
 ```
 
 **Note:** `run()` accepts raw rpascript lines for simple commands (e.g.
@@ -104,15 +104,19 @@ is discouraged; use the GlueScript API instead.
 A driver instance must go through a strict lifecycle:
 
 ```
-__init__() → start() → [run() ... run()] → stop()
+__init__() → connect() → [run() ... run()] → disconnect()
 ```
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `start` | `(network_host=None, usb_device=None, magic=None, protocol=None, udp_host=None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
-| `stop` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `start()`. |
+| `connect` | `(network_host=None, usb_device=None, magic=None, protocol=None, udp_host=None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
+| `disconnect` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `connect()`. |
 
-**`start()` behavior notes:**
+`start()` / `stop()` are deprecated aliases for `connect()` /
+`disconnect()` and are scheduled for removal in a future release; they
+emit a `DeprecationWarning`.
+
+**`connect()` behavior notes:**
 - If params are `None`, reuses values from the previous call.
 - `network_host` is the network host (UDP or TCP). `udp_host` is a **deprecated
   alias** — passing it (without `network_host`) works but emits a
@@ -124,10 +128,10 @@ __init__() → start() → [run() ... run()] → stop()
   Ruida command stream over TCP port 50200 (e.g. the RDC8445S); `None` keeps
   the previous value. An unsupported value raises `ValueError`.
 - If a session exists with different params (different `network_host`/`usb_device`
-  **or** `protocol`), calls `stop()` first, then creates a fresh session.
+  **or** `protocol`), calls `disconnect()` first, then creates a fresh session.
 - If a session exists with the same params, returns `True` immediately (no-op).
 
-**`stop()` behavior notes:**
+**`disconnect()` behavior notes:**
 - Sends a shutdown sentinel to the script queue, joins the runner thread with 2s timeout.
 - Unregisters all session/transport listeners.
 - Sets the internal session reference to `None`.
@@ -147,7 +151,7 @@ is a silent no-op.
 **Important threading rules:**
 - Listener callbacks fire from **background threads** (runner thread or handshake thread). UI applications must use thread-safe dispatch (e.g., `call_from_thread()` in Textual, `invokeLater()` in Qt).
 - All listener lists are copied under `RLock` before iteration. Each callback is individually guarded — one faulty callback cannot block other listeners.
-- Register listeners **before** calling `start()`. Listener registration does NOT retroactively fire for past events.
+- Register listeners **before** calling `connect()`. Listener registration does NOT retroactively fire for past events.
 
 **UI-framework bridge pattern:**
 
@@ -191,7 +195,7 @@ These pure formatting functions can be called without a driver instance:
 ```
 ┌──────────────────────────────────┐
 │        Application Thread        │
-│  start(), run(), stop()          │
+│  connect(), run(), disconnect()  │
 │  register_*_listener()           │
 ├──────────────────────────────────┤
 │   Background Script Runner (L6)  │  ← daemon thread
@@ -212,7 +216,7 @@ These pure formatting functions can be called without a driver instance:
 ```
 
 Key threading rules:
-1. **`start()` and `stop()` are blocking** — `stop()` joins the runner thread with 2s timeout and disconnects synchronously.
+1. **`connect()` and `disconnect()` are blocking** — `disconnect()` joins the runner thread with 2s timeout and disconnects synchronously.
 2. **`run()` is non-blocking** — appends to a `queue.Queue`; the runner thread processes asynchronously.
 3. **Listener callbacks fire from background threads** — applications must use thread-safe dispatch for UI updates.
 
@@ -220,9 +224,9 @@ Key threading rules:
 
 | Condition | Behavior |
 |-----------|----------|
-| `start()` with empty/unreachable host | Returns `False`; status monitor retries in background |
-| `start()` with different params than prior call | Calls `stop()` first, then creates fresh session |
-| `run()` before `start()` | Raises `RuntimeError("Script runner not started. Call start() first.")` |
+| `connect()` with empty/unreachable host | Returns `False`; status monitor retries in background |
+| `connect()` with different params than prior call | Calls `disconnect()` first, then creates fresh session |
+| `run()` before `connect()` | Raises `RuntimeError("Script runner not started. Call connect() first.")` |
 | `run([])` (empty script) | Silent no-op |
 | Script encoding error | Fires `SCRIPT_ERROR` + error listener; continues to next script |
 | Transport disconnect mid-script | Re-queues full script; fires `DISCONNECTED` |
@@ -271,7 +275,7 @@ been staged.
 
 ```python
 driver = RdDriver()
-driver.start(network_host="192.168.1.100")
+driver.connect(network_host="192.168.1.100")
 
 # Configure head (runs before every job)
 driver.set_head_script([
@@ -293,7 +297,7 @@ driver.run_job([
     "LASER_OFF",
 ], auto_checksum=True)
 
-driver.stop()
+driver.disconnect()
 ```
 
 **Thread safety:** All five methods are guarded by `self._lock`.
@@ -489,7 +493,7 @@ state is observed.
 
 ## 3. Remote Control via RPyC (RpcRdDriver)
 
-This section covers the RPyC (Remote Python Call) integration path, which makes the full driver surface remotely callable. Beyond the lifecycle methods (`start`/`stop`/`run`), head/tail script management, status listeners, and format utilities, every functional GlueScript job-authoring and live-command method (except the Z/U move/cut stubs, see the Authoring & Live Commands subsection below) is exposed over RPC. This enables headless control of Ruida laser controllers from external applications, CI/CD pipelines, or distributed systems.
+This section covers the RPyC (Remote Python Call) integration path, which makes the full driver surface remotely callable. Beyond the lifecycle methods (`connect`/`disconnect`/`run`), head/tail script management, status listeners, and format utilities, every functional GlueScript job-authoring and live-command method (except the Z/U move/cut stubs, see the Authoring & Live Commands subsection below) is exposed over RPC. This enables headless control of Ruida laser controllers from external applications, CI/CD pipelines, or distributed systems.
 
 ### 3.1 Architecture
 
@@ -532,14 +536,14 @@ This section covers the RPyC (Remote Python Call) integration path, which makes 
 
 The RPC server is provided by the TUI process and is started by the TUI
 operator; an application adapter only connects to it. RpcRdDriver also
-forwards start()/stop() to the server-side driver, so a client that must manage
+forwards connect()/disconnect() to the server-side driver, so a client that must manage
 the server-side session lifecycle (e.g. a test harness) can do so; the
 connect-only pattern above remains the recommended adapter contract. An RPC
-`start()` with a different `network_host`/`usb_device` than the active
+`connect()` with a different `network_host`/`usb_device` than the active
 server-side session stops that session and starts a fresh one — the TUI
 adapter resets its connection state so the TUI treats it as a clean
 re-connect. Same params, a magic-only change, or an empty-string param
-keep the session (no-op). An RPC `start()` executes on the RPyC handler
+keep the session (no-op). An RPC `connect()` executes on the RPyC handler
 thread; avoid issuing it while a TUI-side `/connect` is still in progress.
 
 ### 3.2 Connecting
@@ -611,7 +615,7 @@ print(f"Staged {len(rpc_driver.get_rpascript())} rpascript lines")
 # Later, once a controller is reachable, run it — run_job composes head +
 # staged + tail scripts around the job; with no job argument it runs the
 # rpascript most recently staged by stage_gluescript().
-rpc_driver.start(network_host="192.168.1.100")
+rpc_driver.connect(network_host="192.168.1.100")
 rpc_driver.run_job()
 ```
 
@@ -657,7 +661,7 @@ Listener callbacks (`register_status_listener`, `register_error_listener`, `regi
 - **Threading:** Callbacks fire from the server's dispatch thread. Long-running callbacks block the server for that connection. Keep callbacks fast or use your own thread pool.
 - **Exceptions:** Exceptions raised in callbacks are caught and logged by `RpycTuiService` with a warning — they don't crash the server. Your callback should handle its own errors.
 - **Serialization:** Arguments passed to callbacks must be serializable by RPyC. Basic types (`str`, `int`, `list`, `dict`), `bytearray`, and netrefs work. Custom objects may need explicit serialization.
-- **No retroactive events:** Register a callback before events occur. Events between `start()` and callback registration are lost.
+- **No retroactive events:** Register a callback before events occur. Events between `connect()` and callback registration are lost.
 
 ### 3.6 Head/Tail Script Management via RPC
 
@@ -702,7 +706,7 @@ and delegates to the server's driver. All underlying accessors are
 thread-safe.
 
 **Configuration before connection:** Head and tail scripts can be set
-via RPC before ``start()`` is called — the server stores them and
+via RPC before ``connect()`` is called — the server stores them and
 pushes them to the driver once the session is active.
 
 ### 3.7 GlueScript Job Authoring & Live Commands via RPC
@@ -827,7 +831,7 @@ and the staged gluescript via `get_gluescript()`. `run_job` (see §3.6) later
 composes head + staged + tail scripts around the job — when `job` is omitted
 it runs the rpascript most recently staged by `stage_gluescript()`. A job
 authored over RPC is retained in the driver and can be executed after
-`rpc_driver.start()`.
+`rpc_driver.connect()`.
 
 **Version introspection:** `get_version()` returns the ruida-pa version of
 the server process; the `version_mismatch` property compares it with the
@@ -1017,8 +1021,8 @@ direct-client flow when you want to stage explicitly.
 | `ConnectionRefusedError` | Server not running | Verify `host` and `port` with the server operator |
 | `EOFError: connection closed by peer` | Auth token wrong or missing | Ask the server operator to confirm the configured `token` matches client code |
 | `ssl.SSLError: certificate verify failed` | CA cert not trusted | Pass correct CA cert path to client |
-| Callback not firing | Listener registered after event | Register before `start()` |
-| `RuntimeError: Script runner not started` | `run()` called before `start()` | Call `rpc_driver.start()` before `rpc_driver.run()` |
+| Callback not firing | Listener registered after event | Register before `connect()` |
+| `RuntimeError: Script runner not started` | `run()` called before `connect()` | Call `rpc_driver.connect()` before `rpc_driver.run()` |
 | Slow RPC calls | Netref latency over network | Keep scripts small, use batch operations |
 
 ---
@@ -1043,7 +1047,7 @@ self._driver = RpcRdDriver() if use_rpc else RdDriver()
 flag); `RpcRdDriver()` self-connects to the RPC server provided by the TUI
 process (see §3.1 Architecture), while `RdDriver()` constructs the direct
 driver and opens the controller session later when the adapter calls
-`start()`. After this line, the rest of the adapter never branches on
+`connect()`. After this line, the rest of the adapter never branches on
 transport — it calls the same methods on `self._driver` whether direct or
 RPC. Both constructors take no required arguments, which is what makes the
 single-reference swap possible.
@@ -1053,7 +1057,7 @@ def make_driver(use_rpc: bool):
     if use_rpc:
         # Connects to the TUI's RPC server (see §3.1).
         return RpcRdDriver()
-    # Direct driver; start() opens the controller session later.
+    # Direct driver; connect() opens the controller session later.
     return RdDriver()
 ```
 
@@ -1066,7 +1070,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Job authoring | `new_gluescript`, `comment`, `inline`, `declare_job`, `declare_layer`, `end_job` | Buffered locally over RPC; flushed at layer/job boundaries (see §3.8) |
 | Layer actions | `move_xy_to`, `move_x_to`, `move_y_to`, `cut_xy_to`, `cut_x_to`, `cut_y_to`, `power`, `power_range`, `set_mode`, `set_overscan`, `air_assist_on`, `air_assist_off`, `cut_speed`, `move_speed`, `frequency`, `pwm`, `select_laser` | Same buffering note; `power_range`/`cut_speed` save their settings and the next `cut_*` action flushes them (emitting `CUT_SPEED_LASER_1`-if-changed, then `LAYER_FREQUENCY`-if-changed, `SELECT_LAYER`, `MIN_POWER_1`/`MAX_POWER_1` immediately before the `CUT_*` line); `set_mode`/`set_overscan` switch the layer mode / overscan mid-stream (change-gated); `frequency` only saves the value and defers its `LAYER_FREQUENCY` to the next power flush (emitted only when the frequency changed); `move_speed`/`pwm` expand to comments only; `select_laser(1)` emits `LASER_DEVICE_1` |
 | Staging & getters | `stage_gluescript`, `stage_gluescript_delta`, `gluescript`/`rpascript` attributes — plus RPC-only getters `get_gluescript()`/`get_rpascript()` on the wrapper | `stage_gluescript` returns a SHA-256 signature; the direct driver exposes the attributes directly |
-| Lifecycle & execution | `start`, `stop`, `run`, `run_job`, `cancel_script` | `start` returns bool |
+| Lifecycle & execution | `connect`, `disconnect`, `run`, `run_job`, `cancel_script` | `connect` returns bool; `start`/`stop` remain as deprecated aliases |
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |
 | Listeners | `register_status_listener`, `register_error_listener`, `register_reply_listener`, and the `unregister_*` counterparts | Over RPC matched by equality, not identity (see §3.5) |
 | Properties | `gluescript`, `rpascript`, `job_complete`, `is_connected`, `machine_status`, `protect_enabled` | `gluescript`/`job_complete` are live local on both; `rpascript` is a server snapshot over RPC (see §4.3) |
@@ -1091,15 +1095,15 @@ before switching.
 
 | Aspect | Direct RdDriver | RpcRdDriver |
 | ------ | --------------- | ----------- |
-| Connection model | Constructor opens nothing; `start()` opens the controller session later | Constructor opens an RPyC TCP connection to a running server immediately; requires the TUI process to be hosting it (see §3.1) |
+| Connection model | Constructor opens nothing; `connect()` opens the controller session later | Constructor opens an RPyC TCP connection to a running server immediately; requires the TUI process to be hosting it (see §3.1) |
 | Constructor | `RdDriver()` — no required arguments | `RpcRdDriver()` — no required arguments; optional `host`/`port`/`token`/`config`/`timeout`; `RpcRdDriver(svc)` accepts a pre-connected root (backward-compat, see §3.2) |
 | `gluescript` / `rpascript` visibility | Live mutable list attributes; the adapter can read them at any time | `gluescript` is the client's live local transcript (including unflushed lines); `rpascript` is a read-only snapshot of the server's last-flushed state |
 | `job_complete` | Local property | Local property (set by `end_job()`), consistent with the direct driver |
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
 | Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min_power > max_power`, `min_power` below the power floor) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard; a corrupted `max_cut_speed` surfaces as `ValueError` at the next `cut_*` action (flush), not at `power_range()` |
-| `start()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `start()` with a different `network_host`/`usb_device`/`protocol` replaces the active server-side session |
+| `connect()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `connect()` with a different `network_host`/`usb_device`/`protocol` replaces the active server-side session |
 | Version reporting | Shares the process version (`rpalib.version.__version__`) | `get_version()` reports the SERVER process version; `version_mismatch` compares it with the client's, so a client/server version mismatch is detectable (see §3.7) |
-| Shutdown | `stop()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
+| Shutdown | `disconnect()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
 `power_range` constraint violations (no declared layer) raise `ValueError`
 at call time over RPC, exactly as on the direct driver; `min_power > max_power`
@@ -1116,7 +1120,7 @@ RpcRdDriver buffers structural calls and flushes deltas at
 the direct driver builds the transcript in memory with no network at all.
 RPC state visibility is server-side: status events, `machine_status`, and
 positions all reflect the server's session. Over RPC the driver must
-exist before `start()` is meaningful — call `start()` before authoring
+exist before `connect()` is meaningful — call `connect()` before authoring
 live commands. The z/u stubs (`move_z_to`, `move_u_to`, `cut_z_to`,
 `cut_u_to`) raise `NotImplementedError` on BOTH transports.
 
@@ -1156,7 +1160,7 @@ class ControllerAdapter:
         if self._rpc:
             self._driver.close()   # ends the RPC connection
         else:
-            self._driver.stop()    # ends the controller session
+            self._driver.disconnect()    # ends the controller session
 
 
 if __name__ == "__main__":
@@ -1170,7 +1174,7 @@ The transport decision lives in exactly one place — `__init__`; everything
 after is transport-agnostic: the same methods, the same staging, the same
 job flow. The §5 testing patterns run identically against either
 transport. A robust adapter polls `is_connected` briefly (e.g. every
-0.25s for up to 2s) after `start()` before issuing live commands, since
+0.25s for up to 2s) after `connect()` before issuing live commands, since
 the controller must confirm connection (respond to pings and status
 messages) first.
 
@@ -1264,7 +1268,7 @@ from ruidadriver.ruida_driver import RdDriver
 import time
 
 driver = RdDriver()
-driver.start(network_host="192.168.1.100")
+driver.connect(network_host="192.168.1.100")
 driver.run(["MOVE_FAR_XY X=100mm Y=200mm" for _ in range(100)])
 
 # Cancel mid-execution — current iteration won't requeue
@@ -1278,7 +1282,7 @@ driver.cancel_script()
 
 - **Transport:** UDP (Ethernet) is default. TCP is available for controllers
   that take the command stream over port 50200 (e.g. RDC8445S) — pass
-  `protocol="tcp"` on `start()` (the `"udp"`/`"tcp"` values are
+  `protocol="tcp"` on `connect()` (the `"udp"`/`"tcp"` values are
   `RdTransport.NETWORK_PROTOCOLS`). USB (serial via pyserial) is optional —
   pass `usb_device=` instead of or in addition to `network_host=` (`udp_host=` remains a deprecated alias).
 - **Ping interval:** 5000ms default. Queries every 1000ms.
@@ -1329,13 +1333,13 @@ These patterns from §5 require no hardware or minimal hardware:
 
 ### 7.5 Common Pitfalls
 
-- **`run()` requires `start()` first** — calling `run()` before `start()` raises `RuntimeError("Script runner not started...")`. Always confirm the lifecycle order.
-- **Listeners do not retroactively fire** — register listeners before `start()`. Events that occur between `start()` and listener registration are lost.
+- **`run()` requires `connect()` first** — calling `run()` before `connect()` raises `RuntimeError("Script runner not started...")`. Always confirm the lifecycle order.
+- **Listeners do not retroactively fire** — register listeners before `connect()`. Events that occur between `connect()` and listener registration are lost.
 - **Checksum discrepancy** — `auto_checksum=True` may not match LightBurn captures. If comparing against LightBurn output, verify checksums independently.
 - **No mock layer** — `RdDriver` talks to real hardware. It cannot simulate
   controller responses or inject fake status values. Unit tests requiring
   simulated hardware must implement their own mock layer.
-- **`start()` returns `False` on failure** — this is not an exception.
+- **`connect()` returns `False` on failure** — this is not an exception.
   The driver retries in background; poll the `is_connected` property for
   up to ~2s (e.g. every 0.25s) for the controller to confirm connection
   before sending commands.

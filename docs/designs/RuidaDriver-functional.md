@@ -762,11 +762,11 @@ class AppAdapter(ABC):
     def run_script(self, script: list[str]) -> None:
         raise RuntimeError("Adapter not initialized.")
 
-    def start(self) -> None: ...   # no-op
-    def stop(self) -> None: ...    # no-op
+    def connect(self) -> None: ...    # no-op
+    def disconnect(self) -> None: ... # no-op
 ```
 
-Subclasses must implement the three callback methods and `create_driver_and_session()`. The `start()`/`stop()`/`run_script()` methods provide sensible defaults.
+Subclasses must implement the three callback methods and `create_driver_and_session()`. The `connect()`/`disconnect()`/`run_script()` methods provide sensible defaults (`start()`/`stop()` remain as deprecated aliases).
 
 ### 6.2 `TuiAdapter` — Textual TUI
 

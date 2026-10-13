@@ -155,6 +155,7 @@ from __future__ import annotations
 import logging
 import socket
 import struct
+import warnings
 from typing import Any, Callable
 
 from rpyc.core.stream import SocketStream
@@ -863,6 +864,24 @@ class RpcRdDriver(GlueScript):
     #  Lifecycle and execution — forwarded passthroughs
     # ------------------------------------------------------------------ #
 
+    def connect(
+        self,
+        network_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+        protocol: str | None = None,
+        udp_host: str | None = None,
+    ) -> bool:
+        """Connect the server-side driver/session. Mirrors RdDriver.connect()."""
+        return bool(
+            self._svc.connect(
+                network_host=_resolve_network_host(network_host, udp_host),
+                usb_device=usb_device,
+                magic=magic,
+                protocol=protocol,
+            )
+        )
+
     def start(
         self,
         network_host: str | None = None,
@@ -871,19 +890,38 @@ class RpcRdDriver(GlueScript):
         protocol: str | None = None,
         udp_host: str | None = None,
     ) -> bool:
-        """Start the server-side driver/session. Mirrors RdDriver.start()."""
-        return bool(
-            self._svc.start(
-                network_host=_resolve_network_host(network_host, udp_host),
-                usb_device=usb_device,
-                magic=magic,
-                protocol=protocol,
-            )
+        """Deprecated alias for :meth:`connect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`connect`.
+        """
+        warnings.warn(
+            "RpcRdDriver.start() is deprecated; use connect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.connect(
+            network_host=network_host,
+            usb_device=usb_device,
+            magic=magic,
+            protocol=protocol,
+            udp_host=udp_host,
         )
 
+    def disconnect(self) -> None:
+        """Disconnect the server-side session. Mirrors RdDriver.disconnect()."""
+        self._svc.disconnect()
+
     def stop(self) -> None:
-        """Stop the server-side session. Mirrors RdDriver.stop()."""
-        self._svc.stop()
+        """Deprecated alias for :meth:`disconnect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`disconnect`.
+        """
+        warnings.warn(
+            "RpcRdDriver.stop() is deprecated; use disconnect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.disconnect()
 
     def run(self, script: list[str], auto_checksum: bool = False) -> None:
         """Queue an rpascript script on the server-side driver."""

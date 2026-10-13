@@ -25,6 +25,7 @@ import logging
 import queue
 import socket
 import threading
+import warnings
 import weakref
 from typing import Any, Callable
 
@@ -278,7 +279,7 @@ class RpycTuiService(rpyc.Service):
 
     # --- Lifecycle ---
 
-    def exposed_start(
+    def exposed_connect(
         self,
         network_host: str | None = None,
         usb_device: str | None = None,
@@ -287,18 +288,49 @@ class RpycTuiService(rpyc.Service):
         udp_host: str | None = None,
     ) -> bool:
         self._rpc_info(
-            f"[RPC] RPC start(network_host={network_host!r}, "
+            f"[RPC] RPC connect(network_host={network_host!r}, "
             f"usb_device={usb_device!r}, magic={'***' if magic is not None else None}, "
             f"protocol={protocol!r})"
         )
-        return self._adapter.start(
+        return self._adapter.connect(
             network_host=_resolve_network_host(network_host, udp_host),
             usb_device=usb_device, magic=magic, protocol=protocol,
         )
 
+    def exposed_start(
+        self,
+        network_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+        protocol: str | None = None,
+        udp_host: str | None = None,
+    ) -> bool:
+        """Deprecated alias for exposed_connect. Will be removed in a future release."""
+        warnings.warn(
+            "exposed_start is deprecated; use exposed_connect",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.exposed_connect(
+            network_host=network_host,
+            usb_device=usb_device,
+            magic=magic,
+            protocol=protocol,
+            udp_host=udp_host,
+        )
+
+    def exposed_disconnect(self) -> None:
+        self._rpc_info("[RPC] RPC disconnect()")
+        self._adapter.disconnect()
+
     def exposed_stop(self) -> None:
-        self._rpc_info("[RPC] RPC stop()")
-        self._adapter.stop()
+        """Deprecated alias for exposed_disconnect. Will be removed in a future release."""
+        warnings.warn(
+            "exposed_stop is deprecated; use exposed_disconnect",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.exposed_disconnect()
 
     def exposed_run(self, script: list[str], auto_checksum: bool = False) -> Any:
         # Convert netref to local list on the handler thread, where the RPyC

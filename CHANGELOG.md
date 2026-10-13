@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The driver lifecycle methods were renamed `start()`/`stop()` →
+  `connect()`/`disconnect()`, applied consistently across the whole
+  surface: `RdDriver`, `AppAdapter`, `TuiAdapter`, `RpcRdDriver`, and
+  `RpycTuiService` (`exposed_connect`/`exposed_disconnect`). The old
+  names remain as **deprecated aliases** emitting a `DeprecationWarning`
+  and are scheduled for removal in a future release. The runtime error
+  messages ("Call start() first.") were updated to "Call connect() first."
+
 ## [0.23.0] - 2026-10-10
 
 ### Added

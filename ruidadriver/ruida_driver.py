@@ -13,6 +13,7 @@ from __future__ import annotations
 import queue
 import threading
 import logging
+import warnings
 from typing import Any, Callable, TypedDict
 
 import protocols.ruida.ruida_protocol as rdap
@@ -70,10 +71,10 @@ class RdDriver(GlueScript):
     Usage::
         driver = RdDriver()
         driver.register_status_listener(...)
-        driver.start(network_host='192.168.1.100')
+        driver.connect(network_host='192.168.1.100')
         driver.run(['GET_SETTING MEM_CARD_ID'])
         # ... script executes in background ...
-        driver.stop()
+        driver.disconnect()
     """
 
     # Generic status-dict key emitted for each handled reply address.
@@ -114,7 +115,7 @@ class RdDriver(GlueScript):
     ]
 
     def __init__(self) -> None:
-        """Initialize RdDriver. No session yet — call start() to connect."""
+        """Initialize RdDriver. No session yet — call connect() to connect."""
         super().__init__()
         self._session: RdSession | None = None
         self._script_queue: queue.Queue = queue.Queue()
@@ -217,7 +218,7 @@ class RdDriver(GlueScript):
 
     # ---- Driver Lifecycle ----
 
-    def start(
+    def connect(
         self,
         network_host: str | None = None,
         usb_device: str | None = None,
@@ -225,7 +226,7 @@ class RdDriver(GlueScript):
         protocol: str | None = None,
         udp_host: str | None = None,
     ) -> bool:
-        """Start the driver: create session, configure transport, open, start script runner.
+        """Connect the driver: create session, configure transport, open, start script runner.
 
         Creates an RdSession, configures transport with the given parameters,
         opens the transport (non-fatal if it fails — status monitor retries),
@@ -263,7 +264,7 @@ class RdDriver(GlueScript):
                 or (usb_device and usb_device != self._start_usb_device)
                 or protocol != self._start_protocol
             ):
-                self.stop()
+                self.disconnect()
             else:
                 return True
 
@@ -280,16 +281,53 @@ class RdDriver(GlueScript):
         self._start_script_runner()
         return opened
 
-    def stop(self) -> None:
-        """Stop the driver: stop script runner, disconnect session, clean up.
+    def start(
+        self,
+        network_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+        protocol: str | None = None,
+        udp_host: str | None = None,
+    ) -> bool:
+        """Deprecated alias for :meth:`connect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`connect`.
+        """
+        warnings.warn(
+            "RdDriver.start() is deprecated; use connect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.connect(
+            network_host=network_host,
+            usb_device=usb_device,
+            magic=magic,
+            protocol=protocol,
+            udp_host=udp_host,
+        )
+
+    def disconnect(self) -> None:
+        """Disconnect the driver: stop script runner, disconnect session, clean up.
 
         Idempotent — safe to call multiple times. Connection parameters
-        persist for reuse on next start() call.
+        persist for reuse on next connect() call.
         """
         self._stop_script_runner()
         if self._session is not None:
             self._session.disconnect()
             self._session = None
+
+    def stop(self) -> None:
+        """Deprecated alias for :meth:`disconnect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`disconnect`.
+        """
+        warnings.warn(
+            "RdDriver.stop() is deprecated; use disconnect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.disconnect()
 
     # ---- Listener Registration ----
 
@@ -610,7 +648,7 @@ class RdDriver(GlueScript):
         self._cancel_flag = False
 
         if self._session is None:
-            raise RuntimeError("Session not created. Call start() first.")
+            raise RuntimeError("Session not created. Call connect() first.")
 
         # 1. Configure RdStatus with ping/query commands (before starting anything)
         parser = ScriptParser(warning_callback=lambda msg, syn: logging.warning(f"{msg}  |  Syntax: {syn}"))
@@ -802,7 +840,7 @@ class RdDriver(GlueScript):
         with self._lock:
             if self._runner_thread is None or not self._runner_thread.is_alive():
                 raise RuntimeError(
-                    "Script runner not started. Call start() first."
+                    "Script runner not started. Call connect() first."
                 )
             if not script:
                 return  # Empty script is a no-op

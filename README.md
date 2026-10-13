@@ -294,9 +294,9 @@ driver.cut_xy_to(10.0, 110.0)
 driver.end_job()
 
 driver.stage_gluescript()          # assemble low-level rpascript
-driver.start(network_host="192.168.1.100")
+driver.connect(network_host="192.168.1.100")
 driver.run_job()                   # execute in the background
-driver.stop()
+driver.disconnect()
 ```
 
 The full driver surface — lifecycle, listeners, head/tail scripts, GlueScript authoring, live jog/home/job-control commands, and the RPC path — is documented in the [Integration Guide](docs/guides/integration-guide.md) and the [RdDriver interface reference](docs/api/RdDriver-interface.md).

@@ -38,7 +38,7 @@ session end
   connection timeout (e.g., `10s`, `5000ms`; default 5000ms).
   (`udp=` remains a deprecated alias for `host=`.)
 - `session end` — Closes the active session.
-- These are processed by `RdDriver.start()` / `RdDriver.stop()`, not
+- These are processed by `RdDriver.connect()` / `RdDriver.disconnect()`, not
   sent to the controller as commands.
 
 ### Server Meta-Commands
@@ -567,7 +567,7 @@ Scripts are passed as lists of strings:
 from ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
-driver.start(network_host="192.168.1.100")
+driver.connect(network_host="192.168.1.100")
 
 script = [
     "HOME_XY",
@@ -578,7 +578,7 @@ script = [
 driver.run(script)
 
 # ... later ...
-driver.stop()
+driver.disconnect()
 ```
 
 ### auto_checksum Parameter
@@ -602,7 +602,7 @@ driver.run(script, auto_checksum=True)
 
 | Condition                   | Behavior                                   |
 | --------------------------- | ------------------------------------------ |
-| Runner not started          | `RuntimeError("Call start() first")`     |
+| Runner not started          | `RuntimeError("Call connect() first")`     |
 | Unknown mnemonic            | `ValueError` at parse time                 |
 | Invalid parameter value     | `ValueError` at encode time                |
 | Checksum mismatch           | `ValueError` raised (unless auto_checksum) |

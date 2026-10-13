@@ -1408,7 +1408,7 @@ class GlueScript:
         """Generate rpascript to stop the current job.
 
         Named stop_job (never stop) so this job-control command cannot
-        shadow the RdDriver lifecycle stop() teardown. On RdDriver, sends
+        shadow the RdDriver lifecycle disconnect() teardown. On RdDriver, sends
         the lines immediately via _emit_live_lines; on a standalone
         GlueScript (default hook), returns the generated lines unchanged.
         Returns the sent lines, or None if nothing was sent.

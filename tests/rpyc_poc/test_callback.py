@@ -57,6 +57,7 @@ def test_callback_registration():
         print("PASS: Callbacks registered via RPyC netref")
         # Verify all exposed_ methods exist
         methods = [
+            "exposed_connect", "exposed_disconnect",
             "exposed_start", "exposed_stop", "exposed_run",
             "exposed_cancel_script", "exposed_is_connected",
             "exposed_machine_status", "exposed_register_status_listener",
@@ -66,7 +67,7 @@ def test_callback_registration():
         ]
         for m in methods:
             assert hasattr(svc, m), f"Missing {m}"
-        print("PASS: All 12 exposed_ methods are accessible")
+        print("PASS: All 14 exposed_ methods are accessible")
     except Exception as e:
         print(f"FAIL: {e}")
         import traceback
