@@ -60,14 +60,15 @@ def test_callback_registration():
             "exposed_connect", "exposed_disconnect",
             "exposed_start", "exposed_stop", "exposed_run",
             "exposed_cancel_script", "exposed_is_connected",
-            "exposed_machine_status", "exposed_register_status_listener",
+            "exposed_machine_status", "exposed_current_status",
+            "exposed_register_status_listener",
             "exposed_register_error_listener", "exposed_register_reply_listener",
             "exposed_format_reply_value", "exposed_format_reply",
             "exposed_format_reply_list",
         ]
         for m in methods:
             assert hasattr(svc, m), f"Missing {m}"
-        print("PASS: All 14 exposed_ methods are accessible")
+        print("PASS: All 15 exposed_ methods are accessible")
     except Exception as e:
         print(f"FAIL: {e}")
         import traceback

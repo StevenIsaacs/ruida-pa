@@ -181,6 +181,7 @@ via `driver.rpascript` (or `get_rpascript()` over RPC).
 |----------|------|-------------|
 | `is_connected` | `bool` | `True` if session exists AND controller is responding to pings. |
 | `machine_status` | `dict[int, Any]` | Read-only snapshot of decoded memory values, keyed by memory address. Contains position coordinates, status bits, card ID, bed dimensions. |
+| `current_status` | `StatusDict` | Read-only snapshot of the most recent controller replies for every tracked status field (see the API reference §5.2). Unlike the change-only `StatusDict` sent to status listeners, every tracked key holds its latest received value, refreshed on every reply. |
 
 ### 2.6 Static Format Utilities
 
@@ -1073,7 +1074,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Lifecycle & execution | `connect`, `disconnect`, `run`, `run_job`, `cancel_script` | `connect` returns bool; `start`/`stop` remain as deprecated aliases |
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |
 | Listeners | `register_status_listener`, `register_error_listener`, `register_reply_listener`, and the `unregister_*` counterparts | Over RPC matched by equality, not identity (see §3.5) |
-| Properties | `gluescript`, `rpascript`, `job_complete`, `is_connected`, `machine_status`, `protect_enabled` | `gluescript`/`job_complete` are live local on both; `rpascript` is a server snapshot over RPC (see §4.3) |
+| Properties | `gluescript`, `rpascript`, `job_complete`, `is_connected`, `machine_status`, `current_status`, `protect_enabled` | `gluescript`/`job_complete` are live local on both; `rpascript` and the status snapshots are server-side over RPC (see §4.3) |
 | Version | `get_version`, `version_mismatch` | RPC-only on the wrapper; the direct driver shares the process version (`rpalib.version.__version__`) |
 | Protection | `set_protect` | Blocks settings writes when enabled |
 | Format utilities | `format_reply_value`, `format_reply`, `format_reply_list`, `decode_status_value` | Static on direct driver, instance methods over RPC |
@@ -1118,8 +1119,8 @@ and the next `cut_*` action flushes the rpascript (see §3.8), so a corrupted
 RpcRdDriver buffers structural calls and flushes deltas at
 `declare_layer`/`end_job` boundaries — see §3.8 — reducing round trips;
 the direct driver builds the transcript in memory with no network at all.
-RPC state visibility is server-side: status events, `machine_status`, and
-positions all reflect the server's session. Over RPC the driver must
+RPC state visibility is server-side: status events, `machine_status`,
+`current_status`, and positions all reflect the server's session. Over RPC the driver must
 exist before `connect()` is meaningful — call `connect()` before authoring
 live commands. The z/u stubs (`move_z_to`, `move_u_to`, `cut_z_to`,
 `cut_u_to`) raise `NotImplementedError` on BOTH transports.

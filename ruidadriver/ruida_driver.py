@@ -132,6 +132,7 @@ class RdDriver(GlueScript):
         self._start_magic: int = 0x88
         self._start_protocol: str = "udp"
         self._decoded_values: dict[int, Any] = {}
+        self._current_status: StatusDict = {}
         self._build_status_map()
         self._head_script: list[str] = [
             "REF_POINT_MACHINE",
@@ -589,8 +590,23 @@ class RdDriver(GlueScript):
                 else:
                     event_value = new_value
 
+                formatted = self._format_status_value(address, raw_reply)
+
+                # Maintain the full current-status snapshot: record the most
+                # recent (value, formatted) tuple on EVERY reply, not just on
+                # change — current_status is the complete latest controller
+                # state, unlike the changes-only dict fired to listeners. The
+                # 0x0400 bit fields are refreshed on every machine-status reply.
+                with self._lock:
+                    self._current_status[status_key] = (event_value, formatted)
+                    if address == 0x0400:
+                        self._current_status.update(
+                            self._machine_status_bits(
+                                address, prev, new_value, self._address_to_bit_keys
+                            )
+                        )
+
                 if prev is _UNSET or prev != new_value:
-                    formatted = self._format_status_value(address, raw_reply)
                     changes[status_key] = (event_value, formatted)
 
                     changes.update(
@@ -968,6 +984,19 @@ class RdDriver(GlueScript):
         """Current machine status dict (address → decoded value). Read-only snapshot."""
         with self._lock:
             return dict(self._decoded_values)
+
+    @property
+    def current_status(self) -> StatusDict:
+        """Most recent controller replies for all tracked status fields.
+
+        A StatusDict with every tracked status key present (and refreshed on
+        each corresponding reply), unlike the change-only StatusDict fired to
+        status listeners. Non-bool values are ``(value, formatted_string)``
+        tuples; dimension fields (POSITION_*, BED_SIZE_*) hold mm floats.
+        Read-only snapshot copy.
+        """
+        with self._lock:
+            return dict(self._current_status)
 
     # ---- Head / Tail Script Management ----
 

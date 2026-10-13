@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and are scheduled for removal in a future release. The runtime error
   messages ("Call start() first.") were updated to "Call connect() first."
 
+### Added
+
+- `RdDriver.current_status` — a `StatusDict` containing the most recent
+  controller reply for every tracked status field (positions, bed size,
+  card ID, mainboard version, machine features, machine status + its
+  moving/paused/job-running bits). Unlike the change-only `StatusDict`
+  fired to status listeners, every tracked key holds its latest received
+  value and is refreshed on every corresponding reply. Exposed over RPC
+  via `TuiAdapter.current_status`, `RpcRdDriver.current_status`, and
+  `RpycTuiService.exposed_current_status`.
+
 ## [0.23.0] - 2026-10-10
 
 ### Added

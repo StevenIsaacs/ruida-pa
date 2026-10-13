@@ -68,7 +68,7 @@ flowchart TD
     NRL["RdTransport._notify_reply_listeners()\n(reply data listeners)"]
     NS["RdTransport._notify_status()\n(TransportEvent listeners)"]
     RS["RdStatus._transport_listener (L5)\nevent-driven state machine\nsets threading.Event"]
-    DR["RdDriver._on_reply() (L6)\nRdDecoder.decode_address() / decode_value()\nupdate _machine_status dict\nfire MACHINE_STATUS_* events\nqueue FEATURES_SCRIPT on MEM_CARD_ID reply\nforward raw replies to reply listeners"]
+    DR["RdDriver._on_reply() (L6)\nRdDecoder.decode_address() / decode_value()\nupdate _machine_status dict + _current_status StatusDict\nfire MACHINE_STATUS_* events\nqueue FEATURES_SCRIPT on MEM_CARD_ID reply\nforward raw replies to reply listeners"]
     TUI["TuiAdapter.on_reply_data() (L7)\ndisplay in TUI side panel"]
     RC --> TR --> HST
     HST --> NRL
@@ -557,6 +557,7 @@ RdDriver(session: RdSession)
 Stores the session reference, initializes:
 - `_script_queue`: `queue.Queue` for background script execution
 - `_machine_status`: `dict[int, Any]` mapping memory addresses to decoded values
+- `_current_status`: `StatusDict` holding the most recent reply for every tracked status field
 - `_status_listeners`, `_reply_listeners`: registered application callbacks
 
 #### 5.1.2 Hardcoded Commands
@@ -646,7 +647,8 @@ Called from the handshake thread for each batch of unpacked replies:
    - Decode address via `RdDecoder.decode_address()`.
    - Decode value via `RdDecoder.decode_value()`.
    - Store in `_machine_status[address]`.
-   - If address is `0x0400` (machine status): parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, `MACHINE_STATUS_JOB_RUNNING` events and fire them.
+   - Store the `(value, formatted)` tuple in `_current_status[<status_key>]` for the addressed field on **every** reply (not just on change), so `current_status` always reflects the most recent controller state for all tracked fields.
+   - If address is `0x0400` (machine status): refresh the `MACHINE_STATUS` entry and parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, `MACHINE_STATUS_JOB_RUNNING` keys in `_current_status`.
    - If address is `0x057E` (card ID): queue `_FEATURES_SCRIPT` via `self.run()`, wrapped in `try/except JobRunningError: pass` — the bed-size/features queries are skipped while a job runs and retried on the next card-ID reply (see §5.1.10).
 2. Forward raw replies to all registered reply listeners.
 
@@ -675,6 +677,7 @@ Thread-safe (RLock). Forwarding methods copy the listener list under lock and it
 | Property | Returns |
 |---|---|
 | `machine_status` | Read-only snapshot of `{address: decoded_value}` dict |
+| `current_status` | Read-only snapshot of the `StatusDict` of most recent replies for all tracked status fields |
 
 #### 5.1.10 Job-Running Guard (GlueScript Commands)
 

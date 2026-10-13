@@ -205,8 +205,10 @@ this document — lifecycle and execution passthroughs (`connect`, `disconnect`,
 getters), the listener registration surface (`register_status_listener`,
 `register_error_listener`, `register_reply_listener` and their
 `unregister_*` counterparts), the format utilities (`format_reply_value`,
-`format_reply`, `format_reply_list`, `decode_status_value`), and the
-staging passthroughs (`stage_gluescript`, `stage_gluescript_delta`) — so
+`format_reply`, `format_reply_list`, `decode_status_value`), the property
+surface (`is_connected`, `machine_status`, `current_status`,
+`protect_enabled`), and the staging passthroughs (`stage_gluescript`,
+`stage_gluescript_delta`) — so
 an app adapter needs no separate direct-vs-RPC path. It can be constructed
 with no arguments, self-connecting over RPyC:
 
@@ -346,6 +348,7 @@ thread). UI applications must use thread-safe dispatch mechanisms
 |----------|------|-------------|
 | `is_connected` | `bool` | `True` if session exists AND controller is responding to pings. |
 | `machine_status` | `dict[int, Any]` | Read-only snapshot of decoded memory values, keyed by memory address. Values are the raw integers (dimensions are not converted to mm here — see §5.1). Contains position coordinates, status bits, card ID, bed dimensions. |
+| `current_status` | `StatusDict` | Read-only snapshot of the most recent controller replies for every tracked status field (see §5.2). Unlike the change-only `StatusDict` fired to status listeners, every key holds the latest received value. |
 
 ### 5.1 machine_status Contents
 
@@ -361,6 +364,29 @@ thread). UI applications must use thread-safe dispatch mechanisms
 | `0x0026` | `MEM_BED_SIZE_X` | `int` | Bed width (raw) |
 | `0x0036` | `MEM_BED_SIZE_Y` | `int` | Bed height (raw) |
 | `0x030F` | `MEM_MACHINE_FEATURES` | `int` | Feature bitfield: bit 0=Focus, bit 3=Z return to docking, bits 9-10=Air Assist Mode |
+
+### 5.2 current_status Contents
+
+`current_status` is a `StatusDict` maintained by `_on_reply()` from every
+handled reply — it holds the **most recent** value for each tracked field,
+refreshed on every corresponding reply (not just on change), so it is the
+complete latest controller state rather than a change list. Fields not yet
+received are absent. Non-bool values mirror what a status listener receives
+as `(value, formatted_string)` tuples; dimension fields hold mm floats.
+
+| Key | Value Type | Source Address | Description |
+|-----|-----------|----------------|-------------|
+| `POSITION_X` / `POSITION_Y` / `POSITION_Z` / `POSITION_U` | `tuple[float, str]` | `0x0421`/`0x0431`/`0x0441`/`0x0451` | Current axis position in mm |
+| `BED_SIZE_X` / `BED_SIZE_Y` | `tuple[float, str]` | `0x0026`/`0x0036` | Bed dimensions in mm |
+| `CARD_ID` | `tuple[int, str]` | `0x057E` | Card identifier |
+| `MAINBOARD_VERSION` | `tuple[int, str]` | `0x057F` | Mainboard firmware version |
+| `MACHINE_FEATURES` | `tuple[int, str]` | `0x030F` | Machine feature bitfield |
+| `MACHINE_STATUS` | `tuple[int, str]` | `0x0400` | Raw machine status bitmask |
+| `MACHINE_STATUS_MOVING` | `bool` | `0x0400` | Bit 24 of the machine status |
+| `MACHINE_STATUS_PAUSED` | `bool` | `0x0400` | Bit 1 of the machine status |
+| `MACHINE_STATUS_JOB_RUNNING` | `bool` | `0x0400` | Bit 0 of the machine status |
+
+Available over RPC via `RpcRdDriver.current_status` / `exposed_current_status`.
 
 ---
 

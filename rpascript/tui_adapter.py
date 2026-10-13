@@ -6039,6 +6039,19 @@ class TuiAdapter(App):
         self._log_info(f"[RPC] machine_status -> {len(result)} items")
         return result
 
+    @property
+    def current_status(self) -> StatusDict:
+        """Return the most recent controller replies for all tracked status fields.
+
+        Emulates RdDriver.current_status.
+        """
+        if self._ruida_driver is None:
+            self._log_info("[RPC] current_status -> {} (no driver)")
+            return {}
+        result = self._ruida_driver.current_status
+        self._log_info(f"[RPC] current_status -> {len(result)} items")
+        return result
+
     @staticmethod
     def format_reply_value(
         address: int, raw_reply: bytearray

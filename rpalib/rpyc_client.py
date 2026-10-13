@@ -126,7 +126,7 @@ the transcript, ``_flushed_count``, ``_current_layer_mode`` and
 ``_job_complete`` from that last-flushed state.
 
 The attribute forms (``gluescript``, ``rpascript``, ``job_complete``,
-``machine_status``, ``protect_enabled``, ``is_connected``), the
+``machine_status``, ``current_status``, ``protect_enabled``, ``is_connected``), the
 lifecycle/execution passthroughs (``start``, ``stop``, ``run``,
 ``run_job``, ``cancel_script``, ``set_protect``, and the head/tail
 script setters and getters), the listener registration surface
@@ -825,6 +825,15 @@ class RpcRdDriver(GlueScript):
         Mirrors the direct driver's ``machine_status`` attribute.
         """
         return dict(self._svc.machine_status())
+
+    @property
+    def current_status(self) -> dict[str, Any]:
+        """Server-side most-recent replies for all tracked status fields.
+
+        Returns a local dict copy so the netref never leaks to callers.
+        Mirrors the direct driver's ``current_status`` attribute.
+        """
+        return dict(self._svc.current_status())
 
     @property
     def is_connected(self) -> bool:

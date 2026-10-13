@@ -8,7 +8,7 @@ authentication and TLS support:
 - listeners: register/unregister_status_listener,
   register/unregister_error_listener, register/unregister_reply_listener
 - driver control: set_protect, protect_enabled, decode_status_value
-- properties: is_connected, machine_status
+- properties: is_connected, machine_status, current_status
 - static format utilities: format_reply_value, format_reply,
   format_reply_list
 - introspection: registered_listener_count, get_version
@@ -902,6 +902,11 @@ class RpycTuiService(rpyc.Service):
     def exposed_machine_status(self) -> dict[int, Any]:
         result = self._adapter.machine_status
         self._rpc_info(f"[RPC] RPC machine_status -> {len(result)} items")
+        return result
+
+    def exposed_current_status(self) -> dict[str, Any]:
+        result = self._adapter.current_status
+        self._rpc_info(f"[RPC] RPC current_status -> {len(result)} items")
         return result
 
     def exposed_get_version(self) -> str:
