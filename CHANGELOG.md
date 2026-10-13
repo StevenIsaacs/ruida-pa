@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value and is refreshed on every corresponding reply. Exposed over RPC
   via `TuiAdapter.current_status`, `RpcRdDriver.current_status`, and
   `RpycTuiService.exposed_current_status`.
+- Listener lifecycle across connect/disconnect: status listeners can be
+  registered **before** the first `connect()` and **after** `disconnect()`
+  and persist across connect/disconnect cycles (the lifecycle methods never
+  clear them). `RdDriver.register_status_listener` immediately replays the
+  driver's current connection state to a new listener (`TRANSPORT_*` +
+  `CONNECTED` when connected, `DISCONNECTED` when not), and
+  `RdDriver.disconnect()` fires a terminal `DISCONNECTED` to status
+  listeners. The `TuiAdapter` (and thus the RPC/`RpycTuiService` surface)
+  now buffers `register_*` calls made while no driver exists and wires them
+  onto the next driver when one is created, instead of raising
+  `RuntimeError`.
 - `GlueScript.scan_rows()` — a run-chunked raster-fill for the MeerK40t
   integration plan: a raster job is emitted as roughly one rpascript line per
   power-run instead of ~3 lines per pixel. Consecutive equal-power pixels

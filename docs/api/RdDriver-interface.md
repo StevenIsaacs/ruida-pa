@@ -27,7 +27,7 @@ __init__() → connect() → [run() ... run()] → disconnect()
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
 | `connect` | `(network_host: str \| None = None, usb_device: str \| None = None, magic: int \| None = None, protocol: str \| None = None, udp_host: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. `udp_host` is a deprecated alias for `network_host`. |
-| `disconnect` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `connect()`. |
+| `disconnect` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, fire `DISCONNECTED` to status listeners. Idempotent. Application listeners persist; connection params persist for next `connect()`. |
 
 `start()` / `stop()` remain as deprecated aliases for `connect()` /
 `disconnect()`, emitting a `DeprecationWarning`. They are scheduled for
@@ -322,7 +322,9 @@ reach the controller while a job runs.
 
 ## 4. Listener Registration
 
-All three methods are thread-safe and additive (no remove API).
+All three methods are thread-safe and each has a matching `unregister_*`
+method (unregistering a listener that was never registered is a silent
+no-op).
 
 | Method | Callback Signature | When Called |
 |--------|-------------------|-------------|
@@ -330,7 +332,24 @@ All three methods are thread-safe and additive (no remove API).
 | `register_error_listener` | `Callable[[str], None]` | Script encoding/parsing/execution errors; VmRSS warnings |
 | `register_reply_listener` | `Callable[[list[str]], None]` | Formatted reply strings for non-handled GET_SETTING commands |
 
-### 4.1 Copy-on-Iterate Safety
+### 4.1 Persistence and Current-State Replay
+
+- Listeners may be registered **before** the first `connect()` and while
+  the driver is disconnected; they **persist across** `connect()` /
+  `disconnect()` cycles — the lifecycle methods never clear them.
+- `connect()` re-registers the session→driver bridge on each new session,
+  so a persisted listener keeps receiving events across reconnects.
+- `disconnect()` fires a terminal `DISCONNECTED` to all registered status
+  listeners (only when a session was actually torn down).
+- On registration, a status listener immediately receives the driver's
+  current connection state as a one-shot replay: `TRANSPORT_*` +
+  `CONNECTED` when connected, or `DISCONNECTED` when not connected. No past
+  event history is replayed — only the current state.
+- Over RPC, the `TuiAdapter` buffers `register_*` calls made while no driver
+  exists (before the first connect, or after a disconnect) and wires them
+  onto the next driver when one is created.
+
+### 4.2 Copy-on-Iterate Safety
 
 All listener lists are copied under `RLock` before iteration. Each callback
 is wrapped in `try/except Exception` — one faulty callback cannot block

@@ -110,7 +110,7 @@ __init__() → connect() → [run() ... run()] → disconnect()
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
 | `connect` | `(network_host=None, usb_device=None, magic=None, protocol=None, udp_host=None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. |
-| `disconnect` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `connect()`. |
+| `disconnect` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, fire `DISCONNECTED` to status listeners. Idempotent. Application listeners persist; connection params persist for next `connect()`. |
 
 `start()` / `stop()` are deprecated aliases for `connect()` /
 `disconnect()` and are scheduled for removal in a future release; they
@@ -133,8 +133,10 @@ emit a `DeprecationWarning`.
 
 **`disconnect()` behavior notes:**
 - Sends a shutdown sentinel to the script queue, joins the runner thread with 2s timeout.
-- Unregisters all session/transport listeners.
-- Sets the internal session reference to `None`.
+- Unregisters the session/transport listeners, disconnects the session, and fires a
+  terminal `DISCONNECTED` to registered **status listeners**.
+- Sets the internal session reference to `None`. Application listeners are NOT cleared —
+  they persist on the driver and remain registered for the next `connect()` cycle.
 
 ### 2.3 Listener Registration
 
@@ -151,7 +153,7 @@ is a silent no-op.
 **Important threading rules:**
 - Listener callbacks fire from **background threads** (runner thread or handshake thread). UI applications must use thread-safe dispatch (e.g., `call_from_thread()` in Textual, `invokeLater()` in Qt).
 - All listener lists are copied under `RLock` before iteration. Each callback is individually guarded — one faulty callback cannot block other listeners.
-- Register listeners **before** calling `connect()`. Listener registration does NOT retroactively fire for past events.
+- Listeners can be registered **before** `connect()` (directly on `RdDriver`, and via the TUI/RPC adapter which buffers registrations until a driver exists) and **persist across** `connect()`/`disconnect()` cycles. A newly registered status listener immediately receives the driver's current state: `TRANSPORT_*` + `CONNECTED` when connected, or `DISCONNECTED` when not. No past *event history* is replayed — only the current connection state.
 
 **UI-framework bridge pattern:**
 
@@ -662,7 +664,7 @@ Listener callbacks (`register_status_listener`, `register_error_listener`, `regi
 - **Threading:** Callbacks fire from the server's dispatch thread. Long-running callbacks block the server for that connection. Keep callbacks fast or use your own thread pool.
 - **Exceptions:** Exceptions raised in callbacks are caught and logged by `RpycTuiService` with a warning — they don't crash the server. Your callback should handle its own errors.
 - **Serialization:** Arguments passed to callbacks must be serializable by RPyC. Basic types (`str`, `int`, `list`, `dict`), `bytearray`, and netrefs work. Custom objects may need explicit serialization.
-- **No retroactive events:** Register a callback before events occur. Events between `connect()` and callback registration are lost.
+- **Current state is replayed, history is not:** A status listener registered at any time (before connect, mid-session, or after disconnect) immediately receives the driver's current connection state (`CONNECTED`/transport or `DISCONNECTED`). Past events that occurred before registration are not replayed.
 
 ### 3.6 Head/Tail Script Management via RPC
 
@@ -1022,7 +1024,7 @@ direct-client flow when you want to stage explicitly.
 | `ConnectionRefusedError` | Server not running | Verify `host` and `port` with the server operator |
 | `EOFError: connection closed by peer` | Auth token wrong or missing | Ask the server operator to confirm the configured `token` matches client code |
 | `ssl.SSLError: certificate verify failed` | CA cert not trusted | Pass correct CA cert path to client |
-| Callback not firing | Listener registered after event | Register before `connect()` |
+| Callback not firing | Listener registered after an event occurred | Register before the event; the current connection state is still replayed at registration |
 | `RuntimeError: Script runner not started` | `run()` called before `connect()` | Call `rpc_driver.connect()` before `rpc_driver.run()` |
 | Slow RPC calls | Netref latency over network | Keep scripts small, use batch operations |
 
@@ -1335,7 +1337,7 @@ These patterns from §5 require no hardware or minimal hardware:
 ### 7.5 Common Pitfalls
 
 - **`run()` requires `connect()` first** — calling `run()` before `connect()` raises `RuntimeError("Script runner not started...")`. Always confirm the lifecycle order.
-- **Listeners do not retroactively fire** — register listeners before `connect()`. Events that occur between `connect()` and listener registration are lost.
+- **Only the current state is replayed, not history** — a status listener registered at any time (before `connect()`, mid-session, or after `disconnect()`) immediately receives the driver's current connection state (`CONNECTED`/transport or `DISCONNECTED`); events that occurred before registration are not replayed. Listeners persist across `connect()`/`disconnect()` cycles.
 - **Checksum discrepancy** — `auto_checksum=True` may not match LightBurn captures. If comparing against LightBurn output, verify checksums independently.
 - **No mock layer** — `RdDriver` talks to real hardware. It cannot simulate
   controller responses or inject fake status values. Unit tests requiring

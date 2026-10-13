@@ -312,11 +312,16 @@ class RdDriver(GlueScript):
 
         Idempotent — safe to call multiple times. Connection parameters
         persist for reuse on next connect() call.
+
+        When a session is actually torn down, registered status listeners
+        receive a terminal DISCONNECTED event. Listeners themselves persist
+        on the driver and remain registered for later connect() cycles.
         """
         self._stop_script_runner()
         if self._session is not None:
             self._session.disconnect()
             self._session = None
+            self._on_status_event(RdStatusEvent.DISCONNECTED)
 
     def stop(self) -> None:
         """Deprecated alias for :meth:`disconnect`. Will be removed in a future release.
@@ -337,9 +342,17 @@ class RdDriver(GlueScript):
     ) -> None:
         """Register a listener for RdStatusEvent notifications. Thread-safe.
 
-        If a session is already connected when the listener registers,
-        the current transport type and CONNECTED event are replayed to
-        the new listener so it receives up-to-date state.
+        The driver's current connection state is replayed to the new
+        listener so it is immediately informed of the state, whether the
+        driver is registered before connecting, after disconnecting, or
+        mid-session:
+        - Connected: the current transport type and CONNECTED event are
+          replayed.
+        - Not connected (no session, or disconnected): DISCONNECTED is
+          replayed.
+
+        Listeners persist on the driver across connect()/disconnect()
+        cycles — they are never cleared by the lifecycle methods.
         """
         with self._lock:
             self._status_listeners.append(listener)
@@ -353,11 +366,14 @@ class RdDriver(GlueScript):
                 transport_event = RdStatusEvent.TRANSPORT_TCP
             else:
                 transport_event = RdStatusEvent.TRANSPORT_UDP
-            for event in (transport_event, RdStatusEvent.CONNECTED):
-                try:
-                    listener(event)
-                except Exception:
-                    pass  # Isolate bad callbacks
+            replay_events = (transport_event, RdStatusEvent.CONNECTED)
+        else:
+            replay_events = (RdStatusEvent.DISCONNECTED,)
+        for event in replay_events:
+            try:
+                listener(event)
+            except Exception:
+                pass  # Isolate bad callbacks
 
     def register_error_listener(self, listener: Callable[[str], None]) -> None:
         """Register a listener for error message notifications. Thread-safe."""
