@@ -44,6 +44,11 @@ class StatusDict(TypedDict, total=False):
     _JOB_RUNNING appear as separate keys when their bits change.
     Dimension values (POSITION_*, BED_SIZE_*) are tuple[float, str]
     with the float in mm.
+
+    TRANSPORT is only ever present in ``RdDriver.current_status`` (derived
+    live from the session); it is never fired as a change event. Its value
+    is ``(event_name, label)`` — e.g. ``("TRANSPORT_UDP", "UDP")`` — reusing
+    the RdStatusEvent transport identifiers.
     """
 
     POSITION_X: tuple[float, str]
@@ -59,6 +64,7 @@ class StatusDict(TypedDict, total=False):
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_PAUSED: bool
     MACHINE_STATUS_JOB_RUNNING: bool
+    TRANSPORT: tuple[str, str]
 
 
 class RdDriver(GlueScript):
@@ -337,6 +343,20 @@ class RdDriver(GlueScript):
 
     # ---- Listener Registration ----
 
+    @staticmethod
+    def _transport_event(session: RdSession) -> RdStatusEvent:
+        """Return the RdStatusEvent transport identifier for an open session.
+
+        USB takes precedence, then TCP; anything else is treated as UDP. This
+        is the single source of the transport derivation, shared by the
+        ``register_status_listener`` replay and ``current_status``.
+        """
+        if session.is_usb:
+            return RdStatusEvent.TRANSPORT_USB
+        if session.transport.is_tcp:
+            return RdStatusEvent.TRANSPORT_TCP
+        return RdStatusEvent.TRANSPORT_UDP
+
     def register_status_listener(
         self, listener: Callable[[RdStatusEvent | StatusDict], None]
     ) -> None:
@@ -360,12 +380,7 @@ class RdDriver(GlueScript):
 
         # Replay current connection state to late-joining listener
         if session is not None and session.is_connected:
-            if session.is_usb:
-                transport_event = RdStatusEvent.TRANSPORT_USB
-            elif session.transport.is_tcp:
-                transport_event = RdStatusEvent.TRANSPORT_TCP
-            else:
-                transport_event = RdStatusEvent.TRANSPORT_UDP
+            transport_event = RdDriver._transport_event(session)
             replay_events = (transport_event, RdStatusEvent.CONNECTED)
         else:
             replay_events = (RdStatusEvent.DISCONNECTED,)
@@ -1010,9 +1025,21 @@ class RdDriver(GlueScript):
         status listeners. Non-bool values are ``(value, formatted_string)``
         tuples; dimension fields (POSITION_*, BED_SIZE_*) hold mm floats.
         Read-only snapshot copy.
+
+        While the session is connected a ``TRANSPORT`` entry is derived live
+        from the active interface as ``(event_name, label)`` — e.g.
+        ``("TRANSPORT_UDP", "UDP")``. It is absent when there is no session or
+        the session is not connected, so the snapshot reflects the transport
+        at read time without any listener ordering.
         """
         with self._lock:
-            return dict(self._current_status)
+            snapshot = dict(self._current_status)
+            session = self._session
+        if session is not None and session.is_connected:
+            event = RdDriver._transport_event(session)
+            label = event.value.removeprefix("TRANSPORT_")
+            snapshot["TRANSPORT"] = (event.value, label)
+        return snapshot
 
     # ---- Head / Tail Script Management ----
 

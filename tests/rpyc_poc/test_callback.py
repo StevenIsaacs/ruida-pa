@@ -98,8 +98,41 @@ def test_run_returns_none():
         server.close()
 
 
+class _FakeStatusDriver:
+    """Minimal server-side driver exposing a prebuilt current_status dict."""
+
+    def __init__(self, status):
+        self.current_status = status
+
+
+def test_current_status_transport_over_rpc():
+    """Verify the TRANSPORT entry survives the RPC current_status round trip."""
+    adapter = TuiAdapter()
+    adapter._ruida_driver = _FakeStatusDriver(
+        {"TRANSPORT": ("TRANSPORT_UDP", "UDP")}
+    )
+    service = RpycTuiService(tui_adapter=adapter)
+    server = ThreadedServer(service, hostname="127.0.0.1", port=19997)
+    t = threading.Thread(target=server.start, daemon=True)
+    t.start()
+    time.sleep(0.3)
+    try:
+        conn = connect("127.0.0.1", 19997)
+        svc = conn.root
+        result = svc.exposed_current_status()
+        assert result["TRANSPORT"] == ("TRANSPORT_UDP", "UDP"), result
+        print("PASS: current_status TRANSPORT survives RPC round trip")
+    except Exception as e:
+        print(f"FAIL: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        server.close()
+
+
 if __name__ == "__main__":
     print("=== Callback & API Tests ===\n")
     test_callback_registration()
     test_run_returns_none()
+    test_current_status_transport_over_rpc()
     print("\n=== All callback tests complete ===")

@@ -367,7 +367,7 @@ thread). UI applications must use thread-safe dispatch mechanisms
 |----------|------|-------------|
 | `is_connected` | `bool` | `True` if session exists AND controller is responding to pings. |
 | `machine_status` | `dict[int, Any]` | Read-only snapshot of decoded memory values, keyed by memory address. Values are the raw integers (dimensions are not converted to mm here — see §5.1). Contains position coordinates, status bits, card ID, bed dimensions. |
-| `current_status` | `StatusDict` | Read-only snapshot of the most recent controller replies for every tracked status field (see §5.2). Unlike the change-only `StatusDict` fired to status listeners, every key holds the latest received value. |
+| `current_status` | `StatusDict` | Read-only snapshot of the most recent controller replies for every tracked status field (see §5.2), plus a live-derived `TRANSPORT` entry while connected. Unlike the change-only `StatusDict` fired to status listeners, every key holds the latest received value. |
 
 ### 5.1 machine_status Contents
 
@@ -393,6 +393,11 @@ complete latest controller state rather than a change list. Fields not yet
 received are absent. Non-bool values mirror what a status listener receives
 as `(value, formatted_string)` tuples; dimension fields hold mm floats.
 
+The `TRANSPORT` entry is the exception to the "most recent reply" rule: it is
+derived live from the active session at read time (never fired as an event and
+never stored in the snapshot). It is present only while the session is
+connected, and absent otherwise.
+
 | Key | Value Type | Source Address | Description |
 |-----|-----------|----------------|-------------|
 | `POSITION_X` / `POSITION_Y` / `POSITION_Z` / `POSITION_U` | `tuple[float, str]` | `0x0421`/`0x0431`/`0x0441`/`0x0451` | Current axis position in mm |
@@ -404,6 +409,7 @@ as `(value, formatted_string)` tuples; dimension fields hold mm floats.
 | `MACHINE_STATUS_MOVING` | `bool` | `0x0400` | Bit 24 of the machine status |
 | `MACHINE_STATUS_PAUSED` | `bool` | `0x0400` | Bit 1 of the machine status |
 | `MACHINE_STATUS_JOB_RUNNING` | `bool` | `0x0400` | Bit 0 of the machine status |
+| `TRANSPORT` | `tuple[str, str]` | — (live) | Active interface while connected: `("TRANSPORT_UDP", "UDP")`, `_TCP`, or `_USB` |
 
 Available over RPC via `RpcRdDriver.current_status` / `exposed_current_status`.
 
@@ -473,6 +479,10 @@ decoded bool flags `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, and
 Dimension values (`POSITION_*`, `BED_SIZE_*`) are `tuple[float, str]` with
 the float in millimeters.
 
+`TRANSPORT` (`tuple[str, str]`, e.g. `("TRANSPORT_UDP", "UDP")`) is **not** a
+change event: it appears only in the `current_status` snapshot, where it is
+derived from the active interface while connected (see §5.2).
+
 Formatted strings keep their Ruida prefixes (e.g. `"X=12.345mm"`,
 `"CardID:..."`, `"MStat:..."`) — they are display-only and unchanged.
 
@@ -488,6 +498,9 @@ class StatusDict(TypedDict, total=False):
     _JOB_RUNNING appear as separate keys when their bits change.
     Dimension values (POSITION_*, BED_SIZE_*) are tuple[float, str]
     with the float in mm.
+
+    TRANSPORT is only ever present in current_status (live-derived); it is
+    never fired as a change event.
     """
 
     POSITION_X: tuple[float, str]
@@ -503,6 +516,7 @@ class StatusDict(TypedDict, total=False):
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_PAUSED: bool
     MACHINE_STATUS_JOB_RUNNING: bool
+    TRANSPORT: tuple[str, str]
 ```
 
 ---

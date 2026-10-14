@@ -652,6 +652,13 @@ Called from the handshake thread for each batch of unpacked replies:
    - If address is `0x057E` (card ID): queue `_FEATURES_SCRIPT` via `self.run()`, wrapped in `try/except JobRunningError: pass` — the bed-size/features queries are skipped while a job runs and retried on the next card-ID reply (see §5.1.10).
 2. Forward raw replies to all registered reply listeners.
 
+`current_status` adds one synthetic entry beyond the reply-derived fields: while
+the session is connected it derives `TRANSPORT` live from the active interface
+as `(event_name, label)` (`("TRANSPORT_UDP", "UDP")`, `_TCP`, or `_USB`), using
+the same derivation as the `register_status_listener` replay. It is never stored
+in `_current_status` and never fired as an event; it is absent when there is no
+session or the session is not connected.
+
 #### 5.1.7 Machine Status Parsing
 
 ```python
@@ -677,7 +684,7 @@ Thread-safe (RLock). Forwarding methods copy the listener list under lock and it
 | Property | Returns |
 |---|---|
 | `machine_status` | Read-only snapshot of `{address: decoded_value}` dict |
-| `current_status` | Read-only snapshot of the `StatusDict` of most recent replies for all tracked status fields |
+| `current_status` | Read-only snapshot of the `StatusDict` of most recent replies for all tracked status fields, plus a live-derived `TRANSPORT` entry while connected |
 
 #### 5.1.10 Job-Running Guard (GlueScript Commands)
 

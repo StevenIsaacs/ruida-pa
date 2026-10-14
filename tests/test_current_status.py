@@ -114,6 +114,74 @@ def test_current_status_snapshot_is_copy():
     assert "BOGUS" not in driver.current_status
 
 
+# ------------------------------------------------------------------ #
+#  TRANSPORT — live-derived transport in current_status
+# ------------------------------------------------------------------ #
+
+
+class _FakeTransport:
+    def __init__(self, is_usb: bool = False, is_tcp: bool = False) -> None:
+        self.is_usb = is_usb
+        self.is_tcp = is_tcp
+
+
+class _FakeSession:
+    def __init__(
+        self,
+        is_usb: bool = False,
+        is_tcp: bool = False,
+        is_connected: bool = True,
+    ) -> None:
+        self.transport = _FakeTransport(is_usb=is_usb, is_tcp=is_tcp)
+        self.is_usb = is_usb
+        self.is_connected = is_connected
+
+
+def test_current_status_transport_absent_without_session():
+    driver = RdDriver()
+    assert "TRANSPORT" not in driver.current_status
+
+
+def test_current_status_transport_absent_when_not_connected():
+    driver = RdDriver()
+    driver._session = _FakeSession(is_tcp=True, is_connected=False)
+    assert "TRANSPORT" not in driver.current_status
+
+
+def test_current_status_transport_udp():
+    driver = RdDriver()
+    driver._session = _FakeSession()
+    assert driver.current_status["TRANSPORT"] == ("TRANSPORT_UDP", "UDP")
+
+
+def test_current_status_transport_tcp():
+    driver = RdDriver()
+    driver._session = _FakeSession(is_tcp=True)
+    assert driver.current_status["TRANSPORT"] == ("TRANSPORT_TCP", "TCP")
+
+
+def test_current_status_transport_usb_precedes_tcp():
+    driver = RdDriver()
+    driver._session = _FakeSession(is_usb=True, is_tcp=True)
+    assert driver.current_status["TRANSPORT"] == ("TRANSPORT_USB", "USB")
+
+
+def test_current_status_transport_coexists_with_replies():
+    driver = RdDriver()
+    driver._session = _FakeSession(is_tcp=True)
+    driver._on_reply([_reply(0x04, 0x21, 100)])
+    st = driver.current_status
+    assert st["TRANSPORT"] == ("TRANSPORT_TCP", "TCP")
+    assert "POSITION_X" in st
+
+
+def test_current_status_transport_is_not_an_event_value():
+    driver = RdDriver()
+    driver._session = _FakeSession(is_tcp=True)
+    driver._on_reply([_reply(0x04, 0x21, 100)])
+    assert "TRANSPORT" not in driver._current_status
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):

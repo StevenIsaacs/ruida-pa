@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value and is refreshed on every corresponding reply. Exposed over RPC
   via `TuiAdapter.current_status`, `RpcRdDriver.current_status`, and
   `RpycTuiService.exposed_current_status`.
+- `current_status["TRANSPORT"]` — the active interface as a
+  `(event_name, label)` tuple (`("TRANSPORT_UDP", "UDP")`, `_TCP`, or
+  `_USB`), derived live from the connected session using the same logic as
+  the `register_status_listener` replay (USB preferred, then TCP, else
+  UDP). Present only while connected, absent otherwise, and never fired as
+  a status event. Gives an exact, race-free transport in both direct and
+  RPC modes without a post-connect listener probe.
 - Listener lifecycle across connect/disconnect: status listeners can be
   registered **before** the first `connect()` and **after** `disconnect()`
   and persist across connect/disconnect cycles (the lifecycle methods never

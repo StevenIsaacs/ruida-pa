@@ -183,7 +183,7 @@ via `driver.rpascript` (or `get_rpascript()` over RPC).
 |----------|------|-------------|
 | `is_connected` | `bool` | `True` if session exists AND controller is responding to pings. |
 | `machine_status` | `dict[int, Any]` | Read-only snapshot of decoded memory values, keyed by memory address. Contains position coordinates, status bits, card ID, bed dimensions. |
-| `current_status` | `StatusDict` | Read-only snapshot of the most recent controller replies for every tracked status field (see the API reference §5.2). Unlike the change-only `StatusDict` sent to status listeners, every tracked key holds its latest received value, refreshed on every reply. |
+| `current_status` | `StatusDict` | Read-only snapshot of the most recent controller replies for every tracked status field (see the API reference §5.2). Unlike the change-only `StatusDict` sent to status listeners, every tracked key holds its latest received value, refreshed on every reply. While connected it also carries a live-derived `TRANSPORT` entry — `("TRANSPORT_UDP", "UDP")`, `_TCP`, or `_USB` — so the active interface can be read at any time (both directly and over RPC) without a connect-time listener probe. |
 
 ### 2.6 Static Format Utilities
 
