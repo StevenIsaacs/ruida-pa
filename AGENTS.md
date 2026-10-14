@@ -89,8 +89,9 @@ There are no unit tests, no formatter, no linter, no type checker, and no CI pip
 			- `tmp/selected-01-rt.txt` for the decode file generated using `tmp/selected-01.tshark` as the input file.
 		A second run will have the number `02` instead of `01`.
 
-- `commit.txt`: To be written only when the user requests it (e.g. "Write a new commit.txt"). This contains pre-composed change summary lines and placed in the project root. Multiple summary lines are used when more than one issue (i.e. new feature or problem fix) has been resolved in a single commit. NOTE: Each issue should have only one line. Change details are to be written to the testing log (below). Each summary line should be prefixed a word indicating the nature of the change. These are:
+- `commit.txt`: To be written only when the user requests it (e.g. "Write a new commit.txt"). This contains short pre-composed change summary lines and placed in the project root. Multiple summary lines are used when more than one issue (i.e. new feature or problem fix) has been resolved in a single commit. NOTE: Each issue should have only one line containing a short summary of the change. Change details are to be written to the testing log (below). Each summary line should be prefixed a word indicating the nature of the change. These are:
 	- `version:` The version number has been bumped.
 	- `feature:` A new feature has been added.
+	- `enhancement:` An existing feature has been modified.
 	- `fix:` A problem has been fixed.
 - Testing logs are maintained in `docs/logs` and have names formatted as `<__version__>-testing.md`. These are updated with detailed Problem, Solution and Verification information sections (not a bullet list). Within each section use bullet lists to itemize the problems, solutions and verifications. The testing log for the current version is to be updated when `commit.txt` is written.
