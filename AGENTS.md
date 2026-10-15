@@ -70,7 +70,8 @@ There are no unit tests, no formatter, no linter, no type checker, and no CI pip
 - `.vscode/launch.json` exists for debugging.
 - `--plot-moves` opens a Bokeh server application in browser showing interactive head moves with power/speed popups, context menus, and filtering.
 - Ignored dirs: `discovery/`, `testing/`, `tmp/`, `build/`, `dist/`, `__pycache__`, `.png` files.
-- Temporary files are to be placed in `tmp/`.
+- Temporary files should only be created in `tmp/`. The files contained in this directory will be purged regularly. Do NOT use `/tmp`.
+- Never instrument code with debug log messages. The VSCode Python debugger is used to run MeerK40t for debugging. The VSCode debugger's "Add Logpoint..." is used for emitting debug messages. If a debug message is needed to diagnose a problem, inform the user to add a logpoint at the appropriate line(s).
 - Test output files are to be placed in `tmp/`.
 - Test output file names have the form `<base>-<run>.<ext>` where:
 	- `<base>` is the base name of the input file.
