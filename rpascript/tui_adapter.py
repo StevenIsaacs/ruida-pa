@@ -3307,6 +3307,12 @@ class TuiAdapter(App):
         self._explicit_reply_transport = None
         with self._explicit_reply_lock:
             self._explicit_reply_addrs.clear()
+        live = driver.list_listeners()
+        for key in ("status", "error", "reply"):
+            pending = getattr(self, f"_pending_{key}_listeners")
+            for listener in live[key]:
+                if not (hasattr(listener, "__self__") and listener.__self__ is self):
+                    pending.append(listener)
         driver.disconnect()
         self._ruida_driver = None
 

@@ -170,6 +170,98 @@ def test_tui_register_after_disconnect_buffers():
     assert cb in adapter._pending_status_listeners
 
 
+# ------------------------------------------------------------------ #
+#  TuiAdapter — listeners survive driver release/recreate
+# ------------------------------------------------------------------ #
+
+def test_tui_driver_replacement_preserves_status_listener():
+    adapter = TuiAdapter()
+    adapter._ruida_driver = adapter._create_driver()
+    cb = Mock()
+    adapter.register_status_listener(cb)
+    assert cb in adapter._ruida_driver._status_listeners
+
+    adapter._release_driver()
+    assert adapter._ruida_driver is None
+    assert cb in adapter._pending_status_listeners
+
+    adapter._ruida_driver = adapter._create_driver()
+    assert cb in adapter._ruida_driver._status_listeners
+    assert adapter._pending_status_listeners == []
+
+
+def test_tui_driver_replacement_preserves_error_listener():
+    adapter = TuiAdapter()
+    adapter._ruida_driver = adapter._create_driver()
+    cb = Mock()
+    adapter.register_error_listener(cb)
+    assert cb in adapter._ruida_driver._error_listeners
+
+    adapter._release_driver()
+    assert cb in adapter._pending_error_listeners
+
+    adapter._ruida_driver = adapter._create_driver()
+    assert cb in adapter._ruida_driver._error_listeners
+    assert adapter._pending_error_listeners == []
+
+
+def test_tui_driver_replacement_preserves_reply_listener():
+    adapter = TuiAdapter()
+    adapter._ruida_driver = adapter._create_driver()
+    cb = Mock()
+    adapter.register_reply_listener(cb)
+    assert cb in adapter._ruida_driver._reply_listeners
+
+    adapter._release_driver()
+    assert cb in adapter._pending_reply_listeners
+
+    adapter._ruida_driver = adapter._create_driver()
+    assert cb in adapter._ruida_driver._reply_listeners
+    assert adapter._pending_reply_listeners == []
+
+
+def test_tui_driver_replacement_does_not_duplicate_tui_listeners():
+    adapter = TuiAdapter()
+    adapter._ruida_driver = adapter._create_driver()
+    status_cb = Mock()
+    adapter.register_status_listener(status_cb)
+
+    adapter._release_driver()
+    adapter._ruida_driver = adapter._create_driver()
+
+    tui_status = adapter._ruida_driver._status_listeners.count(
+        adapter.on_status_event
+    )
+    assert tui_status == 1
+    assert status_cb in adapter._ruida_driver._status_listeners
+
+
+def test_tui_driver_replacement_listener_receives_disconnected_replay():
+    adapter = TuiAdapter()
+    adapter._ruida_driver = adapter._create_driver()
+    events = []
+    adapter.register_status_listener(events.append)
+    events.clear()
+
+    adapter._release_driver()
+    adapter._ruida_driver = adapter._create_driver()
+
+    assert events == [RdStatusEvent.DISCONNECTED]
+
+
+def test_tui_unregister_during_active_driver_survives_recreate():
+    adapter = TuiAdapter()
+    adapter._ruida_driver = adapter._create_driver()
+    cb = Mock()
+    adapter.register_status_listener(cb)
+    adapter.unregister_status_listener(cb)
+    assert cb not in adapter._ruida_driver._status_listeners
+
+    adapter._release_driver()
+    adapter._ruida_driver = adapter._create_driver()
+    assert cb not in adapter._ruida_driver._status_listeners
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):

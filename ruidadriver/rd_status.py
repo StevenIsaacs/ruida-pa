@@ -270,6 +270,13 @@ class RdStatus:
         warning = self._TRANSPORT_WARNING_EVENTS.get(event)
         if warning is not None:
             self._notify_listeners(warning)
+        if event is TransportEvent.OPENED:
+            if self.transport.is_usb:
+                self._notify_listeners(RdStatusEvent.TRANSPORT_USB)
+            elif self.transport.is_tcp:
+                self._notify_listeners(RdStatusEvent.TRANSPORT_TCP)
+            else:
+                self._notify_listeners(RdStatusEvent.TRANSPORT_UDP)
 
     # ---- Wait-for-Event Helper ----
 

@@ -101,6 +101,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (promiscuous mode disabled) is auto-selected unless `-i`/`--interface` is
   given. The captured `.log` holds the binary RPyC protocol and is intended
   for external inspection (e.g. Wireshark), not for `rpa.py` decoding.
+- `RdStatus._transport_listener` now emits `TRANSPORT_USB` / `TRANSPORT_TCP`
+  / `TRANSPORT_USB` events when `TransportEvent.OPENED` fires, so status
+  listeners are notified of transport type changes in real time (instead of
+  only via the one-time replay at registration).
 - Version bump to 0.23.0.
 
 ### Changed
@@ -118,6 +122,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `capture --rpc` no longer aborts with `tshark: Promiscuous mode not supported
   on the "any" device.` — the auto-selected interface now passes `-p` to
   disable promiscuous mode on the `any` pseudo-device.
+
+### Fixed
+
+- `_release_driver()` now re-buffers non-TUI status/error/reply listeners
+  before dropping the driver, so they are rewired by `_create_driver()` on the
+  next session. Without this, listeners registered while a driver existed were
+  silently lost after a driver release/recreate cycle.
 
 ## [0.22.0] - 2026-10-02
 
