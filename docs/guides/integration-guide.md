@@ -587,6 +587,11 @@ from rpalib.rpyc_client import RpcRdDriver
 # PRIMARY: self-connect to the default token-less server
 rpc_driver = RpcRdDriver()
 
+# Register listeners — netref callbacks (see §3.5). Can be registered at any
+# time; the current connection state is replayed to late-joining listeners.
+rpc_driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
+rpc_driver.register_error_listener(lambda e: print(f"[ERROR] {e}"))
+
 # For a token-configured server, pass the token the server operator configured:
 #     rpc_driver = RpcRdDriver(token="s3cret!t0k3n")
 # For an authenticator-enabled server over localhost, the empty-token path:
@@ -621,6 +626,8 @@ print(f"Staged {len(rpc_driver.get_rpascript())} rpascript lines")
 rpc_driver.connect(network_host="192.168.1.100")
 rpc_driver.run_job()
 ```
+
+**Listener registration over RPC:** `register_status_listener`, `register_error_listener`, and `register_reply_listener` work identically over RPC — the callback is a netref proxy that the server invokes on the client side (see §3.5 for threading and serialization caveats). Listeners can be registered before or after `connect()`; a newly registered status listener immediately receives the driver's current connection state (`CONNECTED`/transport or `DISCONNECTED`). Listeners persist across `connect()`/`disconnect()` cycles.
 
 ### 3.3 Authentication Details
 
@@ -1138,6 +1145,14 @@ class ControllerAdapter:
     def __init__(self, use_rpc: bool = False):
         self._driver = RpcRdDriver() if use_rpc else RdDriver()
         self._rpc = use_rpc
+        self._driver.register_status_listener(self._on_status)
+        self._driver.register_error_listener(self._on_error)
+
+    def _on_status(self, event) -> None:
+        print(f"[STATUS] {event}")
+
+    def _on_error(self, message: str) -> None:
+        print(f"[ERROR] {message}")
 
     def ready(self) -> bool:
         return bool(self._driver.is_connected)
