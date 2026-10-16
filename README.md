@@ -195,6 +195,21 @@ Ruida command stream over TCP (e.g. the RDC8445S, on port 50200), pass `--tcp`:
 ./capture.ps1 -if Ethernet -ip <IP> -out <file> -Protocol tcp   # PowerShell
 ```
 
+To capture the RPyC RPC traffic between the TUI/RPC server and a client
+(default port 18812), pass `--rpc`. On Linux the `any` interface (with
+promiscuous mode disabled) is selected automatically unless `-i`/`--interface`
+is given:
+
+```bash
+./capture <rpc_host> my-job --rpc              # bash
+./capture <rpc_host> my-job --rpc --rpc-port 18812
+./capture.ps1 -if <loopback> -ip <IP> -out <file> -Protocol rpc   # PowerShell
+```
+
+NOTE: `--rpc` captures the binary RPyC protocol. The resulting `.log` is not
+decodable by `rpa.py` (which understands only the Ruida protocol); it is intended
+for external inspection (e.g. Wireshark).
+
 ### Analyze Captured Data
 
 #### Basic Analysis

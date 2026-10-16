@@ -95,6 +95,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`gluescript_*`), and covered by 35 new tests in `tests/test_dwell.py`. The
   MeerK40t integration plan §10.2 "Dwell-on-move" item is marked implemented
   (§2 mapping `laser_interval (dwell) → dwell(duration_ms)`).
+- `--rpc` capture mode in `capture` / `capture.ps1` — records the TUI RPyC RPC
+  server stream (default TCP port 18812) between the TUI and a client, with
+  `--rpc-port <n>` to override the port. On Linux the `any` interface
+  (promiscuous mode disabled) is auto-selected unless `-i`/`--interface` is
+  given. The captured `.log` holds the binary RPyC protocol and is intended
+  for external inspection (e.g. Wireshark), not for `rpa.py` decoding.
 - Version bump to 0.23.0.
 
 ### Changed
@@ -106,6 +112,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names remain as **deprecated aliases** emitting a `DeprecationWarning`
   and are scheduled for removal in a future release. The runtime error
   messages ("Call start() first.") were updated to "Call connect() first."
+
+### Fixed
+
+- `capture --rpc` no longer aborts with `tshark: Promiscuous mode not supported
+  on the "any" device.` — the auto-selected interface now passes `-p` to
+  disable promiscuous mode on the `any` pseudo-device.
 
 ## [0.22.0] - 2026-10-02
 

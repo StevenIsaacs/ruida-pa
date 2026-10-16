@@ -10,8 +10,10 @@ A tool that decodes binary UDP packets captured from Ruida CNC/laser controllers
 python rpa.py capture.log              # Decode a tshark log file
 ./capture <ip> <file>                  # Capture tshark log (bash)
 ./capture <ip> <file> --tcp            # Capture TCP stream on port 50200 (bash)
+./capture <host> <file> --rpc          # Capture RPyC RPC stream on port 18812 (bash)
 ./capture.ps1 -if Ethernet -ip <IP> -out <file>  # Capture (PowerShell)
 ./capture.ps1 -if Ethernet -ip <IP> -out <file> -Protocol tcp  # Capture TCP (PowerShell)
+./capture.ps1 -if <loopback> -ip <IP> -out <file> -Protocol rpc  # Capture RPC (PowerShell)
 ./decode <file>                        # Produces <file>.tshark + <file>-vrb.tshark
 ./link <type> <case> <app>             # Symlink a test case into discovery/
 ```
