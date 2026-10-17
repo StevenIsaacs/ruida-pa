@@ -2495,11 +2495,11 @@ class GlueScript:
             self._frequency_changed = False
             # Deferred power/speed settings — defaults mirror the
             # declare_layer() args.
-            self._pending_min_power = 8.0
-            self._pending_max_power = 70.0
+            self._pending_min_power = min_power_1
+            self._pending_max_power = max_power_1
             self._pending_warnings = []
             self._speed_dirty = False
-            self._power_dirty = False
+            self._power_dirty = True
             self._assembling = True
 
             try:

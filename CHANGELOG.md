@@ -119,12 +119,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GlueScript `declare_layer()` now applies the declared `min_power_1`/`max_power_1` values through `_flush_layer_settings()` — the pending power values are initialized from the declared arguments and marked dirty, so power scaling takes effect even without an explicit `power_range()` call
 - `capture --rpc` no longer aborts with `tshark: Promiscuous mode not supported
   on the "any" device.` — the auto-selected interface now passes `-p` to
   disable promiscuous mode on the `any` pseudo-device.
-
-### Fixed
-
 - `_release_driver()` now re-buffers non-TUI status/error/reply listeners
   before dropping the driver, so they are rewired by `_create_driver()` on the
   next session. Without this, listeners registered while a driver existed were
