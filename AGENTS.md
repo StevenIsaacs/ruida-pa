@@ -98,3 +98,4 @@ There are no unit tests, no formatter, no linter, no type checker, and no CI pip
 	- `enhancement:` An existing feature has been modified.
 	- `fix:` A problem has been fixed.
 - Testing logs are maintained in `docs/logs` and have names formatted as `<__version__>-testing.md`. These are updated with detailed Problem, Solution and Verification information sections (not a bullet list). Within each section use bullet lists to itemize the problems, solutions and verifications. The testing log for the current version is to be updated when `commit.txt` is written.
+- Bump the version number ONLY when prompted to do so. Consider the current version number to be unreleased.
