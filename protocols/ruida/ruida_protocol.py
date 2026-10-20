@@ -524,7 +524,7 @@ CT = {
         0x06: ("MAX_POWER_3", POWER),
         0x07: ("MIN_POWER_4", POWER),
         0x08: ("MAX_POWER_4", POWER),
-        0x10: ("CUT_DWELL", TIME),
+        0x10: ("CUT_PIERCE", TIME),
         0x11: ("ADD_CUT_DELAY", TIME),
         0x12: ("LASER_ON_DELAY", TIME),
         0x13: ("LASER_OFF_DELAY", TIME),

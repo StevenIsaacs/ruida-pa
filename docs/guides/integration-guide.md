@@ -475,7 +475,7 @@ job-control commands (`pause`, `resume`, `stop_job`, `reset`) and the
 guard-exempt config setter `set_power_scaling_enabled` raises
 `JobRunningError` — a `RuntimeError` subclass — instead of executing. The
 guarded set (52 commands) covers authoring (`declare_job`, `declare_layer`,
-move/cut, `power`, `scan_rows`, `dwell`/`add_delay`, ...), staging
+move/cut, `power`, `scan_rows`, `pierce`/`add_delay`, ...), staging
 (`stage_gluescript`,
 `stage_gluescript_delta`), execution (`run`, `run_job`), jogs, and homing.
 

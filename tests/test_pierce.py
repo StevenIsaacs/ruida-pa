@@ -1,4 +1,4 @@
-"""Tests for the GlueScript delay-family methods: ``dwell()``,
+"""Tests for the GlueScript delay-family methods: ``pierce()``,
 ``add_delay()``, ``laser_on_delay()`` and ``laser_off_delay()``."""
 
 import pytest
@@ -8,7 +8,7 @@ from rpalib.rpyc_service import RpycTuiService
 from rpascript.tui_adapter import TuiAdapter
 from ruidadriver.rd_gluescript import GlueScript, JobRunningError
 
-DELAY_METHODS = ("dwell", "add_delay", "laser_on_delay", "laser_off_delay")
+DELAY_METHODS = ("pierce", "add_delay", "laser_on_delay", "laser_off_delay")
 
 
 def _actions(g):
@@ -30,7 +30,7 @@ def _layer_actions(g):
 
 def _vector_job(*calls):
     g = GlueScript()
-    g.declare_job("Dwell Test")
+    g.declare_job("Pierce Test")
     g.declare_layer("Cut", "#000000", mode="VECTOR", speed=100.0)
     for name, args in calls:
         getattr(g, name)(*args)
@@ -61,7 +61,7 @@ def test_delay_methods_accept_zero(method):
     getattr(g, method)(0.0)
     g.end_job()
     g.stage_gluescript()
-    tail = [a for a in _actions(g) if "DWELL" in a or "DELAY" in a]
+    tail = [a for a in _actions(g) if "PIERCE" in a or "DELAY" in a]
     assert tail  # all four emit a real action for 0.000mS
 
 
@@ -70,36 +70,36 @@ def test_delay_methods_accept_zero(method):
 # --------------------------------------------------------------------------- #
 
 
-def test_dwell_emission_in_call_order():
-    """A FAR position move, dwell(), then a NEAR move-on mirrors the RDWorks
+def test_pierce_emission_in_call_order():
+    """A FAR position move, pierce(), then a NEAR move-on mirrors the RDWorks
     dot-mode capture pattern."""
     g = _vector_job(
         ("move_xy_to", (365.0, 225.0)),
-        ("dwell", (100.0,)),
+        ("pierce", (100.0,)),
         ("move_x_to", (360.0,)),
     )
     actions = _actions(g)
     assert "MOVE_FAR_XY X=365.000mm Y=225.000mm" in actions
-    assert "CUT_DWELL 100.000mS" in actions
+    assert "CUT_PIERCE 100.000mS" in actions
     assert "MOVE_NEAR_X nearX=-5.000mm" in actions
-    assert actions.index("CUT_DWELL 100.000mS") > actions.index(
+    assert actions.index("CUT_PIERCE 100.000mS") > actions.index(
         "MOVE_FAR_XY X=365.000mm Y=225.000mm"
     )
     assert actions.index("MOVE_NEAR_X nearX=-5.000mm") > actions.index(
-        "CUT_DWELL 100.000mS"
+        "CUT_PIERCE 100.000mS"
     )
 
 
 def test_delay_family_emission():
     g = _vector_job(
-        ("dwell", (100.0,)),
+        ("pierce", (100.0,)),
         ("add_delay", (5.0,)),
         ("laser_on_delay", (2.0,)),
         ("laser_off_delay", (3.0,)),
     )
     actions = _actions(g)
     expected = [
-        "CUT_DWELL 100.000mS",
+        "CUT_PIERCE 100.000mS",
         "ADD_CUT_DELAY 5.000mS",
         "LASER_ON_DELAY 2.000mS",
         "LASER_OFF_DELAY 3.000mS",
@@ -109,13 +109,13 @@ def test_delay_family_emission():
     assert all(line in actions for line in expected)
 
 
-def test_dwell_does_not_move_the_head():
+def test_pierce_does_not_move_the_head():
     g = _vector_job(
         ("move_xy_to", (10.0, 10.0)),
-        ("dwell", (100.0,)),
+        ("pierce", (100.0,)),
         ("move_x_to", (5.0,)),
     )
-    # The move after dwell() is relative to the pre-dwell position.
+    # The move after pierce() is relative to the pre-pierce position.
     actions = _actions(g)
     assert "MOVE_NEAR_X nearX=-5.000mm" in actions
 
@@ -127,14 +127,14 @@ def test_delay_family_are_plain_actions_not_flushed_settings():
     g.declare_job("Flush")
     g.declare_layer("Cut", "#000000", mode="VECTOR", speed=100.0)
     g.cut_speed(120.0)
-    g.dwell(100.0)
+    g.pierce(100.0)
     g.end_job()
     g.stage_gluescript()
     actions = _layer_actions(g)
     # No CUT_SPEED line in the layer block: the pending speed has no
     # following cut action, so it drops (the delay did NOT flush it).
     assert not any(line.startswith("CUT_SPEED_LASER_1") for line in actions)
-    assert "CUT_DWELL 100.000mS" in actions
+    assert "CUT_PIERCE 100.000mS" in actions
 
 
 def test_delay_family_interleaves_with_scan_rows():
@@ -142,16 +142,16 @@ def test_delay_family_interleaves_with_scan_rows():
     g.declare_job("Interleave")
     g.declare_layer("R", "#000000", mode="IMAGE", overscan="X")
     g.scan_rows([[50.0, 50.0], [0.0, 0.0]], (0, 0), (0.1, 0.1), True, True)
-    g.dwell(100.0)
+    g.pierce(100.0)
     g.scan_rows([[0.0, 0.0]], (0, 0), (0.1, 0.1), True, True)
     g.end_job()
     g.stage_gluescript()
     actions = _actions(g)
-    assert "CUT_DWELL 100.000mS" in actions
-    assert actions.index("CUT_DWELL 100.000mS") > actions.index(
+    assert "CUT_PIERCE 100.000mS" in actions
+    assert actions.index("CUT_PIERCE 100.000mS") > actions.index(
         "IMD_POWER_1 Power:0.0%"
     )
-    assert actions.index("CUT_DWELL 100.000mS") < actions.index(
+    assert actions.index("CUT_PIERCE 100.000mS") < actions.index(
         "MOVE_NEAR_XY nearX=0.000mm nearY=-0.100mm"
     )
 
@@ -164,7 +164,7 @@ def test_delay_family_interleaves_with_scan_rows():
 def test_delay_family_transcript_round_trip():
     g = _vector_job(
         ("move_xy_to", (365.0, 225.0)),
-        ("dwell", (100.0,)),
+        ("pierce", (100.0,)),
         ("move_x_to", (360.0,)),
         ("add_delay", (5.0,)),
         ("laser_on_delay", (2.0,)),
@@ -236,13 +236,13 @@ def test_delay_family_surface_exposed(method):
     assert hasattr(TuiAdapter, f"gluescript_{method}")
 
 
-def test_rpcdriver_buffers_and_stages_dwell():
+def test_rpcdriver_buffers_and_stages_pierce():
     server = _FakeServer()
     driver = RpcRdDriver(server)
-    driver.declare_job("RPC Dwell")
+    driver.declare_job("RPC Pierce")
     driver.declare_layer("Cut", "#000000", mode="VECTOR", speed=100.0)
     driver.move_xy_to(365.0, 225.0)
-    driver.dwell(100.0)
+    driver.pierce(100.0)
     driver.move_x_to(360.0)
     driver.add_delay(5.0)
     driver.laser_on_delay(2.0)
@@ -252,7 +252,7 @@ def test_rpcdriver_buffers_and_stages_dwell():
     assert driver.rpascript == server.driver.rpascript
     server_actions = [line for line in server.driver.rpascript
                       if not line.startswith("#")]
-    assert "CUT_DWELL 100.000mS" in server_actions
+    assert "CUT_PIERCE 100.000mS" in server_actions
     assert "ADD_CUT_DELAY 5.000mS" in server_actions
     assert "LASER_ON_DELAY 2.000mS" in server_actions
     assert "LASER_OFF_DELAY 3.000mS" in server_actions

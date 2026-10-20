@@ -186,7 +186,7 @@ Each line is parsed as:
 | `MIN_POWER_2_LAYER` | `Layer={n} Power=%` | Min power for laser 2 per layer |
 | `MAX_POWER_2_LAYER` | `Layer={n} Power=%` | Max power for laser 2 per layer |
 | `THROUGH_POWER_1`  | `Power=%`       | Through (pierce) power for laser 1   |
-| `CUT_DWELL`        | `{:.3f}mS`      | Fire in place for a duration (dwell on move) |
+| `CUT_PIERCE`        | `{:.3f}mS`      | Pierce in place for a duration (pierce on move) |
 | `LASER_ON_DELAY`   | `{:.3f}mS`      | Delay before laser fires             |
 | `LASER_OFF_DELAY`  | `{:.3f}mS`      | Delay after laser stops              |
 | `ADD_CUT_DELAY`    | `{:.3f}mS`      | Additional delay per cut segment     |

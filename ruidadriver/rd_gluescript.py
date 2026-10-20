@@ -62,7 +62,7 @@ REGISTRY_METHODS = [
     "frequency",
     "pwm",
     "select_laser",
-    "dwell",
+    "pierce",
     "add_delay",
     "laser_on_delay",
     "laser_off_delay",
@@ -2018,22 +2018,22 @@ class GlueScript:
                 laser,
             )
 
-    def dwell(self, duration: float) -> None:
-        """Fire the laser in place at the current position for ``duration``
-        milliseconds, then continue with the next action ("dwell on move").
+    def pierce(self, duration: float) -> None:
+        """Pierce at the current position for ``duration`` milliseconds, then
+        continue with the next action ("pierce on move").
 
         The head does not move while the laser fires: position it first with
-        ``move_xy_to()``/``cut_xy_to()``, then dwell, then move on — the
+        ``move_xy_to()``/``cut_xy_to()``, then pierce, then move on — the
         GlueScript equivalent of a MeerK40t ``DwellCut`` / RDWorks "dot"
         pause.
 
         Args:
-            duration: Dwell time in milliseconds (>= 0).
+            duration: Pierce time in milliseconds (>= 0).
 
         Raises:
             ValueError: If ``duration`` is not finite or is negative.
         """
-        self._emit_delay_action("dwell", "CUT_DWELL", duration)
+        self._emit_delay_action("pierce", "CUT_PIERCE", duration)
 
     def add_delay(self, duration: float) -> None:
         """Add ``duration`` milliseconds of delay to each cut segment in the
@@ -2495,8 +2495,8 @@ class GlueScript:
             self._frequency_changed = False
             # Deferred power/speed settings — defaults mirror the
             # declare_layer() args.
-            self._pending_min_power = min_power_1
-            self._pending_max_power = max_power_1
+            self._pending_min_power = 8.0
+            self._pending_max_power = 70.0
             self._pending_warnings = []
             self._speed_dirty = False
             self._power_dirty = True

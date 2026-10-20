@@ -3601,10 +3601,10 @@ class TuiAdapter(App):
             lambda: self._ensure_gluescript_driver().select_laser(laser)
         )
 
-    def gluescript_dwell(self, duration: float) -> None:
-        """Fire the laser in place for ``duration`` ms (session-less)."""
+    def gluescript_pierce(self, duration: float) -> None:
+        """Pierce the laser in place for ``duration`` ms (session-less)."""
         return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().dwell(duration)
+            lambda: self._ensure_gluescript_driver().pierce(duration)
         )
 
     def gluescript_add_delay(self, duration: float) -> None:

@@ -564,9 +564,9 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info(f"[RPC] gluescript select_laser({laser})")
         return self._exposed_gluescript("select_laser", laser)
 
-    def exposed_dwell(self, duration: float) -> None:
-        self._rpc_info(f"[RPC] gluescript dwell({duration})")
-        return self._exposed_gluescript("dwell", duration)
+    def exposed_pierce(self, duration: float) -> None:
+        self._rpc_info(f"[RPC] gluescript pierce({duration})")
+        return self._exposed_gluescript("pierce", duration)
 
     def exposed_add_delay(self, duration: float) -> None:
         self._rpc_info(f"[RPC] gluescript add_delay({duration})")

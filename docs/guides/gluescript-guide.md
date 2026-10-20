@@ -644,21 +644,21 @@ logs a warning
 (`select_laser(2) ignored - only laser head 1 is currently wired in
 rpascript`) and emits nothing, so the job keeps a single-head transcript.
 
-#### `dwell(duration: float)`
+#### `pierce(duration: float)`
 
-Fire the laser **in place** at the current position for `duration`
-milliseconds, then continue with the next action — the "dwell on move"
+Pierce the laser **in place** at the current position for `duration`
+milliseconds, then continue with the next action — the "pierce on move"
 pattern. The head does not move while the laser fires: position it first with
-`move_xy_to()`/`cut_xy_to()`, dwell, then move on. Expands to `CUT_DWELL`
+`move_xy_to()`/`cut_xy_to()`, pierce, then move on. Expands to `CUT_PIERCE`
 using the rpascript `TIME` format:
 
 ```python
 driver.move_xy_to(365.0, 225.0)
-driver.dwell(100.0)
+driver.pierce(100.0)
 driver.move_x_to(360.0)
 # Produces:
 #   MOVE_FAR_XY X=365.000mm Y=225.000mm
-#   CUT_DWELL 100.000mS
+#   CUT_PIERCE 100.000mS
 #   MOVE_NEAR_X nearX=-5.000mm
 ```
 
