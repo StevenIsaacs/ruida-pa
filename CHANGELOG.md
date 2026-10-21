@@ -130,6 +130,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   framing) moved up into `RdTransport` (`_wait_for_stream_data` + the
   `_stream_rx` buffer), which also fixes variable-length `CSTRING` replies
   (e.g. `MEM_MAINBOARD_VERSION`) being mis-framed over TCP.
+- `docs/designs/RuidaDriver-design.md` aligned with the TCP and BUSY changes:
+  the architecture diagram now shows TCP, the L4/L5 responsibilities and
+  handshake-thread states describe TCP (ACKs, stream reassembly, `is_tcp`,
+  `ACK_PENDING` for UDP/TCP), and the `BUSY` transport/session events and
+  `REPLY_PENDING → SEND_QUERY` (BUSY) / `REPLY_PENDING → IDLE` (BUSY/TIMEOUT)
+  transitions are documented.
 
 ### Fixed
 
