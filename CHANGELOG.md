@@ -124,6 +124,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names remain as **deprecated aliases** emitting a `DeprecationWarning`
   and are scheduled for removal in a future release. The runtime error
   messages ("Call start() first.") were updated to "Call connect() first."
+- `TcpTransport` is now a raw byte-stream transport — it no longer takes an
+  `RpaSwizzler` or knows the Ruida protocol (`ACK`, `0xDA`, 9-byte replies),
+  and `read()` returns raw interface bytes. TCP stream reassembly (ACK/reply
+  framing) moved up into `RdTransport` (`_wait_for_stream_data` + the
+  `_stream_rx` buffer), which also fixes variable-length `CSTRING` replies
+  (e.g. `MEM_MAINBOARD_VERSION`) being mis-framed over TCP.
 
 ### Fixed
 

@@ -152,7 +152,7 @@ class TransportEvent(Enum):
 
 **File:** `ruidadriver/rd_transport.py`
 
-`RdTransport` is the central L4 class. It wraps `UdpTransport` and `UsbTransport`, providing a unified interface for upper layers with automatic transport selection, swizzle packing, checksum calculation, and command/response sequencing via a dedicated handshake thread.
+`RdTransport` is the central L4 class. It wraps `UdpTransport`, `TcpTransport` and `UsbTransport`, providing a unified interface for upper layers with automatic transport selection, swizzle packing, checksum calculation, and command/response sequencing via a dedicated handshake thread. TCP byte-stream reassembly (ACK/reply framing) is owned here: the lower transport classes return raw bytes only.
 
 #### 3.5.1 Configuration
 
@@ -283,6 +283,8 @@ def _wait_for_data(timeout_ms: int) -> Optional[bytes]
 ```
 
 Polls `transport.read(65536)` in a 5ms polling loop until the deadline. If `_use_gross_timeout` is enabled, replaces the per-call timeout with `_gross_timeout` (default 15s). Returns `None` if the deadline expires or shutdown is detected; returns the raw bytes otherwise.
+
+For a TCP transport, `_wait_for_data` delegates to `_wait_for_stream_data(timeout_ms)`: TCP has no datagram boundaries, so raw bytes are buffered in `_stream_rx` and re-framed into the units the handshake expects — a single ACK byte (separated from any coalesced replies) or a run of reply bytes left for `_unpack_replies` to frame. A reply whose first byte is `0xDA` is held until at least `_MIN_REPLY_LEN` (9) bytes are buffered so a fixed-length reply is not returned early. UDP (datagrams) and USB (no ACK) keep the raw read path.
 
 Gross timeout mode is toggled via `set_gross_timeout(state: bool)` and is used for long-running controller operations (home sequences, etc.).
 

@@ -497,6 +497,22 @@ This class implements the interface with the OS defined USB/Serial interface. It
 	Returns True.
 `is_udp`
 	Returns False.
+### TcpTransport Class -- ruidadriver/transport/tcp_transport.py
+This class implements the interface with the OS defined TCP stream interface for controllers that accept the command stream on TCP port 50200 (e.g. the RDC8445S). It is based upon the Transport abstract class.
+#### API Implementation Specifics
+This transport is a **raw byte-stream** transport: it performs no protocol framing, swizzling or message parsing. `read()` returns raw interface bytes (up to the requested length) or `None`, and it is the responsibility of `RdTransport` (L4) to reassemble the stream into the ACK and reply units the handshake expects — TCP has no datagram boundaries, so an ACK and its replies can arrive in a single read.
+`open(host: str, port: int = 50200)`
+	Opens a TCP connection for an IP address and a port (default 50200).
+`write(packet: bytearray)`
+	Send a packet to the connected device. Lists are not supported.
+	Parameters:
+		 `packet`: This must be a packet formatted for TCP transport (see RdTransport).
+`is_usb`
+	Returns False.
+`is_udp`
+	Returns False.
+`is_tcp`
+	Returns True.
 # Dependencies
 ### rpalib/ruida_transcoder.py -- RdEncoder and RdDecoder
 Jogging commands, machine status monitoring and job execution require translation to and from Ruida controller data formats. The _Driver_ and _Session_ layers in particular need to encode using `RdEncoder` and decode using `RdDecoder`.

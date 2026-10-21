@@ -125,6 +125,12 @@ class RdTransport:
         # Handshake state — "IDLE" when the thread is not processing a batch
         self._handshake_state = "IDLE"
 
+        # TCP stream reassembly buffer (L4). TCP is a byte stream with no
+        # datagram boundaries, so the handshake thread buffers raw bytes here
+        # and re-frames them into the ACK/reply units it expects. Unused for
+        # UDP (datagrams) and USB (no ACK handshake).
+        self._stream_rx = bytearray()
+
     # ---- Configuration and Connection ----
 
     def configure(
@@ -187,6 +193,7 @@ class RdTransport:
             return False
         # Clear stale send queue from any previous connection
         self._send_queue: queue.Queue[list[bytearray]] = queue.Queue(maxsize=256)
+        self._stream_rx.clear()
         self._start_handshake_thread()
         self._notify_status(TransportEvent.OPENED)
         return True
@@ -197,7 +204,7 @@ class RdTransport:
             return None
         if self._protocol == "tcp":
             if self._tcp is None:
-                self._tcp = TcpTransport(self._swizzler)
+                self._tcp = TcpTransport()
             return self._tcp
         if self._udp is None:
             self._udp = UdpTransport()
@@ -226,6 +233,7 @@ class RdTransport:
 
     def drain(self) -> None:
         """Drain all pending data from the underlying transport."""
+        self._stream_rx.clear()
         if self._transport and self._transport.is_open:
             self._transport.drain()
 
@@ -236,6 +244,7 @@ class RdTransport:
         (e.g. when another client connects), leaving a connection that
         looks open but never answers. UDP and USB are left untouched.
         """
+        self._stream_rx.clear()
         if self._transport is not None and self._transport.is_tcp:
             self._transport.close()
 
@@ -519,6 +528,8 @@ class RdTransport:
             bytes on successful read.
             Raises OSError on transport read error (caller handles).
         """
+        if self._transport is not None and self._transport.is_tcp:
+            return self._wait_for_stream_data(timeout_ms)
         if self._use_gross_timeout:
             timeout_ms = self._gross_timeout
         deadline = time.monotonic() + timeout_ms / 1000.0
@@ -530,6 +541,51 @@ class RdTransport:
                 return data
             time.sleep(0.005)  # 5ms polling interval
         return None
+
+    def _wait_for_stream_data(self, timeout_ms: int) -> Optional[bytes]:
+        """Poll a TCP stream and return the next ACK/reply unit.
+
+        TCP has no datagram boundaries, so raw bytes are buffered in
+        ``_stream_rx`` and re-framed here into the units the handshake
+        thread expects: a single ACK byte (separated from any coalesced
+        replies), or a run of reply bytes left for ``_unpack_replies``
+        to frame. A reply whose first byte is 0xDA is held until at least
+        ``_MIN_REPLY_LEN`` bytes are available so a fixed-length reply is
+        not returned early.
+
+        Returns:
+            None on timeout or shutdown.
+            bytes on a complete unit.
+            Raises OSError on transport read error (caller handles).
+        """
+        if self._use_gross_timeout:
+            timeout_ms = self._gross_timeout
+        deadline = time.monotonic() + timeout_ms / 1000.0
+        while True:
+            if self._stream_rx:
+                first = self._swizzler.unswizzle_byte(
+                    self._stream_rx[0], self._swizzler.magic
+                )
+                if first == ACK:
+                    ack = bytes(self._stream_rx[:1])
+                    del self._stream_rx[:1]
+                    return ack
+                if first == 0xDA and len(self._stream_rx) < self._MIN_REPLY_LEN:
+                    if time.monotonic() >= deadline or self._shutdown_event.is_set():
+                        data = bytes(self._stream_rx)
+                        self._stream_rx.clear()
+                        return data
+                else:
+                    data = bytes(self._stream_rx)
+                    self._stream_rx.clear()
+                    return data
+            elif time.monotonic() >= deadline or self._shutdown_event.is_set():
+                return None
+            data = self._transport.read(65536)
+            if data:
+                self._stream_rx.extend(data)
+            else:
+                time.sleep(0.005)  # 5ms polling interval
 
     def _has_get_setting(self, packet: bytearray) -> bool:
         """Check if packet contains a GET_SETTING/memory command.
