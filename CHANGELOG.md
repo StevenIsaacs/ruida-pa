@@ -105,6 +105,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   / `TRANSPORT_USB` events when `TransportEvent.OPENED` fires, so status
   listeners are notified of transport type changes in real time (instead of
   only via the one-time replay at registration).
+- `RdStatusEvent.BUSY` and `TransportEvent.BUSY` — when a `GET_SETTING` query
+  is ACKed but no reply follows (e.g. during a physical `HOME_XY`/`HOME_Z`/
+  `FOCUS_Z`/`HOME_U`), `RdTransport._handshake_loop` now fires `BUSY` instead
+  of a plain reply `TIMEOUT`. `RdStatus._run_reply_pending` treats this as a
+  busy condition rather than a disconnect: it fires `BUSY` once, keeps the
+  connection, and retries without consuming the query failure budget while the
+  controller keeps ACKing. The TUI shows a "Busy (homing)" status instead of
+  "Connected".
 - Version bump to 0.23.0.
 
 ### Changed

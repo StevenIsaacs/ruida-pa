@@ -76,6 +76,73 @@ def test_warning_events_still_emitted(monkeypatch):
     assert RdStatusEvent.TRANSPORT_MALFORMED_REPLY in events
 
 
+def _make_status_with_query(monkeypatch):
+    status, transport = _make_status(monkeypatch, is_udp=True)
+    status._query_cmds = [bytearray(b"\x00")]
+    return status, transport
+
+
+def test_reply_pending_busy_emits_busy_and_retries(monkeypatch):
+    status, transport = _make_status_with_query(monkeypatch)
+    events = []
+    status.register_status_listener(events.append)
+    status._connected = True
+    status._transport_listener(TransportEvent.BUSY)
+
+    state, retries = status._run_reply_pending(3)
+
+    assert state == "SEND_QUERY"
+    assert retries == 3
+    assert RdStatusEvent.BUSY in events
+    assert RdStatusEvent.DISCONNECTED not in events
+    assert status._connected is True
+
+
+def test_reply_pending_busy_emitted_once_per_episode(monkeypatch):
+    status, transport = _make_status_with_query(monkeypatch)
+    events = []
+    status.register_status_listener(events.append)
+
+    status._transport_listener(TransportEvent.BUSY)
+    status._run_reply_pending(3)
+    status._transport_listener(TransportEvent.BUSY)
+    status._run_reply_pending(3)
+
+    assert events.count(RdStatusEvent.BUSY) == 1
+
+
+def test_reply_pending_busy_cleared_on_reply(monkeypatch):
+    status, transport = _make_status_with_query(monkeypatch)
+    events = []
+    status.register_status_listener(events.append)
+
+    status._transport_listener(TransportEvent.BUSY)
+    status._run_reply_pending(3)
+    assert status._busy is True
+
+    status._transport_listener(TransportEvent.REPLY_FORWARDED)
+    state, retries = status._run_reply_pending(3)
+
+    assert state == "WAIT_TO_POLL"
+    assert status._busy is False
+    assert RdStatusEvent.QUERY_RECEIVED in events
+
+
+def test_reply_pending_timeout_exhaustion_still_disconnects(monkeypatch):
+    status, transport = _make_status_with_query(monkeypatch)
+    events = []
+    status.register_status_listener(events.append)
+    status._connected = True
+    status.QUERY_RETRY_DELAY = 0
+
+    state, retries = status._run_reply_pending(1)
+
+    assert state == "CONNECTING"
+    assert retries == 0
+    assert RdStatusEvent.DISCONNECTED in events
+    assert status._connected is False
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):

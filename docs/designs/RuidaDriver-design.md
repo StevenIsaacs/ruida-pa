@@ -252,6 +252,7 @@ When a status change occurs the corresponding event is sent to registered listen
 - **PING_REPLIED**: The reply to the ping command has been received.
 - **QUERY_SENT**: The query `GET_SETTING` command list has been sent.
 - **QUERY_RECEIVED**: The reply to the query list has been received.
+- **BUSY**: The controller ACKed a status query but sent no reply (e.g. during a physical home). The connection is retained and queries are retried without consuming the failure budget.
 - **TRANSPORT_MALFORMED_REPLY**: A reply chunk shorter than the 9-byte minimum was received (re-surfaced from `TransportEvent.MALFORMED_REPLY`). Diagnostic only; does not affect the connection.
 - **TRANSPORT_REPLY_ERROR**: Reply data failed transport validation (re-surfaced from `TransportEvent.REPLY_ERROR`). Diagnostic only.
 - **TRANSPORT_UNEXPECTED_REPLY**: A reply had a valid 0xDA header but an unexpected second byte (re-surfaced from `TransportEvent.UNEXPECTED_REPLY`). Diagnostic only.
@@ -308,6 +309,7 @@ stateDiagram-v2
 	SEND_QUERY --> REPLY_PENDING: Query commands sent.
 	
 	REPLY_PENDING --> WAIT_TO_POLL: _te.REPLY_FORWARDED
+	REPLY_PENDING --> SEND_QUERY: _te.BUSY (ACK, no reply)
 	REPLY_PENDING --> CONNECTING: _te.DROPPED or _te.CLOSED
 	CONNECTING --> [*]: Shutdown
 	WAIT_TO_PING --> [*]: Shutdown
@@ -351,6 +353,7 @@ These are communications status events which are sent to status listeners. Possi
 - **TIMEOUT**: A timeout occurred while waiting for an ACK or a REPLY.
 - **DROPPED**: The underlying transport link was dropped unexpectedly. For example, the Ethernet or USB cable was disconnected or the Ruida controller was turned off.
 - **ACK_RECEIVED**: An ACK has been received.
+- **BUSY**: An ACK was received but the reply timed out — the controller is responsive but busy (e.g. executing a physical home) and is not sending replies.
 - **REPLY_RECEIVED**: A GET_SETTING reply has been received.
 - **REPLY_FORWARDED**: A GET_SETTING reply has been forwarded to listeners.
 - **REPLY_ERROR**: An error in reply data was detected.
@@ -414,7 +417,7 @@ When communicating with a Ruida controller using a UDP transport the controller 
 - **IDLE**: Waiting for data from the App to be sent to the Controller. This is a loop which blocks for a short period of time (timeout is 200mS) on the send queue. The timeout is necessary so that the state can also check for the shutdown signal. The `write` method queues packets to the send queue which will then unblock this thread.
 - **SEND**: This is an interim state where a packet is sent using the active transport.
 - **ACK_PENDING**: A package has been sent to the controller and an ACK is expected in response. NOTE: This state is used only for UDP connections. USB connections do not involve ACKs.
-- **REPLY_PENDING**: One or more GET_SETTING commands have been sent to the controller and an equal number of data replies are expected. All reply packets are accumulated into a single buffer before unpacking, since a reply can span packet boundaries (especially USB).
+- **REPLY_PENDING**: One or more GET_SETTING commands have been sent to the controller and an equal number of data replies are expected. All reply packets are accumulated into a single buffer before unpacking, since a reply can span packet boundaries (especially USB). If the packet was ACKed but no reply arrives before the per-call timeout, the thread fires a **BUSY** status event (the controller is responsive but busy, e.g. homing) rather than **TIMEOUT**; otherwise a **TIMEOUT** is fired.
 This illustrates the various handshake states. 
 
 **In regards to a gross timeout**: On some OSs when waiting on an interface the Ctrl-C keystroke will not be recognized and a UI can become unresponsive. Because of this a gross timeout is handled by doing a number of normal timeouts until the gross time has been exceeded (implemented using a counter).
@@ -437,6 +440,8 @@ stateDiagram-v2
 	SEND --> REPLY_PENDING: NOT UDP and packet sent and reply expected
 	SEND --> IDLE: NOT UDP and packet sent and NO reply expected
 	REPLY_PENDING --> IDLE: Reply received and forwarded to reply listener
+	REPLY_PENDING --> IDLE: BUSY (ACK received, reply timed out)
+	REPLY_PENDING --> IDLE: TIMEOUT (no ACK, reply timed out)
 	IDLE --> [*]: Shutdown
 ```
 

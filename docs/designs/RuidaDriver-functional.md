@@ -140,6 +140,7 @@ class TransportEvent(Enum):
     TIMEOUT           # Timeout while waiting for ACK or reply
     DROPPED           # Underlying link dropped unexpectedly
     ACK_RECEIVED      # UDP ACK byte (0xC6) received
+    BUSY              # ACK received but reply timed out (controller responsive but busy)
     REPLY_RECEIVED    # GET_SETTING reply data received
     REPLY_FORWARDED   # Reply data unpacked and forwarded to listeners
     REPLY_ERROR       # Reply data did not pass validation
@@ -341,6 +342,7 @@ class RdStatusEvent(Enum):
     TRANSPORT_MALFORMED_REPLY   # Re-surfaced TransportEvent.MALFORMED_REPLY (diagnostic)
     TRANSPORT_REPLY_ERROR       # Re-surfaced TransportEvent.REPLY_ERROR (diagnostic)
     TRANSPORT_UNEXPECTED_REPLY  # Re-surfaced TransportEvent.UNEXPECTED_REPLY (diagnostic)
+    BUSY                        # Controller ACKed a status query but sent no reply (e.g. homing)
 ```
 
 ### 4.2 Status Monitor — `RdStatus`
@@ -394,6 +396,7 @@ stateDiagram-v2
 
     REPLY_PENDING --> WAIT_TO_POLL: REPLY_FORWARDED\n(fire QUERY_RECEIVED)
     REPLY_PENDING --> SEND_QUERY: Timeout (retry, drain)
+    REPLY_PENDING --> SEND_QUERY: BUSY (fire BUSY,\nretry, no budget decrement)
     REPLY_PENDING --> CONNECTING: Timeout (retries exhausted,\nfire DISCONNECTED)
     REPLY_PENDING --> CONNECTING: DROPPED or CLOSED
 
@@ -413,7 +416,7 @@ Detailed state behavior:
 | **RESYNC** | Call `transport.drain()` to clear stale data. | → `CONNECTING`. |
 | **WAIT_TO_POLL** | Wait `query_interval` for the query interval to expire. | Timeout → `SEND_QUERY`; `DROPPED`/`CLOSED`/`TIMEOUT` → `CONNECTING`; shutdown → exit. |
 | **SEND_QUERY** | Guard: if transport not open → `CONNECTING`. Send `query_cmds` via `transport.write(query_cmds)`. Fire `QUERY_SENT`. | → `REPLY_PENDING`. |
-| **REPLY_PENDING** | If no `query_cmds` → `WAIT_TO_POLL` immediately. Wait for `REPLY_FORWARDED` (`QUERY_RETRY_DELAY` = 1s timeout). | `REPLY_FORWARDED` → fire `QUERY_RECEIVED` → `WAIT_TO_POLL`; `DROPPED`/`CLOSED` → `CONNECTING`; timeout → drain stale data (guarded by `is_idle`), retry → `SEND_QUERY` while retries remain; retries exhausted (`QUERY_RETRY_COUNT` = 3) → fire `DISCONNECTED` → `CONNECTING`. |
+| **REPLY_PENDING** | If no `query_cmds` → `WAIT_TO_POLL` immediately. Wait for `REPLY_FORWARDED` (`QUERY_RETRY_DELAY` = 1s timeout). | `REPLY_FORWARDED` → fire `QUERY_RECEIVED` → `WAIT_TO_POLL`; `BUSY` (controller ACKed but sent no reply, e.g. homing) → fire `BUSY` once → `SEND_QUERY` without consuming the retry budget; `DROPPED`/`CLOSED` → `CONNECTING`; timeout → drain stale data (guarded by `is_idle`), retry → `SEND_QUERY` while retries remain; retries exhausted (`QUERY_RETRY_COUNT` = 3) → fire `DISCONNECTED` → `CONNECTING`. |
 
 **Dead-controller detection latency:** A dead controller is detected after 3s of query timeouts (`QUERY_RETRY_COUNT` = 3 × `QUERY_RETRY_DELAY` = 1s) — up to ~4s from actual death when the remaining `WAIT_TO_POLL` wait is included. This is the accepted trade-off for responsive UDP↔USB switching.
 

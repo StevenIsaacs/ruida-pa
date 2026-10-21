@@ -39,6 +39,7 @@ class RdStatusEvent(Enum):
     TRANSPORT_MALFORMED_REPLY = "TRANSPORT_MALFORMED_REPLY"
     TRANSPORT_REPLY_ERROR = "TRANSPORT_REPLY_ERROR"
     TRANSPORT_UNEXPECTED_REPLY = "TRANSPORT_UNEXPECTED_REPLY"
+    BUSY = "BUSY"
 
 
 class RdStatus:
@@ -52,6 +53,7 @@ class RdStatus:
         CONNECTING → WAIT_TO_PING → SEND_PING → PING_REPLY → WAIT_TO_POLL
             → SEND_QUERY → REPLY_PENDING → WAIT_TO_POLL (loop)
         REPLY_PENDING → SEND_QUERY (timeout, retry; drains)
+        REPLY_PENDING → SEND_QUERY (BUSY, retry; ACKed but no reply)
         PING_REPLY → RESYNC → CONNECTING (failure recovery)
         Any state → CONNECTING on transport DROPPED/CLOSED
     """
@@ -107,6 +109,9 @@ class RdStatus:
 
         # DISCONNECTED guard — prevents double dispatch in CONNECTING state
         self._disconnect_fired = False
+
+        # BUSY guard — emits RdStatusEvent.BUSY once per busy episode
+        self._busy = False
 
         # Confirmed-connection flag — True only after a ping reply is received
         self._connected: bool = False
@@ -399,6 +404,7 @@ class RdStatus:
         while not self._shutdown.is_set():
             # Any entry into CONNECTING means connectivity is not confirmed
             self._connected = False
+            self._busy = False
 
             # Notify DISCONNECTED exactly once per disconnect cycle
             if self.transport.is_open and not self._disconnect_fired:
@@ -603,6 +609,9 @@ class RdStatus:
         query_retries initialized by WAIT_TO_POLL; persists across retries.
         If query_cmds is empty → WAIT_TO_POLL immediately.
         On REPLY_FORWARDED → notify QUERY_RECEIVED, go to WAIT_TO_POLL.
+        On BUSY (controller ACKed the query but did not reply, e.g. during a
+        physical home) → notify BUSY once, keep retrying without consuming the
+        failure budget. Retries continue while the controller keeps ACKing.
         On DROPPED/CLOSED → CONNECTING.
         On timeout → decrement retries, drain stale data (if handshake idle).
         If retries remain → SEND_QUERY to re-send the query.
@@ -616,6 +625,7 @@ class RdStatus:
                 self.QUERY_RETRY_DELAY,
                 [
                     TransportEvent.REPLY_FORWARDED,
+                    TransportEvent.BUSY,
                     TransportEvent.DROPPED,
                     TransportEvent.CLOSED,
                 ],
@@ -623,10 +633,23 @@ class RdStatus:
             if self._shutdown.is_set():
                 return ("WAIT_TO_POLL", query_retries)
             if event is TransportEvent.REPLY_FORWARDED:
+                self._busy = False
                 self._notify_listeners(RdStatusEvent.QUERY_RECEIVED)
                 self._log_connection("[STATUS] Query reply received")
                 return ("WAIT_TO_POLL", query_retries)
+            if event is TransportEvent.BUSY:
+                # Controller ACKed the query but sent no reply (e.g. homing).
+                # Treat as busy rather than disconnected: retry without
+                # consuming the failure budget while ACKs keep arriving.
+                if not self._busy:
+                    self._busy = True
+                    self._notify_listeners(RdStatusEvent.BUSY)
+                self._log_connection(
+                    "[STATUS] Controller busy (ACK, no reply); retrying"
+                )
+                return ("SEND_QUERY", query_retries)
             if event is TransportEvent.DROPPED or event is TransportEvent.CLOSED:
+                self._busy = False
                 return ("CONNECTING", query_retries)
             # Timeout
             query_retries -= 1

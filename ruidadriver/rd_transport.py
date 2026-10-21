@@ -382,6 +382,7 @@ class RdTransport:
             packet: bytearray | None = None
             batch: list[bytearray] | None = None
             batch_index: int = 0
+            ack_received: bool = False
 
             def advance_batch() -> bool:
                 """Advance to next packet in batch. Sets state to SEND if more packets, IDLE if exhausted."""
@@ -405,6 +406,7 @@ class RdTransport:
                         continue
 
                 elif self._handshake_state == "SEND":
+                    ack_received = False
                     try:
                         self._transport.write(packet)
                     except OSError:
@@ -442,6 +444,7 @@ class RdTransport:
                         continue
                     # Validate ACK (unswizzle then compare with logical ACK byte)
                     if len(data) == 1 and self._swizzler.unswizzle_byte(data[0], self._swizzler.magic) == ACK:
+                        ack_received = True
                         self._notify_status(TransportEvent.ACK_RECEIVED)
                         if self._has_get_setting(packet):
                             self._handshake_state = "REPLY_PENDING"
@@ -463,10 +466,21 @@ class RdTransport:
                         advance_batch()
                         continue
                     if data is None:
-                        self._notify_status(TransportEvent.TIMEOUT)
-                        self._log_connection(
-                            f"[TRANSPORT] TIMEOUT: reply pending ({self._timeout}ms)"
-                        )
+                        if ack_received:
+                            # Controller ACKed the GET_SETTING query but has
+                            # not replied (e.g. a physical home in progress).
+                            # This is a busy condition, not a dead controller.
+                            self._notify_status(TransportEvent.BUSY)
+                            self._log_connection(
+                                f"[TRANSPORT] BUSY: ACK received, "
+                                f"reply pending ({self._timeout}ms)"
+                            )
+                        else:
+                            self._notify_status(TransportEvent.TIMEOUT)
+                            self._log_connection(
+                                f"[TRANSPORT] TIMEOUT: reply pending "
+                                f"({self._timeout}ms)"
+                            )
                         # Mid-batch failure: advance to next packet or go IDLE
                         advance_batch()
                         continue

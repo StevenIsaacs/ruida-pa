@@ -16,6 +16,7 @@ from rpalib.rpa_swizzler import RpaSwizzler
 from ruidadriver.rd_status import RdStatus
 from ruidadriver.rd_transport import RdTransport
 from ruidadriver.transport import TcpTransport
+from ruidadriver.transport_events import TransportEvent
 
 MAGIC = 0x88
 CARD_ID_QUERY = bytes([0xDA, 0x00, 0x05, 0x7E])
@@ -188,3 +189,44 @@ def test_resync_after_ping_failure_closes_stream():
 
     transport.drain.assert_called_once()
     transport.close_stream.assert_called_once()
+
+
+def test_ack_without_reply_fires_busy(server, monkeypatch):
+    port = server.getsockname()[1]
+    received = []
+
+    def controller():
+        peer, _ = server.accept()
+        peer.settimeout(2.0)
+        received.append(peer.recv(64))
+        peer.sendall(swz(bytes([ACK])))  # ACK only, no reply
+        time.sleep(0.5)
+        peer.close()
+
+    thread = threading.Thread(target=controller, daemon=True)
+    thread.start()
+
+    original_open = TcpTransport.open
+    monkeypatch.setattr(
+        TcpTransport,
+        "open",
+        lambda self, host, _port=50200, **kw: original_open(self, host, port),
+    )
+
+    rd = RdTransport()
+    rd.configure(magic=MAGIC, timeout=100)
+    events = []
+    rd.register_status_listener(events.append)
+    assert rd.open(network_host="127.0.0.1", protocol="tcp")
+    rd.write([bytearray(CARD_ID_QUERY)])
+
+    deadline = time.monotonic() + 3.0
+    while TransportEvent.BUSY not in events and time.monotonic() < deadline:
+        time.sleep(0.01)
+    rd.close()
+    thread.join(timeout=2.0)
+
+    assert received == [swz(CARD_ID_QUERY)]
+    assert TransportEvent.ACK_RECEIVED in events
+    assert TransportEvent.BUSY in events
+    assert TransportEvent.TIMEOUT not in events

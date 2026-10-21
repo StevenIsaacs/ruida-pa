@@ -465,6 +465,7 @@ Session-level events fired to status listeners:
 | `TRANSPORT_MALFORMED_REPLY` | Transport received a chunk shorter than the 9-byte reply minimum (diagnostic) |
 | `TRANSPORT_REPLY_ERROR` | Transport reply failed validation (diagnostic) |
 | `TRANSPORT_UNEXPECTED_REPLY` | Reply had a valid 0xDA header but unexpected second byte (diagnostic) |
+| `BUSY` | Controller ACKed a status query but sent no reply (e.g. during a physical home); connection is retained and queries retried |
 <!-- table not formatted: invalid structure -->
 
 ### `StatusDict` (TypedDict)

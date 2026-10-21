@@ -1210,6 +1210,7 @@ class TuiAdapter(App):
             "U": 0.0,
         }
         self._session_disconnected: bool = False
+        self._busy: bool = False
         self._machine_status: int = 0
         self._machine_status_formatted: str = "0"
         self._machine_features: tuple[int, str] | None = None
@@ -5154,11 +5155,21 @@ class TuiAdapter(App):
                     self._log_info(msg)
                 self._session_disconnected = True
                 self._session_connected.clear()
+                self._busy = False
             elif event is RdStatusEvent.CONNECTED:
                 if self._session_disconnected:
                     self._log_info(f"Connected{suffix}")
                 self._session_disconnected = False
                 self._session_connected.set()
+                self._busy = False
+            elif event is RdStatusEvent.BUSY:
+                if not self._busy:
+                    self._busy = True
+                    self._log_info(f"Busy (homing){suffix}")
+            elif event is RdStatusEvent.QUERY_RECEIVED:
+                if self._busy:
+                    self._busy = False
+                    self._log_info(f"Connected{suffix}")
             self._update_status_bar()
 
         self.post_message(Callback(_update))
@@ -5632,6 +5643,8 @@ class TuiAdapter(App):
         # Connection info
         if self._session_disconnected:
             conn = "[red]Disconnected[/red]"
+        elif self._busy:
+            conn = "[yellow]Busy (homing)[/yellow]"
         elif self._ruida_driver is not None and self._ruida_driver.is_connected:
             conn = "[green]Connected[/green]"
         elif self._ruida_driver is not None and self._ruida_driver._session is None:
