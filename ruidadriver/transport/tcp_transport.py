@@ -50,8 +50,6 @@ class TcpTransport(Transport):
     def write(self, packet: bytearray) -> None:
         if self._socket is None:
             raise OSError("Socket is not open")
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("TCP tx: %s", bytes(packet).hex(" "))
         self._socket.settimeout(2.0)
         try:
             self._socket.sendall(bytes(packet))
@@ -82,8 +80,6 @@ class TcpTransport(Transport):
         if not data:
             self.close()
             raise ConnectionResetError("Controller closed the TCP connection")
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("TCP rx: %s", data.hex(" "))
         return data
 
     def drain(self) -> None:
