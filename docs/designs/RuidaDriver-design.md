@@ -14,7 +14,7 @@ In the following the pattern **AGENT:** indicates something to be included in a 
 # Introduction
 This document provides an overview of the Ruida Driver. Described are overall structure, and Ruida idiosyncrasies and how they are handled. This is to be implemented using Python. To that end classes and their corresponding APIs are also described in this document.
 
-NOTE: Currently only the X and Y axes are supported. The code is tested using a Ruida RDC6442S controller. Behavior with other controllers is unknown at this time even though many should work as well -- providing the correct swizzle magic number is used.
+NOTE: Currently only the X and Y axes are supported. The code is tested using a Ruida RDC6442S controller. Behavior with other controllers is unknown at this time even though many should work as well -- the correct swizzle magic number is auto-detected from the ACK handshake (256-entry LUT generated from all 256 possible magic values, falling back to Transport.REPLY_ERROR if unknown).
 
 **This document is concerned with layers L4 thru L7 shown in the Structure diagram. Layers L1-L3 are shown for reference and are OS defined.**
 
@@ -61,11 +61,13 @@ columns 3
     l4["Transport (L4)"]
     block:trans
         udp["UDP"]
+        tcp["TCP"]
         ser["USB/Serial"]
     end
 	
     Comms
     rdt <--> udp
+    rdt <--> tcp
     rdt <--> ser
     l3["Network/Datalink/Physical (L1-L3)"]
     block:phy
@@ -73,6 +75,7 @@ columns 3
         USB
     end
     udp <--> Ethernet
+    tcp <--> Ethernet
     ser <--> USB
 ```
 NOTE: Data paths are shown. For simplicity, control and status paths are not shown.
@@ -179,7 +182,7 @@ MACHINE_STATUS_JOB_RUNNING
 ## Session (L5)
 The _Session_ layer manages connections with Ruida controllers. Ruida controllers typically support two types of physical devices; Ethernet and USB. When disconnected this layer monitors both and automatically connects to one when detected. If both interfaces are available, the USB interface is selected because of slightly better performance characteristics.
 
-For Ethernet the transport protocol is UDP and requires an IP address or host name to connect. For USB the transport protocol is serial and requires a USB device name (e.g. `/dev/ttyUSB0`).
+For Ethernet the transport protocol is UDP (default) or TCP and requires an IP address or host name to connect. For USB the transport protocol is serial and requires a USB device name (e.g. `/dev/ttyUSB0`).
 
 NOTE: For Linux, UDEV rules can be used to create symlinks which will be consistent across sessions. For a symlink to be used it must match the `/dev/tty*` pattern. For example, the symlink name and path for a laser named "Banger" must have a UDEV rule to create a symlink named `/dev/ttyBanger`.
 
@@ -252,6 +255,7 @@ When a status change occurs the corresponding event is sent to registered listen
 - **PING_REPLIED**: The reply to the ping command has been received.
 - **QUERY_SENT**: The query `GET_SETTING` command list has been sent.
 - **QUERY_RECEIVED**: The reply to the query list has been received.
+- **BUSY**: The controller ACKed a status query but sent no reply (e.g. during a physical home). The connection is retained and queries are retried without consuming the failure budget.
 - **TRANSPORT_MALFORMED_REPLY**: A reply chunk shorter than the 9-byte minimum was received (re-surfaced from `TransportEvent.MALFORMED_REPLY`). Diagnostic only; does not affect the connection.
 - **TRANSPORT_REPLY_ERROR**: Reply data failed transport validation (re-surfaced from `TransportEvent.REPLY_ERROR`). Diagnostic only.
 - **TRANSPORT_UNEXPECTED_REPLY**: A reply had a valid 0xDA header but an unexpected second byte (re-surfaced from `TransportEvent.UNEXPECTED_REPLY`). Diagnostic only.
@@ -308,6 +312,7 @@ stateDiagram-v2
 	SEND_QUERY --> REPLY_PENDING: Query commands sent.
 	
 	REPLY_PENDING --> WAIT_TO_POLL: _te.REPLY_FORWARDED
+	REPLY_PENDING --> SEND_QUERY: _te.BUSY (ACK, no reply)
 	REPLY_PENDING --> CONNECTING: _te.DROPPED or _te.CLOSED
 	CONNECTING --> [*]: Shutdown
 	WAIT_TO_PING --> [*]: Shutdown
@@ -334,14 +339,15 @@ This layer is responsible for:
 - **Streaming**: Commands in a command sequence are combined into a binary stream for transmission.
 - **Chunking**: As a command list is combined into a binary stream it is broken into transport compatible chunks for transmission to the machine. Chunking always occurs on command boundaries.
 - **packing**: Chunks are packaged:
-	- **Checksums**: For UDP transport, each message sent to the Ruida controller must be preceded by a simple checksum. USB does not use a checksum.
+	- **Checksums**: For UDP transport, each message sent to the Ruida controller must be preceded by a simple checksum. USB and TCP do not use a checksum.
 	- **Swizzle/unswizzle**: Ruida controllers require a light obfuscation of data which is handled in this layer so that other layers are not concerned with obfuscated data. The checksum (if present) is NOT swizzled.
-- **Command/response**: Handling of sequence and timing of sending commands and receiving replies which can be ACKs (UDP only) or, in the case of memory reads, data (handshaking).
+- **Command/response**: Handling of sequence and timing of sending commands and receiving replies which can be ACKs (UDP and TCP) or, in the case of memory reads, data (handshaking).
+- **Stream reassembly (TCP)**: TCP is a byte stream with no datagram boundaries, so this layer buffers raw bytes and re-frames them into the ACK/reply units the handshake expects. The underlying TCP transport returns raw bytes only.
 - **Failure notification**: Informs the session layer of timeouts or unexpected replies.
 ## Ruida Specific Transport (L4)
-This represents the interface between the Ruida Transport and OS specific transport interfaces which in this case are UDP and USB/Serial.
+This represents the interface between the Ruida Transport and OS specific transport interfaces which in this case are UDP, TCP and USB/Serial.
 ### RdTransport Class -- ruidadriver/rd_transport.py
-This class implements the Ruida Transport layer features and is based upon the Transport class. This class also wraps the UdpTransport and UsbTransport classes so that, other than the `configure` method, the upper layers (L5 and L6) can be transport agnostic.
+This class implements the Ruida Transport layer features and is based upon the Transport class. This class also wraps the UdpTransport, TcpTransport and UsbTransport classes so that, other than the `configure` method, the upper layers (L5 and L6) can be transport agnostic.
 #### Listeners
 Two types of listeners can be registered, Status and Reply. Multiple listeners for each type are supported. Currently, listeners can only be registered. There is no corresponding un-register.
 #### Transport Events
@@ -351,6 +357,7 @@ These are communications status events which are sent to status listeners. Possi
 - **TIMEOUT**: A timeout occurred while waiting for an ACK or a REPLY.
 - **DROPPED**: The underlying transport link was dropped unexpectedly. For example, the Ethernet or USB cable was disconnected or the Ruida controller was turned off.
 - **ACK_RECEIVED**: An ACK has been received.
+- **BUSY**: An ACK was received but the reply timed out — the controller is responsive but busy (e.g. executing a physical home) and is not sending replies.
 - **REPLY_RECEIVED**: A GET_SETTING reply has been received.
 - **REPLY_FORWARDED**: A GET_SETTING reply has been forwarded to listeners.
 - **REPLY_ERROR**: An error in reply data was detected.
@@ -404,17 +411,17 @@ def _package(self, data):
 		return _payload
 ```
 ##### Unpacking Data
-Data received from a Ruida controller is always in response to one or more `GET_SETTING` (memory read) commands and there is no checksum. When replies are pending (`REPLY_PENDING`) the handshake thread first accumulates all reply packets into a single buffer — reading until the `_inter_packet_timeout` gap — and only then unpacks it. This is necessary because a reply can span packet boundaries and may not start on a packet edge, which is especially true for USB where `read()` returns arbitrary byte counts. The accumulated data is then un-swizzled and divided into one or more reply data packets. A reply is at least nine bytes (`[0xDA, 0x01, msb, lsb, d0..d4]`) and may be longer for variable-length values such as a C-string; because reply value bytes are 7-bit, each reply ends at the next high-bit byte (the next reply's 0xDA) or the end of the data.
+Data received from a Ruida controller is always in response to one or more `GET_SETTING` (memory read) commands and there is no checksum. When replies are pending (`REPLY_PENDING`) the handshake thread first accumulates all reply packets into a single buffer — reading until the `_inter_packet_timeout` gap — and only then unpacks it. This is necessary because a reply can span packet boundaries and may not start on a packet edge, which is especially true for USB (where `read()` returns arbitrary byte counts) and TCP (a byte stream with no packet boundaries, re-framed by `_wait_for_stream_data`). The accumulated data is then un-swizzled and divided into one or more reply data packets. A reply is at least nine bytes (`[0xDA, 0x01, msb, lsb, d0..d4]`) and may be longer for variable-length values such as a C-string; because reply value bytes are 7-bit, each reply ends at the next high-bit byte (the next reply's 0xDA) or the end of the data.
 
 Each packet is confirmed to be a reply to a `GET_SETTING` command before being added to the packet list. If the first byte is not a 0xDA then a **REPLY_ERROR** is sent to the status listeners and the unpacking process is truncated. If a packet is shorter than the nine-byte minimum a **MALFORMED_REPLY** is sent and the malformed packet is skipped (the scan continues so later valid replies are preserved). If the second byte is not 0x01 an **UNEXPECTED_REPLY** is sent and the unpacking process is truncated. Valid reply data is still sent to reply listeners.
 #### Handshake Thread
 Once a transport interface has been opened a thread is started to run a brute force state machine to deal with Ruida controller specific command and response sequencing.
 
-When communicating with a Ruida controller using a UDP transport the controller responds to each packet with an ACK. Also, when GET_SETTING commands are sent the controller responds with memory read packets. To reduce complexity and to guarantee proper sequencing a handshake thread is used. This state machine is comprised of four states:
+When communicating with a Ruida controller using a UDP or TCP transport the controller responds to each packet with an ACK. Also, when GET_SETTING commands are sent the controller responds with memory read packets. To reduce complexity and to guarantee proper sequencing a handshake thread is used. This state machine is comprised of four states:
 - **IDLE**: Waiting for data from the App to be sent to the Controller. This is a loop which blocks for a short period of time (timeout is 200mS) on the send queue. The timeout is necessary so that the state can also check for the shutdown signal. The `write` method queues packets to the send queue which will then unblock this thread.
 - **SEND**: This is an interim state where a packet is sent using the active transport.
-- **ACK_PENDING**: A package has been sent to the controller and an ACK is expected in response. NOTE: This state is used only for UDP connections. USB connections do not involve ACKs.
-- **REPLY_PENDING**: One or more GET_SETTING commands have been sent to the controller and an equal number of data replies are expected. All reply packets are accumulated into a single buffer before unpacking, since a reply can span packet boundaries (especially USB).
+- **ACK_PENDING**: A package has been sent to the controller and an ACK is expected in response. NOTE: This state is used for UDP and TCP connections. USB connections do not involve ACKs.
+- **REPLY_PENDING**: One or more GET_SETTING commands have been sent to the controller and an equal number of data replies are expected. All reply packets are accumulated into a single buffer before unpacking, since a reply can span packet boundaries (especially USB and TCP). If the packet was ACKed but no reply arrives before the per-call timeout, the thread fires a **BUSY** status event (the controller is responsive but busy, e.g. homing) rather than **TIMEOUT**; otherwise a **TIMEOUT** is fired.
 This illustrates the various handshake states. 
 
 **In regards to a gross timeout**: On some OSs when waiting on an interface the Ctrl-C keystroke will not be recognized and a UI can become unresponsive. Because of this a gross timeout is handled by doing a number of normal timeouts until the gross time has been exceeded (implemented using a counter).
@@ -431,17 +438,19 @@ title: Handshake States
 stateDiagram-v2
 	[*] --> IDLE
 	IDLE --> SEND: Packet read from queue
-	SEND --> ACK_PENDING: UDP and packet sent
+	SEND --> ACK_PENDING: UDP/TCP and packet sent
 	ACK_PENDING --> REPLY_PENDING: ACK received and reply expected
 	ACK_PENDING --> IDLE: ACK received and NO reply expected
-	SEND --> REPLY_PENDING: NOT UDP and packet sent and reply expected
-	SEND --> IDLE: NOT UDP and packet sent and NO reply expected
+	SEND --> REPLY_PENDING: USB and packet sent and reply expected
+	SEND --> IDLE: USB and packet sent and NO reply expected
 	REPLY_PENDING --> IDLE: Reply received and forwarded to reply listener
+	REPLY_PENDING --> IDLE: BUSY (ACK received, reply timed out)
+	REPLY_PENDING --> IDLE: TIMEOUT (no ACK, reply timed out)
 	IDLE --> [*]: Shutdown
 ```
 
 ### Transport Abstract Class -- ruidadriver/transport.py
-This is an abstract class on which the other transport classes (UDP and USB) are based and is designed to be called only from the `RdTransport` class. It defines a standardized API for transport classes defined below.  This defines the following methods:
+This is an abstract class on which the other transport classes (UDP, TCP and USB) are based and is designed to be called only from the `RdTransport` class. It defines a standardized API for transport classes defined below.  This defines the following methods:
 `open(**args)`
 	Open a device for communications. Returns True if the device was successfully opened. NOTE: This only means the OS opened the interface. No communications occurs at this time. No other method in this class can be called if not open.
 	Parameters:
@@ -453,7 +462,7 @@ This is an abstract class on which the other transport classes (UDP and USB) are
 	Parameters:
 		`packet`: A packet to write to the interface.
 `read(length: int) -> bytes` 
-	A non-blocking read of data from the interface. This immediately returns None if no data is available. This method can be used for polling but the caller is responsible for call interval timing and timeouts.
+	A non-blocking read of raw bytes from the interface. This immediately returns None if no data is available. This method can be used for polling but the caller is responsible for call interval timing and timeouts. No protocol framing, swizzling or message parsing is performed here — the caller (`RdTransport`, L4) owns reassembly into Ruida ACK/reply units.
 	  Parameters:
 		  - **max** The maximum number of bytes to read.
 `drain()`
@@ -464,6 +473,8 @@ This is an abstract class on which the other transport classes (UDP and USB) are
 	A property which returns True if the active transport is USB/Serial.
 `is_udp`
 	A property which returns True if the active transport is UDP.
+`is_tcp`
+	A property which returns True if the active transport is TCP.
 ### UdpTransport Class -- ruidadriver/transport/udp_transport.py
 This class implements the interface with the OS defined UDP interface. It is based upon the Transport abstract class.
 #### API Implementation Specifics
@@ -492,6 +503,22 @@ This class implements the interface with the OS defined USB/Serial interface. It
 	Returns True.
 `is_udp`
 	Returns False.
+### TcpTransport Class -- ruidadriver/transport/tcp_transport.py
+This class implements the interface with the OS defined TCP stream interface for controllers that accept the command stream on TCP port 50200 (e.g. the RDC8445S). It is based upon the Transport abstract class.
+#### API Implementation Specifics
+This transport is a **raw byte-stream** transport: it performs no protocol framing, swizzling or message parsing. `read()` returns raw interface bytes (up to the requested length) or `None`, and it is the responsibility of `RdTransport` (L4) to reassemble the stream into the ACK and reply units the handshake expects — TCP has no datagram boundaries, so an ACK and its replies can arrive in a single read.
+`open(host: str, port: int = 50200)`
+	Opens a TCP connection for an IP address and a port (default 50200).
+`write(packet: bytearray)`
+	Send a packet to the connected device. Lists are not supported.
+	Parameters:
+		 `packet`: This must be a packet formatted for TCP transport (see RdTransport).
+`is_usb`
+	Returns False.
+`is_udp`
+	Returns False.
+`is_tcp`
+	Returns True.
 # Dependencies
 ### rpalib/ruida_transcoder.py -- RdEncoder and RdDecoder
 Jogging commands, machine status monitoring and job execution require translation to and from Ruida controller data formats. The _Driver_ and _Session_ layers in particular need to encode using `RdEncoder` and decode using `RdDecoder`.
@@ -517,6 +544,7 @@ In the following a directory name is preceded by a `+` and a file is preceded by
 	| transport.py       # Contains Transport abstract class.
 	+ transport # Underlying transports.
 	  | udp_transport.py # Contains UdpTransport class.
+	  | tcp_transport.py # Contains TcpTransport class.
 	  | usb_transport.py # Contains UsbTransport class.
 + rpalib
 	| app_adapter.py     # The AppAdapter abstract and template class.

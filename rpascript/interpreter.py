@@ -678,7 +678,7 @@ class ScriptInterpreter:
                     return
 
                 driver = RdDriver()
-                opened = driver.start(
+                opened = driver.connect(
                     network_host=params.get("host", ""),
                     usb_device=params.get("usb", ""),
                     magic=_magic,
@@ -693,7 +693,7 @@ class ScriptInterpreter:
 
             elif cmd["type"] == "SESSION_END":
                 if driver is not None:
-                    driver.stop()
+                    driver.disconnect()
                     driver = None
 
             else:
@@ -713,7 +713,7 @@ class ScriptInterpreter:
 
         # Clean up if session wasn't explicitly ended
         if driver is not None:
-            driver.stop()
+            driver.disconnect()
 
     # ------------------------------------------------------------------
     # Command encoding

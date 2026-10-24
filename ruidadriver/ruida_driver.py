@@ -13,6 +13,7 @@ from __future__ import annotations
 import queue
 import threading
 import logging
+import warnings
 from typing import Any, Callable, TypedDict
 
 import protocols.ruida.ruida_protocol as rdap
@@ -43,6 +44,11 @@ class StatusDict(TypedDict, total=False):
     _JOB_RUNNING appear as separate keys when their bits change.
     Dimension values (POSITION_*, BED_SIZE_*) are tuple[float, str]
     with the float in mm.
+
+    TRANSPORT is only ever present in ``RdDriver.current_status`` (derived
+    live from the session); it is never fired as a change event. Its value
+    is ``(event_name, label)`` — e.g. ``("TRANSPORT_UDP", "UDP")`` — reusing
+    the RdStatusEvent transport identifiers.
     """
 
     POSITION_X: tuple[float, str]
@@ -58,6 +64,7 @@ class StatusDict(TypedDict, total=False):
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_PAUSED: bool
     MACHINE_STATUS_JOB_RUNNING: bool
+    TRANSPORT: tuple[str, str]
 
 
 class RdDriver(GlueScript):
@@ -70,10 +77,10 @@ class RdDriver(GlueScript):
     Usage::
         driver = RdDriver()
         driver.register_status_listener(...)
-        driver.start(network_host='192.168.1.100')
+        driver.connect(network_host='192.168.1.100')
         driver.run(['GET_SETTING MEM_CARD_ID'])
         # ... script executes in background ...
-        driver.stop()
+        driver.disconnect()
     """
 
     # Generic status-dict key emitted for each handled reply address.
@@ -114,7 +121,7 @@ class RdDriver(GlueScript):
     ]
 
     def __init__(self) -> None:
-        """Initialize RdDriver. No session yet — call start() to connect."""
+        """Initialize RdDriver. No session yet — call connect() to connect."""
         super().__init__()
         self._session: RdSession | None = None
         self._script_queue: queue.Queue = queue.Queue()
@@ -131,6 +138,7 @@ class RdDriver(GlueScript):
         self._start_magic: int = 0x88
         self._start_protocol: str = "udp"
         self._decoded_values: dict[int, Any] = {}
+        self._current_status: StatusDict = {}
         self._build_status_map()
         self._head_script: list[str] = [
             "REF_POINT_MACHINE",
@@ -217,7 +225,7 @@ class RdDriver(GlueScript):
 
     # ---- Driver Lifecycle ----
 
-    def start(
+    def connect(
         self,
         network_host: str | None = None,
         usb_device: str | None = None,
@@ -225,7 +233,7 @@ class RdDriver(GlueScript):
         protocol: str | None = None,
         udp_host: str | None = None,
     ) -> bool:
-        """Start the driver: create session, configure transport, open, start script runner.
+        """Connect the driver: create session, configure transport, open, start script runner.
 
         Creates an RdSession, configures transport with the given parameters,
         opens the transport (non-fatal if it fails — status monitor retries),
@@ -263,7 +271,7 @@ class RdDriver(GlueScript):
                 or (usb_device and usb_device != self._start_usb_device)
                 or protocol != self._start_protocol
             ):
-                self.stop()
+                self.disconnect()
             else:
                 return True
 
@@ -280,27 +288,91 @@ class RdDriver(GlueScript):
         self._start_script_runner()
         return opened
 
-    def stop(self) -> None:
-        """Stop the driver: stop script runner, disconnect session, clean up.
+    def start(
+        self,
+        network_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+        protocol: str | None = None,
+        udp_host: str | None = None,
+    ) -> bool:
+        """Deprecated alias for :meth:`connect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`connect`.
+        """
+        warnings.warn(
+            "RdDriver.start() is deprecated; use connect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.connect(
+            network_host=network_host,
+            usb_device=usb_device,
+            magic=magic,
+            protocol=protocol,
+            udp_host=udp_host,
+        )
+
+    def disconnect(self) -> None:
+        """Disconnect the driver: stop script runner, disconnect session, clean up.
 
         Idempotent — safe to call multiple times. Connection parameters
-        persist for reuse on next start() call.
+        persist for reuse on next connect() call.
+
+        When a session is actually torn down, registered status listeners
+        receive a terminal DISCONNECTED event. Listeners themselves persist
+        on the driver and remain registered for later connect() cycles.
         """
         self._stop_script_runner()
         if self._session is not None:
             self._session.disconnect()
             self._session = None
+            self._on_status_event(RdStatusEvent.DISCONNECTED)
+
+    def stop(self) -> None:
+        """Deprecated alias for :meth:`disconnect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`disconnect`.
+        """
+        warnings.warn(
+            "RdDriver.stop() is deprecated; use disconnect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.disconnect()
 
     # ---- Listener Registration ----
+
+    @staticmethod
+    def _transport_event(session: RdSession) -> RdStatusEvent:
+        """Return the RdStatusEvent transport identifier for an open session.
+
+        USB takes precedence, then TCP; anything else is treated as UDP. This
+        is the single source of the transport derivation, shared by the
+        ``register_status_listener`` replay and ``current_status``.
+        """
+        if session.is_usb:
+            return RdStatusEvent.TRANSPORT_USB
+        if session.transport.is_tcp:
+            return RdStatusEvent.TRANSPORT_TCP
+        return RdStatusEvent.TRANSPORT_UDP
 
     def register_status_listener(
         self, listener: Callable[[RdStatusEvent | StatusDict], None]
     ) -> None:
         """Register a listener for RdStatusEvent notifications. Thread-safe.
 
-        If a session is already connected when the listener registers,
-        the current transport type and CONNECTED event are replayed to
-        the new listener so it receives up-to-date state.
+        The driver's current connection state is replayed to the new
+        listener so it is immediately informed of the state, whether the
+        driver is registered before connecting, after disconnecting, or
+        mid-session:
+        - Connected: the current transport type and CONNECTED event are
+          replayed.
+        - Not connected (no session, or disconnected): DISCONNECTED is
+          replayed.
+
+        Listeners persist on the driver across connect()/disconnect()
+        cycles — they are never cleared by the lifecycle methods.
         """
         with self._lock:
             self._status_listeners.append(listener)
@@ -308,17 +380,15 @@ class RdDriver(GlueScript):
 
         # Replay current connection state to late-joining listener
         if session is not None and session.is_connected:
-            if session.is_usb:
-                transport_event = RdStatusEvent.TRANSPORT_USB
-            elif session.transport.is_tcp:
-                transport_event = RdStatusEvent.TRANSPORT_TCP
-            else:
-                transport_event = RdStatusEvent.TRANSPORT_UDP
-            for event in (transport_event, RdStatusEvent.CONNECTED):
-                try:
-                    listener(event)
-                except Exception:
-                    pass  # Isolate bad callbacks
+            transport_event = RdDriver._transport_event(session)
+            replay_events = (transport_event, RdStatusEvent.CONNECTED)
+        else:
+            replay_events = (RdStatusEvent.DISCONNECTED,)
+        for event in replay_events:
+            try:
+                listener(event)
+            except Exception:
+                pass  # Isolate bad callbacks
 
     def register_error_listener(self, listener: Callable[[str], None]) -> None:
         """Register a listener for error message notifications. Thread-safe."""
@@ -551,8 +621,23 @@ class RdDriver(GlueScript):
                 else:
                     event_value = new_value
 
+                formatted = self._format_status_value(address, raw_reply)
+
+                # Maintain the full current-status snapshot: record the most
+                # recent (value, formatted) tuple on EVERY reply, not just on
+                # change — current_status is the complete latest controller
+                # state, unlike the changes-only dict fired to listeners. The
+                # 0x0400 bit fields are refreshed on every machine-status reply.
+                with self._lock:
+                    self._current_status[status_key] = (event_value, formatted)
+                    if address == 0x0400:
+                        self._current_status.update(
+                            self._machine_status_bits(
+                                address, prev, new_value, self._address_to_bit_keys
+                            )
+                        )
+
                 if prev is _UNSET or prev != new_value:
-                    formatted = self._format_status_value(address, raw_reply)
                     changes[status_key] = (event_value, formatted)
 
                     changes.update(
@@ -610,7 +695,7 @@ class RdDriver(GlueScript):
         self._cancel_flag = False
 
         if self._session is None:
-            raise RuntimeError("Session not created. Call start() first.")
+            raise RuntimeError("Session not created. Call connect() first.")
 
         # 1. Configure RdStatus with ping/query commands (before starting anything)
         parser = ScriptParser(warning_callback=lambda msg, syn: logging.warning(f"{msg}  |  Syntax: {syn}"))
@@ -802,7 +887,7 @@ class RdDriver(GlueScript):
         with self._lock:
             if self._runner_thread is None or not self._runner_thread.is_alive():
                 raise RuntimeError(
-                    "Script runner not started. Call start() first."
+                    "Script runner not started. Call connect() first."
                 )
             if not script:
                 return  # Empty script is a no-op
@@ -930,6 +1015,31 @@ class RdDriver(GlueScript):
         """Current machine status dict (address → decoded value). Read-only snapshot."""
         with self._lock:
             return dict(self._decoded_values)
+
+    @property
+    def current_status(self) -> StatusDict:
+        """Most recent controller replies for all tracked status fields.
+
+        A StatusDict with every tracked status key present (and refreshed on
+        each corresponding reply), unlike the change-only StatusDict fired to
+        status listeners. Non-bool values are ``(value, formatted_string)``
+        tuples; dimension fields (POSITION_*, BED_SIZE_*) hold mm floats.
+        Read-only snapshot copy.
+
+        While the session is connected a ``TRANSPORT`` entry is derived live
+        from the active interface as ``(event_name, label)`` — e.g.
+        ``("TRANSPORT_UDP", "UDP")``. It is absent when there is no session or
+        the session is not connected, so the snapshot reflects the transport
+        at read time without any listener ordering.
+        """
+        with self._lock:
+            snapshot = dict(self._current_status)
+            session = self._session
+        if session is not None and session.is_connected:
+            event = RdDriver._transport_event(session)
+            label = event.value.removeprefix("TRANSPORT_")
+            snapshot["TRANSPORT"] = (event.value, label)
+        return snapshot
 
     # ---- Head / Tail Script Management ----
 

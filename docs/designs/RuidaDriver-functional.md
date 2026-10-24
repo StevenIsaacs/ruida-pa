@@ -10,7 +10,7 @@
 
 The Ruida Driver is a layered Python library and toolchain for communicating with Ruida laser controllers (e.g., the RDC6442S). It provides:
 
-- **Transport-agnostic communication** over UDP (Ethernet) or USB (serial), with automatic interface selection.
+- **Transport-agnostic communication** over UDP (Ethernet), TCP (port 50200), or USB (serial), with automatic interface selection and auto-detected swizzle magic from the ACK handshake.
 - **Connection lifecycle management** — automatic connect, ping-based health monitoring, and reconnect on failure.
 - **Script execution** — human-readable `.rds` scripts (rpascript format) are parsed, encoded to Ruida binary commands, and transmitted to the controller.
 - **Status monitoring** — periodic query commands poll controller memory for machine position, status bits, and card identity.
@@ -68,7 +68,7 @@ flowchart TD
     NRL["RdTransport._notify_reply_listeners()\n(reply data listeners)"]
     NS["RdTransport._notify_status()\n(TransportEvent listeners)"]
     RS["RdStatus._transport_listener (L5)\nevent-driven state machine\nsets threading.Event"]
-    DR["RdDriver._on_reply() (L6)\nRdDecoder.decode_address() / decode_value()\nupdate _machine_status dict\nfire MACHINE_STATUS_* events\nqueue FEATURES_SCRIPT on MEM_CARD_ID reply\nforward raw replies to reply listeners"]
+    DR["RdDriver._on_reply() (L6)\nRdDecoder.decode_address() / decode_value()\nupdate _machine_status dict + _current_status StatusDict\nfire MACHINE_STATUS_* events\nqueue FEATURES_SCRIPT on MEM_CARD_ID reply\nforward raw replies to reply listeners"]
     TUI["TuiAdapter.on_reply_data() (L7)\ndisplay in TUI side panel"]
     RC --> TR --> HST
     HST --> NRL
@@ -140,6 +140,7 @@ class TransportEvent(Enum):
     TIMEOUT           # Timeout while waiting for ACK or reply
     DROPPED           # Underlying link dropped unexpectedly
     ACK_RECEIVED      # UDP ACK byte (0xC6) received
+    BUSY              # ACK received but reply timed out (controller responsive but busy)
     REPLY_RECEIVED    # GET_SETTING reply data received
     REPLY_FORWARDED   # Reply data unpacked and forwarded to listeners
     REPLY_ERROR       # Reply data did not pass validation
@@ -151,7 +152,7 @@ class TransportEvent(Enum):
 
 **File:** `ruidadriver/rd_transport.py`
 
-`RdTransport` is the central L4 class. It wraps `UdpTransport` and `UsbTransport`, providing a unified interface for upper layers with automatic transport selection, swizzle packing, checksum calculation, and command/response sequencing via a dedicated handshake thread.
+`RdTransport` is the central L4 class. It wraps `UdpTransport`, `TcpTransport` and `UsbTransport`, providing a unified interface for upper layers with automatic transport selection, swizzle packing, checksum calculation, and command/response sequencing via a dedicated handshake thread. TCP byte-stream reassembly (ACK/reply framing) is owned here: the lower transport classes return raw bytes only.
 
 #### 3.5.1 Configuration
 
@@ -229,8 +230,8 @@ stateDiagram-v2
     SEND --> REPLY_PENDING: Packet sent; transport is USB\nand GET_SETTING present
     SEND --> IDLE: Packet sent; transport is USB\nand no GET_SETTING
 
-    ACK_PENDING --> REPLY_PENDING: 0xC6 ACK received\nand reply expected
-    ACK_PENDING --> IDLE: 0xC6 ACK received\nand no reply expected
+    ACK_PENDING --> REPLY_PENDING: ACK received and reply expected
+    ACK_PENDING --> IDLE: ACK received and no reply expected
     ACK_PENDING --> IDLE: non-ACK data (REPLY_ERROR)
     ACK_PENDING --> IDLE: Timeout (TIMEOUT)
 
@@ -250,8 +251,8 @@ stateDiagram-v2
 | `SEND` | Packet written; transport is UDP | `ACK_PENDING` |
 | `SEND` | Packet written; transport is USB; packet has GET_SETTING | `REPLY_PENDING` |
 | `SEND` | Packet written; transport is USB; no GET_SETTING | `IDLE` |
-| `ACK_PENDING` | Received 0xC6 ACK byte; reply expected | `REPLY_PENDING` |
-| `ACK_PENDING` | Received 0xC6 ACK byte; no reply expected | `IDLE` |
+| `ACK_PENDING` | ACK byte received; reply expected (magic auto-detected from LUT) | `REPLY_PENDING` |
+| `ACK_PENDING` | ACK byte received; no reply expected | `IDLE` |
 | `ACK_PENDING` | Received non-ACK data | `REPLY_ERROR` → `IDLE` |
 | `ACK_PENDING` | Timeout | `TIMEOUT` → `IDLE` |
 | `REPLY_PENDING` | All reply packets accumulated, then unpacked and forwarded | `IDLE` |
@@ -282,6 +283,8 @@ def _wait_for_data(timeout_ms: int) -> Optional[bytes]
 ```
 
 Polls `transport.read(65536)` in a 5ms polling loop until the deadline. If `_use_gross_timeout` is enabled, replaces the per-call timeout with `_gross_timeout` (default 15s). Returns `None` if the deadline expires or shutdown is detected; returns the raw bytes otherwise.
+
+For a TCP transport, `_wait_for_data` delegates to `_wait_for_stream_data(timeout_ms)`: TCP has no datagram boundaries, so raw bytes are buffered in `_stream_rx` and re-framed into the units the handshake expects — a single ACK byte (separated from any coalesced replies) or a run of reply bytes left for `_unpack_replies` to frame. A reply whose first byte is `0xDA` is held until at least `_MIN_REPLY_LEN` (9) bytes are buffered so a fixed-length reply is not returned early. UDP (datagrams) and USB (no ACK) keep the raw read path.
 
 Gross timeout mode is toggled via `set_gross_timeout(state: bool)` and is used for long-running controller operations (home sequences, etc.).
 
@@ -341,6 +344,7 @@ class RdStatusEvent(Enum):
     TRANSPORT_MALFORMED_REPLY   # Re-surfaced TransportEvent.MALFORMED_REPLY (diagnostic)
     TRANSPORT_REPLY_ERROR       # Re-surfaced TransportEvent.REPLY_ERROR (diagnostic)
     TRANSPORT_UNEXPECTED_REPLY  # Re-surfaced TransportEvent.UNEXPECTED_REPLY (diagnostic)
+    BUSY                        # Controller ACKed a status query but sent no reply (e.g. homing)
 ```
 
 ### 4.2 Status Monitor — `RdStatus`
@@ -394,6 +398,7 @@ stateDiagram-v2
 
     REPLY_PENDING --> WAIT_TO_POLL: REPLY_FORWARDED\n(fire QUERY_RECEIVED)
     REPLY_PENDING --> SEND_QUERY: Timeout (retry, drain)
+    REPLY_PENDING --> SEND_QUERY: BUSY (fire BUSY,\nretry, no budget decrement)
     REPLY_PENDING --> CONNECTING: Timeout (retries exhausted,\nfire DISCONNECTED)
     REPLY_PENDING --> CONNECTING: DROPPED or CLOSED
 
@@ -413,7 +418,7 @@ Detailed state behavior:
 | **RESYNC** | Call `transport.drain()` to clear stale data. | → `CONNECTING`. |
 | **WAIT_TO_POLL** | Wait `query_interval` for the query interval to expire. | Timeout → `SEND_QUERY`; `DROPPED`/`CLOSED`/`TIMEOUT` → `CONNECTING`; shutdown → exit. |
 | **SEND_QUERY** | Guard: if transport not open → `CONNECTING`. Send `query_cmds` via `transport.write(query_cmds)`. Fire `QUERY_SENT`. | → `REPLY_PENDING`. |
-| **REPLY_PENDING** | If no `query_cmds` → `WAIT_TO_POLL` immediately. Wait for `REPLY_FORWARDED` (`QUERY_RETRY_DELAY` = 1s timeout). | `REPLY_FORWARDED` → fire `QUERY_RECEIVED` → `WAIT_TO_POLL`; `DROPPED`/`CLOSED` → `CONNECTING`; timeout → drain stale data (guarded by `is_idle`), retry → `SEND_QUERY` while retries remain; retries exhausted (`QUERY_RETRY_COUNT` = 3) → fire `DISCONNECTED` → `CONNECTING`. |
+| **REPLY_PENDING** | If no `query_cmds` → `WAIT_TO_POLL` immediately. Wait for `REPLY_FORWARDED` (`QUERY_RETRY_DELAY` = 1s timeout). | `REPLY_FORWARDED` → fire `QUERY_RECEIVED` → `WAIT_TO_POLL`; `BUSY` (controller ACKed but sent no reply, e.g. homing) → fire `BUSY` once → `SEND_QUERY` without consuming the retry budget; `DROPPED`/`CLOSED` → `CONNECTING`; timeout → drain stale data (guarded by `is_idle`), retry → `SEND_QUERY` while retries remain; retries exhausted (`QUERY_RETRY_COUNT` = 3) → fire `DISCONNECTED` → `CONNECTING`. |
 
 **Dead-controller detection latency:** A dead controller is detected after 3s of query timeouts (`QUERY_RETRY_COUNT` = 3 × `QUERY_RETRY_DELAY` = 1s) — up to ~4s from actual death when the remaining `WAIT_TO_POLL` wait is included. This is the accepted trade-off for responsive UDP↔USB switching.
 
@@ -557,6 +562,7 @@ RdDriver(session: RdSession)
 Stores the session reference, initializes:
 - `_script_queue`: `queue.Queue` for background script execution
 - `_machine_status`: `dict[int, Any]` mapping memory addresses to decoded values
+- `_current_status`: `StatusDict` holding the most recent reply for every tracked status field
 - `_status_listeners`, `_reply_listeners`: registered application callbacks
 
 #### 5.1.2 Hardcoded Commands
@@ -646,9 +652,17 @@ Called from the handshake thread for each batch of unpacked replies:
    - Decode address via `RdDecoder.decode_address()`.
    - Decode value via `RdDecoder.decode_value()`.
    - Store in `_machine_status[address]`.
-   - If address is `0x0400` (machine status): parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, `MACHINE_STATUS_JOB_RUNNING` events and fire them.
+   - Store the `(value, formatted)` tuple in `_current_status[<status_key>]` for the addressed field on **every** reply (not just on change), so `current_status` always reflects the most recent controller state for all tracked fields.
+   - If address is `0x0400` (machine status): refresh the `MACHINE_STATUS` entry and parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, `MACHINE_STATUS_JOB_RUNNING` keys in `_current_status`.
    - If address is `0x057E` (card ID): queue `_FEATURES_SCRIPT` via `self.run()`, wrapped in `try/except JobRunningError: pass` — the bed-size/features queries are skipped while a job runs and retried on the next card-ID reply (see §5.1.10).
 2. Forward raw replies to all registered reply listeners.
+
+`current_status` adds one synthetic entry beyond the reply-derived fields: while
+the session is connected it derives `TRANSPORT` live from the active interface
+as `(event_name, label)` (`("TRANSPORT_UDP", "UDP")`, `_TCP`, or `_USB`), using
+the same derivation as the `register_status_listener` replay. It is never stored
+in `_current_status` and never fired as an event; it is absent when there is no
+session or the session is not connected.
 
 #### 5.1.7 Machine Status Parsing
 
@@ -675,6 +689,7 @@ Thread-safe (RLock). Forwarding methods copy the listener list under lock and it
 | Property | Returns |
 |---|---|
 | `machine_status` | Read-only snapshot of `{address: decoded_value}` dict |
+| `current_status` | Read-only snapshot of the `StatusDict` of most recent replies for all tracked status fields, plus a live-derived `TRANSPORT` entry while connected |
 
 #### 5.1.10 Job-Running Guard (GlueScript Commands)
 
@@ -762,11 +777,11 @@ class AppAdapter(ABC):
     def run_script(self, script: list[str]) -> None:
         raise RuntimeError("Adapter not initialized.")
 
-    def start(self) -> None: ...   # no-op
-    def stop(self) -> None: ...    # no-op
+    def connect(self) -> None: ...    # no-op
+    def disconnect(self) -> None: ... # no-op
 ```
 
-Subclasses must implement the three callback methods and `create_driver_and_session()`. The `start()`/`stop()`/`run_script()` methods provide sensible defaults.
+Subclasses must implement the three callback methods and `create_driver_and_session()`. The `connect()`/`disconnect()`/`run_script()` methods provide sensible defaults (`start()`/`stop()` remain as deprecated aliases).
 
 ### 6.2 `TuiAdapter` — Textual TUI
 

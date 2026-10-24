@@ -21,20 +21,24 @@ integrate by registering listeners and queuing rpascript commands.
 A driver instance must go through a strict lifecycle:
 
 ```
-__init__() → start() → [run() ... run()] → stop()
+__init__() → connect() → [run() ... run()] → disconnect()
 ```
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `start` | `(network_host: str \| None = None, usb_device: str \| None = None, magic: int \| None = None, protocol: str \| None = None, udp_host: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. `udp_host` is a deprecated alias for `network_host`. |
-| `stop` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, unregister listeners. Idempotent. Connection params persist for next `start()`. |
+| `connect` | `(network_host: str \| None = None, usb_device: str \| None = None, magic: int \| None = None, protocol: str \| None = None, udp_host: str \| None = None)` | `bool` | Create session, configure transport, open connection, start background runner. `True` if opened immediately, `False` if retry needed (retries in background). Reuses previous params when `None`. Idempotent on same params — no-op if already running. `udp_host` is a deprecated alias for `network_host`. |
+| `disconnect` | `()` | `None` | Stop runner thread (2s join timeout), disconnect session, fire `DISCONNECTED` to status listeners. Idempotent. Application listeners persist; connection params persist for next `connect()`. |
 
-### 2.1 `start()` — Connection Details
+`start()` / `stop()` remain as deprecated aliases for `connect()` /
+`disconnect()`, emitting a `DeprecationWarning`. They are scheduled for
+removal in a future release.
+
+### 2.1 `connect()` — Connection Details
 
 ```python
-def start(self, network_host: str | None = None, usb_device: str | None = None,
-          magic: int | None = None, protocol: str | None = None,
-          udp_host: str | None = None) -> bool
+def connect(self, network_host: str | None = None, usb_device: str | None = None,
+            magic: int | None = None, protocol: str | None = None,
+            udp_host: str | None = None) -> bool
 ```
 
 1. If `network_host`/`usb_device` are `None`, reuses values from the previous call.
@@ -47,7 +51,7 @@ def start(self, network_host: str | None = None, usb_device: str | None = None,
    Ruida command stream over TCP port 50200 (e.g. the RDC8445S); `None`
    reuses the previous value; any other value raises `ValueError`.
 5. If a session already exists with different params (different
-   `network_host`/`usb_device` **or** `protocol`), calls `stop()` first.
+   `network_host`/`usb_device` **or** `protocol`), calls `disconnect()` first.
 6. If a session already exists with same params, returns `True` immediately (no-op).
 7. Creates `RdSession()`, calls `transport.configure()`.
 8. Calls `transport.open(network_host=..., usb_device=..., protocol=...)` — UDP
@@ -58,10 +62,10 @@ def start(self, network_host: str | None = None, usb_device: str | None = None,
 `False` if open failed — the status monitor will retry in background.  
 The application can check `is_connected` later to confirm.
 
-### 2.2 `stop()` — Clean Teardown
+### 2.2 `disconnect()` — Clean Teardown
 
 ```python
-def stop(self) -> None
+def disconnect(self) -> None
 ```
 
 1. Sends shutdown sentinel to script queue, joins runner thread (2s timeout).
@@ -196,13 +200,15 @@ transcript. Failures raise `RuntimeError` instead of returning.
 
 **RpcRdDriver — full-surface RPC mirror.** `RpcRdDriver`
 (`rpalib/rpyc_client.py`) mirrors the full `RdDriver` surface described in
-this document — lifecycle and execution passthroughs (`start`, `stop`,
+this document — lifecycle and execution passthroughs (`connect`, `disconnect`,
 `run`, `run_job`, `cancel_script`, `set_protect`, head/tail setters and
 getters), the listener registration surface (`register_status_listener`,
 `register_error_listener`, `register_reply_listener` and their
 `unregister_*` counterparts), the format utilities (`format_reply_value`,
-`format_reply`, `format_reply_list`, `decode_status_value`), and the
-staging passthroughs (`stage_gluescript`, `stage_gluescript_delta`) — so
+`format_reply`, `format_reply_list`, `decode_status_value`), the property
+surface (`is_connected`, `machine_status`, `current_status`,
+`protect_enabled`), and the staging passthroughs (`stage_gluescript`,
+`stage_gluescript_delta`) — so
 an app adapter needs no separate direct-vs-RPC path. It can be constructed
 with no arguments, self-connecting over RPyC:
 
@@ -285,7 +291,7 @@ command except `JOB_CONTROL_COMMANDS` and the guard-exempt
   `cut_*_to`, `power`, `power_range`, `scan_rows`, `set_mode`,
   `set_overscan`, `air_assist_on`/`air_assist_off`, `cut_speed`,
   `move_speed`, `frequency`, `pwm`, `select_laser`,
-  `dwell`, `add_delay`, `laser_on_delay`, `laser_off_delay`.
+  `pierce`, `add_delay`, `laser_on_delay`, `laser_off_delay`.
 - The config setter `set_power_scaling_enabled` (registered for replay but
   **not** guarded — it may be toggled while a job runs).
 - All jog and home commands: `jog_*` (including the `jog_set_*` config
@@ -316,7 +322,9 @@ reach the controller while a job runs.
 
 ## 4. Listener Registration
 
-All three methods are thread-safe and additive (no remove API).
+All three methods are thread-safe and each has a matching `unregister_*`
+method (unregistering a listener that was never registered is a silent
+no-op).
 
 | Method | Callback Signature | When Called |
 |--------|-------------------|-------------|
@@ -324,7 +332,24 @@ All three methods are thread-safe and additive (no remove API).
 | `register_error_listener` | `Callable[[str], None]` | Script encoding/parsing/execution errors; VmRSS warnings |
 | `register_reply_listener` | `Callable[[list[str]], None]` | Formatted reply strings for non-handled GET_SETTING commands |
 
-### 4.1 Copy-on-Iterate Safety
+### 4.1 Persistence and Current-State Replay
+
+- Listeners may be registered **before** the first `connect()` and while
+  the driver is disconnected; they **persist across** `connect()` /
+  `disconnect()` cycles — the lifecycle methods never clear them.
+- `connect()` re-registers the session→driver bridge on each new session,
+  so a persisted listener keeps receiving events across reconnects.
+- `disconnect()` fires a terminal `DISCONNECTED` to all registered status
+  listeners (only when a session was actually torn down).
+- On registration, a status listener immediately receives the driver's
+  current connection state as a one-shot replay: `TRANSPORT_*` +
+  `CONNECTED` when connected, or `DISCONNECTED` when not connected. No past
+  event history is replayed — only the current state.
+- Over RPC, the `TuiAdapter` buffers `register_*` calls made while no driver
+  exists (before the first connect, or after a disconnect) and wires them
+  onto the next driver when one is created.
+
+### 4.2 Copy-on-Iterate Safety
 
 All listener lists are copied under `RLock` before iteration. Each callback
 is wrapped in `try/except Exception` — one faulty callback cannot block
@@ -342,6 +367,7 @@ thread). UI applications must use thread-safe dispatch mechanisms
 |----------|------|-------------|
 | `is_connected` | `bool` | `True` if session exists AND controller is responding to pings. |
 | `machine_status` | `dict[int, Any]` | Read-only snapshot of decoded memory values, keyed by memory address. Values are the raw integers (dimensions are not converted to mm here — see §5.1). Contains position coordinates, status bits, card ID, bed dimensions. |
+| `current_status` | `StatusDict` | Read-only snapshot of the most recent controller replies for every tracked status field (see §5.2), plus a live-derived `TRANSPORT` entry while connected. Unlike the change-only `StatusDict` fired to status listeners, every key holds the latest received value. |
 
 ### 5.1 machine_status Contents
 
@@ -357,6 +383,35 @@ thread). UI applications must use thread-safe dispatch mechanisms
 | `0x0026` | `MEM_BED_SIZE_X` | `int` | Bed width (raw) |
 | `0x0036` | `MEM_BED_SIZE_Y` | `int` | Bed height (raw) |
 | `0x030F` | `MEM_MACHINE_FEATURES` | `int` | Feature bitfield: bit 0=Focus, bit 3=Z return to docking, bits 9-10=Air Assist Mode |
+
+### 5.2 current_status Contents
+
+`current_status` is a `StatusDict` maintained by `_on_reply()` from every
+handled reply — it holds the **most recent** value for each tracked field,
+refreshed on every corresponding reply (not just on change), so it is the
+complete latest controller state rather than a change list. Fields not yet
+received are absent. Non-bool values mirror what a status listener receives
+as `(value, formatted_string)` tuples; dimension fields hold mm floats.
+
+The `TRANSPORT` entry is the exception to the "most recent reply" rule: it is
+derived live from the active session at read time (never fired as an event and
+never stored in the snapshot). It is present only while the session is
+connected, and absent otherwise.
+
+| Key | Value Type | Source Address | Description |
+|-----|-----------|----------------|-------------|
+| `POSITION_X` / `POSITION_Y` / `POSITION_Z` / `POSITION_U` | `tuple[float, str]` | `0x0421`/`0x0431`/`0x0441`/`0x0451` | Current axis position in mm |
+| `BED_SIZE_X` / `BED_SIZE_Y` | `tuple[float, str]` | `0x0026`/`0x0036` | Bed dimensions in mm |
+| `CARD_ID` | `tuple[int, str]` | `0x057E` | Card identifier |
+| `MAINBOARD_VERSION` | `tuple[int, str]` | `0x057F` | Mainboard firmware version |
+| `MACHINE_FEATURES` | `tuple[int, str]` | `0x030F` | Machine feature bitfield |
+| `MACHINE_STATUS` | `tuple[int, str]` | `0x0400` | Raw machine status bitmask |
+| `MACHINE_STATUS_MOVING` | `bool` | `0x0400` | Bit 24 of the machine status |
+| `MACHINE_STATUS_PAUSED` | `bool` | `0x0400` | Bit 1 of the machine status |
+| `MACHINE_STATUS_JOB_RUNNING` | `bool` | `0x0400` | Bit 0 of the machine status |
+| `TRANSPORT` | `tuple[str, str]` | — (live) | Active interface while connected: `("TRANSPORT_UDP", "UDP")`, `_TCP`, or `_USB` |
+
+Available over RPC via `RpcRdDriver.current_status` / `exposed_current_status`.
 
 ---
 
@@ -399,7 +454,7 @@ Session-level events fired to status listeners:
 | `CONNECTED` | Controller responding to pings |
 | `DISCONNECTED` | Ping/query timeout or transport drop |
 | `RECONNECTED` | Connection auto-restored after failure |
-| `TERMINATED` | Session explicitly shut down by `stop()` |
+| `TERMINATED` | Session explicitly shut down by `disconnect()` |
 | `BLOCKED` | Status monitoring blocked for command flow |
 | `UNBLOCKED` | Status monitoring resumed |
 | `SCRIPT_ERROR` | Script encoding/parsing/execution error |
@@ -410,6 +465,7 @@ Session-level events fired to status listeners:
 | `TRANSPORT_MALFORMED_REPLY` | Transport received a chunk shorter than the 9-byte reply minimum (diagnostic) |
 | `TRANSPORT_REPLY_ERROR` | Transport reply failed validation (diagnostic) |
 | `TRANSPORT_UNEXPECTED_REPLY` | Reply had a valid 0xDA header but unexpected second byte (diagnostic) |
+| `BUSY` | Controller ACKed a status query but sent no reply (e.g. during a physical home); connection is retained and queries retried |
 <!-- table not formatted: invalid structure -->
 
 ### `StatusDict` (TypedDict)
@@ -423,6 +479,10 @@ decoded bool flags `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, and
 `MACHINE_STATUS_JOB_RUNNING` appear as separate keys when their bits change.
 Dimension values (`POSITION_*`, `BED_SIZE_*`) are `tuple[float, str]` with
 the float in millimeters.
+
+`TRANSPORT` (`tuple[str, str]`, e.g. `("TRANSPORT_UDP", "UDP")`) is **not** a
+change event: it appears only in the `current_status` snapshot, where it is
+derived from the active interface while connected (see §5.2).
 
 Formatted strings keep their Ruida prefixes (e.g. `"X=12.345mm"`,
 `"CardID:..."`, `"MStat:..."`) — they are display-only and unchanged.
@@ -439,6 +499,9 @@ class StatusDict(TypedDict, total=False):
     _JOB_RUNNING appear as separate keys when their bits change.
     Dimension values (POSITION_*, BED_SIZE_*) are tuple[float, str]
     with the float in mm.
+
+    TRANSPORT is only ever present in current_status (live-derived); it is
+    never fired as a change event.
     """
 
     POSITION_X: tuple[float, str]
@@ -454,6 +517,7 @@ class StatusDict(TypedDict, total=False):
     MACHINE_STATUS_MOVING: bool
     MACHINE_STATUS_PAUSED: bool
     MACHINE_STATUS_JOB_RUNNING: bool
+    TRANSPORT: tuple[str, str]
 ```
 
 ---
@@ -463,7 +527,7 @@ class StatusDict(TypedDict, total=False):
 ```
 ┌──────────────────────────────────┐
 │        Application Thread        │
-│  start(), run(), stop()          │
+│  connect(), run(), disconnect()  │
 │  register_*_listener()           │
 ├──────────────────────────────────┤
 │   Background Script Runner (L6)  │  ← daemon thread
@@ -485,7 +549,7 @@ class StatusDict(TypedDict, total=False):
 
 ### Key threading rules:
 
-1. **`start()` and `stop()` are blocking** — `stop()` joins the runner thread with 2s timeout and disconnects synchronously.
+1. **`connect()` and `disconnect()` are blocking** — `disconnect()` joins the runner thread with 2s timeout and disconnects synchronously.
 2. **`run()` is non-blocking** — appends to a `queue.Queue`; the runner thread processes asynchronously.
 3. **Listener callbacks fire from background threads** — applications must use thread-safe dispatch for UI updates.
 4. **All listener forwarding uses copy-on-iterate** under `RLock` — safe to register listeners from any thread.
@@ -497,9 +561,9 @@ class StatusDict(TypedDict, total=False):
 
 | Condition | Behavior |
 |-----------|----------|
-| `start()` with empty/unreachable host | Returns `False`; status monitor retries in background |
-| `start()` with different params than prior call | Calls `stop()` first, then creates fresh session |
-| `run()` before `start()` | Raises `RuntimeError("Script runner not started. Call start() first.")` |
+| `connect()` with empty/unreachable host | Returns `False`; status monitor retries in background |
+| `connect()` with different params than prior call | Calls `disconnect()` first, then creates fresh session |
+| `run()` before `connect()` | Raises `RuntimeError("Script runner not started. Call connect() first.")` |
 | `run([])` (empty script) | Silent no-op |
 | `run_job()` with `job=None` and nothing staged | Raises `RuntimeError("No gluescript staged. Call stage_gluescript() first.")` |
 | `stage_gluescript()` before `end_job()` | Raises `RuntimeError("end_job() must be called before stage_gluescript()")` |
@@ -526,12 +590,12 @@ driver = RdDriver()
 driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
 driver.register_error_listener(lambda m: print(f"[ERROR] {m}"))
 
-if not driver.start(network_host="192.168.1.100"):
+if not driver.connect(network_host="192.168.1.100"):
     print("Connection will retry in background...")
 
 driver.run(["GET_SETTING MEM_CARD_ID"])
 driver.run(["GET_SETTING MEM_MACHINE_STATUS"])
-driver.stop()
+driver.disconnect()
 ```
 
 ### Full Integration with Event Handling
@@ -564,9 +628,9 @@ class MyApp:
         print(f"Error: {message}")
 
     def run(self, host: str) -> None:
-        if self.driver.start(network_host=host):
+        if self.driver.connect(network_host=host):
             time.sleep(3)
-            self.driver.stop()
+            self.driver.disconnect()
 
 MyApp().run("192.168.1.100")
 ```

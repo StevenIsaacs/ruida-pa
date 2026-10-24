@@ -8,7 +8,7 @@ authentication and TLS support:
 - listeners: register/unregister_status_listener,
   register/unregister_error_listener, register/unregister_reply_listener
 - driver control: set_protect, protect_enabled, decode_status_value
-- properties: is_connected, machine_status
+- properties: is_connected, machine_status, current_status
 - static format utilities: format_reply_value, format_reply,
   format_reply_list
 - introspection: registered_listener_count, get_version
@@ -25,6 +25,7 @@ import logging
 import queue
 import socket
 import threading
+import warnings
 import weakref
 from typing import Any, Callable
 
@@ -278,7 +279,7 @@ class RpycTuiService(rpyc.Service):
 
     # --- Lifecycle ---
 
-    def exposed_start(
+    def exposed_connect(
         self,
         network_host: str | None = None,
         usb_device: str | None = None,
@@ -287,18 +288,49 @@ class RpycTuiService(rpyc.Service):
         udp_host: str | None = None,
     ) -> bool:
         self._rpc_info(
-            f"[RPC] RPC start(network_host={network_host!r}, "
+            f"[RPC] RPC connect(network_host={network_host!r}, "
             f"usb_device={usb_device!r}, magic={'***' if magic is not None else None}, "
             f"protocol={protocol!r})"
         )
-        return self._adapter.start(
+        return self._adapter.connect(
             network_host=_resolve_network_host(network_host, udp_host),
             usb_device=usb_device, magic=magic, protocol=protocol,
         )
 
+    def exposed_start(
+        self,
+        network_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+        protocol: str | None = None,
+        udp_host: str | None = None,
+    ) -> bool:
+        """Deprecated alias for exposed_connect. Will be removed in a future release."""
+        warnings.warn(
+            "exposed_start is deprecated; use exposed_connect",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.exposed_connect(
+            network_host=network_host,
+            usb_device=usb_device,
+            magic=magic,
+            protocol=protocol,
+            udp_host=udp_host,
+        )
+
+    def exposed_disconnect(self) -> None:
+        self._rpc_info("[RPC] RPC disconnect()")
+        self._adapter.disconnect()
+
     def exposed_stop(self) -> None:
-        self._rpc_info("[RPC] RPC stop()")
-        self._adapter.stop()
+        """Deprecated alias for exposed_disconnect. Will be removed in a future release."""
+        warnings.warn(
+            "exposed_stop is deprecated; use exposed_disconnect",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.exposed_disconnect()
 
     def exposed_run(self, script: list[str], auto_checksum: bool = False) -> Any:
         # Convert netref to local list on the handler thread, where the RPyC
@@ -532,9 +564,9 @@ class RpycTuiService(rpyc.Service):
         self._rpc_info(f"[RPC] gluescript select_laser({laser})")
         return self._exposed_gluescript("select_laser", laser)
 
-    def exposed_dwell(self, duration: float) -> None:
-        self._rpc_info(f"[RPC] gluescript dwell({duration})")
-        return self._exposed_gluescript("dwell", duration)
+    def exposed_pierce(self, duration: float) -> None:
+        self._rpc_info(f"[RPC] gluescript pierce({duration})")
+        return self._exposed_gluescript("pierce", duration)
 
     def exposed_add_delay(self, duration: float) -> None:
         self._rpc_info(f"[RPC] gluescript add_delay({duration})")
@@ -870,6 +902,11 @@ class RpycTuiService(rpyc.Service):
     def exposed_machine_status(self) -> dict[int, Any]:
         result = self._adapter.machine_status
         self._rpc_info(f"[RPC] RPC machine_status -> {len(result)} items")
+        return result
+
+    def exposed_current_status(self) -> dict[str, Any]:
+        result = self._adapter.current_status
+        self._rpc_info(f"[RPC] RPC current_status -> {len(result)} items")
         return result
 
     def exposed_get_version(self) -> str:

@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `RdTransport._handshake_loop` now auto-detects the correct swizzle magic from the ACK byte via `MAGIC_LUT` lookup, calls `set_magic()` to update the swizzler, and fires `Transport.REPLY_ERROR` to trigger a retry with the correct magic (fix: `RdPacket.MAGIC_LUT {0xC6: 0x88}` provides the initial mapping; additional magic numbers can be added as discovered)
+- `RdDriver.current_status` — a `StatusDict` containing the most recent
+  controller reply for every tracked status field (positions, bed size,
+  card ID, mainboard version, machine features, machine status + its
+  moving/paused/job-running bits). Unlike the change-only `StatusDict`
+  fired to status listeners, every tracked key holds its latest received
+  value and is refreshed on every corresponding reply. Exposed over RPC
+  via `TuiAdapter.current_status`, `RpcRdDriver.current_status`, and
+  `RpycTuiService.exposed_current_status`.
+- `current_status["TRANSPORT"]` — the active interface as a
+  `(event_name, label)` tuple (`("TRANSPORT_UDP", "UDP")`, `_TCP`, or
+  `_USB`), derived live from the connected session using the same logic as
+  the `register_status_listener` replay (USB preferred, then TCP, else
+  UDP). Present only while connected, absent otherwise, and never fired as
+  a status event. Gives an exact, race-free transport in both direct and
+  RPC modes without a post-connect listener probe.
+- Listener lifecycle across connect/disconnect: status listeners can be
+  registered **before** the first `connect()` and **after** `disconnect()`
+  and persist across connect/disconnect cycles (the lifecycle methods never
+  clear them). `RdDriver.register_status_listener` immediately replays the
+  driver's current connection state to a new listener (`TRANSPORT_*` +
+  `CONNECTED` when connected, `DISCONNECTED` when not), and
+  `RdDriver.disconnect()` fires a terminal `DISCONNECTED` to status
+  listeners. The `TuiAdapter` (and thus the RPC/`RpycTuiService` surface)
+  now buffers `register_*` calls made while no driver exists and wires them
+  onto the next driver when one is created, instead of raising
+  `RuntimeError`.
 - `GlueScript.scan_rows()` — a run-chunked raster-fill for the MeerK40t
   integration plan: a raster job is emitted as roughly one rpascript line per
   power-run instead of ~3 lines per pixel. Consecutive equal-power pixels
@@ -56,20 +83,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `JOG_X/Y/Z/XY`, and `GET_SETTING`/`SET_SETTING`; entries already verified
   under another source were left unchanged. The VSCode verified-mnemonic syntax
   list grew to 95 so the newly verified mnemonics render green.
-- The GlueScript delay family: `dwell(duration_ms)` fires the laser in place
-  (`CUT_DWELL` — the "dwell on move" pattern verified from RDWorks dot mode),
+- The GlueScript delay family: `pierce(duration_ms)` fires the laser in place
+  (`CUT_PIERCE` — the "pierce on move" pattern verified from RDWorks dot mode),
   `add_delay(duration_ms)` adds a per-cut-segment delay (`ADD_CUT_DELAY`),
   and `laser_on_delay`/`laser_off_delay` set the layer's laser-on/off delays
   (`LASER_ON_DELAY`/`LASER_OFF_DELAY`). The `0xC6` CT mnemonics
-  `LASER_INTERVAL→CUT_DWELL` and `ADD_DELAY→ADD_CUT_DELAY` were renamed as a
+  `LASER_INTERVAL→CUT_PIERCE` and `ADD_DELAY→ADD_CUT_DELAY` were renamed as a
   clean replacement (no aliases). All four are plain layer actions (no
   deferred-settings flush, `ValueError` on non-finite/negative durations),
   registered for `.cglu` re-staging/RPC replay and the job-running guard
   (registry 49→53, guarded 48→52), exposed over RPC (`exposed_*`) and the TUI
-  (`gluescript_*`), and covered by 35 new tests in `tests/test_dwell.py`. The
-  MeerK40t integration plan §10.2 "Dwell-on-move" item is marked implemented
-  (§2 mapping `laser_interval (dwell) → dwell(duration_ms)`).
+  (`gluescript_*`), and covered by 35 new tests in `tests/test_pierce.py`. The
+  MeerK40t integration plan §10.2 "Pierce-on-move" item is marked implemented
+  (§2 mapping `laser_interval (pierce) → pierce(duration_ms)`).
+- `--rpc` capture mode in `capture` / `capture.ps1` — records the TUI RPyC RPC
+  server stream (default TCP port 18812) between the TUI and a client, with
+  `--rpc-port <n>` to override the port. On Linux the `any` interface
+  (promiscuous mode disabled) is auto-selected unless `-i`/`--interface` is
+  given. The captured `.log` holds the binary RPyC protocol and is intended
+  for external inspection (e.g. Wireshark), not for `rpa.py` decoding.
+- `RdStatus._transport_listener` now emits `TRANSPORT_USB` / `TRANSPORT_TCP`
+  / `TRANSPORT_USB` events when `TransportEvent.OPENED` fires, so status
+  listeners are notified of transport type changes in real time (instead of
+  only via the one-time replay at registration).
+- `RdStatusEvent.BUSY` and `TransportEvent.BUSY` — when a `GET_SETTING` query
+  is ACKed but no reply follows (e.g. during a physical `HOME_XY`/`HOME_Z`/
+  `FOCUS_Z`/`HOME_U`), `RdTransport._handshake_loop` now fires `BUSY` instead
+  of a plain reply `TIMEOUT`. `RdStatus._run_reply_pending` treats this as a
+  busy condition rather than a disconnect: it fires `BUSY` once, keeps the
+  connection, and retries without consuming the query failure budget while the
+  controller keeps ACKing. The TUI shows a "Busy (homing)" status instead of
+  "Connected".
 - Version bump to 0.23.0.
+
+### Changed
+
+- The driver lifecycle methods were renamed `start()`/`stop()` →
+  `connect()`/`disconnect()`, applied consistently across the whole
+  surface: `RdDriver`, `AppAdapter`, `TuiAdapter`, `RpcRdDriver`, and
+  `RpycTuiService` (`exposed_connect`/`exposed_disconnect`). The old
+  names remain as **deprecated aliases** emitting a `DeprecationWarning`
+  and are scheduled for removal in a future release. The runtime error
+  messages ("Call start() first.") were updated to "Call connect() first."
+- `TcpTransport` is now a raw byte-stream transport — it no longer takes an
+  `RpaSwizzler` or knows the Ruida protocol (`ACK`, `0xDA`, 9-byte replies),
+  and `read()` returns raw interface bytes. TCP stream reassembly (ACK/reply
+  framing) moved up into `RdTransport` (`_wait_for_stream_data` + the
+  `_stream_rx` buffer), which also fixes variable-length `CSTRING` replies
+  (e.g. `MEM_MAINBOARD_VERSION`) being mis-framed over TCP.
+- `docs/designs/RuidaDriver-design.md` aligned with the TCP and BUSY changes:
+  the architecture diagram now shows TCP, the L4/L5 responsibilities and
+  handshake-thread states describe TCP (ACKs, stream reassembly, `is_tcp`,
+  `ACK_PENDING` for UDP/TCP), and the `BUSY` transport/session events and
+  `REPLY_PENDING → SEND_QUERY` (BUSY) / `REPLY_PENDING → IDLE` (BUSY/TIMEOUT)
+  transitions are documented.
+
+### Fixed
+
+- GlueScript `declare_layer()` now applies the declared `min_power_1`/`max_power_1` values through `_flush_layer_settings()` — the pending power values are initialized from the declared arguments and marked dirty, so power scaling takes effect even without an explicit `power_range()` call
+- `capture --rpc` no longer aborts with `tshark: Promiscuous mode not supported
+  on the "any" device.` — the auto-selected interface now passes `-p` to
+  disable promiscuous mode on the `any` pseudo-device.
+- `_release_driver()` now re-buffers non-TUI status/error/reply listeners
+  before dropping the driver, so they are rewired by `_create_driver()` on the
+  next session. Without this, listeners registered while a driver existed were
+  silently lost after a driver release/recreate cycle.
 
 ## [0.22.0] - 2026-10-02
 

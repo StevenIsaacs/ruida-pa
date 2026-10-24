@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import types
+import warnings
 import threading
 import gc
 import time
@@ -1038,6 +1039,13 @@ class TuiAdapter(App):
         self._rpc_auto_start_task: asyncio.Task | None = None
         super().__init__(*args, **kwargs)
         self._ruida_driver: RdDriver | None = None
+        # Listeners registered while no driver exists (before the first
+        # connect, or after a disconnect) are buffered and wired onto the
+        # next driver when one is created. This lets adapters register
+        # listeners before connecting and re-register after disconnecting.
+        self._pending_status_listeners: list[Callable] = []
+        self._pending_error_listeners: list[Callable[[str], None]] = []
+        self._pending_reply_listeners: list[Callable] = []
         self._last_network_host: str = ""
         self._last_usb_device: str = ""
         self._last_magic: int = 0x88
@@ -1202,6 +1210,7 @@ class TuiAdapter(App):
             "U": 0.0,
         }
         self._session_disconnected: bool = False
+        self._busy: bool = False
         self._machine_status: int = 0
         self._machine_status_formatted: str = "0"
         self._machine_features: tuple[int, str] | None = None
@@ -3206,7 +3215,8 @@ class TuiAdapter(App):
     def _create_driver(self) -> RdDriver:
         """Create a new RdDriver wired to the TUI.
 
-        Registers the TUI listeners, syncs cached head/tail scripts, and
+        Registers the TUI listeners and any buffered adapter listeners,
+        syncs cached head/tail scripts, and
         restores any preserved gluescript transcript. Does NOT assign
         ``self._ruida_driver`` and does NOT call ``start()`` — the caller
         decides when to connect.
@@ -3215,6 +3225,23 @@ class TuiAdapter(App):
         driver.register_status_listener(self.on_status_event)
         driver.register_error_listener(self.on_error)
         driver.register_reply_listener(self.on_reply_data)
+
+        # Wire any listeners buffered while no driver existed. Each driver
+        # register_* call replays the current connection state (DISCONNECTED
+        # for an unconnected driver), so the buffered adapter listeners are
+        # immediately informed.
+        if self._pending_status_listeners:
+            for listener in self._pending_status_listeners:
+                driver.register_status_listener(listener)
+            self._pending_status_listeners.clear()
+        if self._pending_error_listeners:
+            for listener in self._pending_error_listeners:
+                driver.register_error_listener(listener)
+            self._pending_error_listeners.clear()
+        if self._pending_reply_listeners:
+            for listener in self._pending_reply_listeners:
+                driver.register_reply_listener(listener)
+            self._pending_reply_listeners.clear()
 
         # Sync any cached head/tail scripts to the new driver
         if self._head_script:
@@ -3281,7 +3308,13 @@ class TuiAdapter(App):
         self._explicit_reply_transport = None
         with self._explicit_reply_lock:
             self._explicit_reply_addrs.clear()
-        driver.stop()
+        live = driver.list_listeners()
+        for key in ("status", "error", "reply"):
+            pending = getattr(self, f"_pending_{key}_listeners")
+            for listener in live[key]:
+                if not (hasattr(listener, "__self__") and listener.__self__ is self):
+                    pending.append(listener)
+        driver.disconnect()
         self._ruida_driver = None
 
     # ------------------------------------------------------------------
@@ -3569,10 +3602,10 @@ class TuiAdapter(App):
             lambda: self._ensure_gluescript_driver().select_laser(laser)
         )
 
-    def gluescript_dwell(self, duration: float) -> None:
-        """Fire the laser in place for ``duration`` ms (session-less)."""
+    def gluescript_pierce(self, duration: float) -> None:
+        """Pierce the laser in place for ``duration`` ms (session-less)."""
         return self._gluescript_bridge(
-            lambda: self._ensure_gluescript_driver().dwell(duration)
+            lambda: self._ensure_gluescript_driver().pierce(duration)
         )
 
     def gluescript_add_delay(self, duration: float) -> None:
@@ -4723,7 +4756,7 @@ class TuiAdapter(App):
 
         Creates an RdDriver (or reuses a detached one from session-less
         gluescript use), registers TUI listeners, then calls
-        driver.start() which creates the session, opens the transport,
+        driver.connect() which creates the session, opens the transport,
         starts the script runner and status monitor, and returns.
         """
         # Resolve None params against last-used values so params persist
@@ -4771,7 +4804,7 @@ class TuiAdapter(App):
 
         # Live session — reconnect immediately using last-used params.
         if self._ruida_driver is not None and self._ruida_driver._session is not None:
-            self._ruida_driver.start(
+            self._ruida_driver.connect(
                 network_host=host, usb_device=usb, magic=self._last_magic,
                 protocol=self._last_protocol,
             )
@@ -4819,7 +4852,7 @@ class TuiAdapter(App):
             # half-started driver). On the detached-reuse path this is a no-op.
             self._ruida_driver = driver
 
-            opened = driver.start(
+            opened = driver.connect(
                 network_host=host, usb_device=usb, magic=self._last_magic,
                 protocol=self._last_protocol,
             )
@@ -5122,11 +5155,21 @@ class TuiAdapter(App):
                     self._log_info(msg)
                 self._session_disconnected = True
                 self._session_connected.clear()
+                self._busy = False
             elif event is RdStatusEvent.CONNECTED:
                 if self._session_disconnected:
                     self._log_info(f"Connected{suffix}")
                 self._session_disconnected = False
                 self._session_connected.set()
+                self._busy = False
+            elif event is RdStatusEvent.BUSY:
+                if not self._busy:
+                    self._busy = True
+                    self._log_info(f"Busy (homing){suffix}")
+            elif event is RdStatusEvent.QUERY_RECEIVED:
+                if self._busy:
+                    self._busy = False
+                    self._log_info(f"Connected{suffix}")
             self._update_status_bar()
 
         self.post_message(Callback(_update))
@@ -5600,6 +5643,8 @@ class TuiAdapter(App):
         # Connection info
         if self._session_disconnected:
             conn = "[red]Disconnected[/red]"
+        elif self._busy:
+            conn = "[yellow]Busy (homing)[/yellow]"
         elif self._ruida_driver is not None and self._ruida_driver.is_connected:
             conn = "[green]Connected[/green]"
         elif self._ruida_driver is not None and self._ruida_driver._session is None:
@@ -5716,7 +5761,7 @@ class TuiAdapter(App):
         """Reset TUI session state before a driver session takeover.
 
         Clears the connection event and last-known state so the TUI treats
-        the imminent stop/restart inside RdDriver.start() as a clean
+        the imminent stop/restart inside RdDriver.connect() as a clean
         re-connect.
         """
         self._session_connected.clear()
@@ -5727,11 +5772,11 @@ class TuiAdapter(App):
             self._last_magic = magic
         # _session_disconnected self-corrects via status events; not reset here
         self._log_warning(
-            f"RPC start() replacing active session "
+            f"RPC connect() replacing active session "
             f"(network_host={resolved_host}, usb_device={resolved_usb})"
         )
 
-    def start(
+    def connect(
         self,
         network_host: str | None = None,
         usb_device: str | None = None,
@@ -5739,10 +5784,10 @@ class TuiAdapter(App):
         protocol: str | None = None,
         udp_host: str | None = None,
     ) -> bool:
-        """Start the driver session, replacing an active session on change.
+        """Connect the driver session, replacing an active session on change.
 
-        Emulates RdDriver.start(). Creates a new RdDriver if none exists,
-        registers TUI listeners, and delegates to RdDriver.start(). When a
+        Emulates RdDriver.connect(). Creates a new RdDriver if none exists,
+        registers TUI listeners, and delegates to RdDriver.connect(). When a
         session is already active, the incoming params are resolved against
         the driver's stored start values (None reuses the stored value): an
         active session is replaced (via the driver) only when the resolved
@@ -5782,22 +5827,59 @@ class TuiAdapter(App):
             ):
                 self._reset_for_takeover(network_host, usb_device, magic)
 
-        result = driver.start(
+        result = driver.connect(
             network_host=network_host, usb_device=usb_device, magic=magic,
             protocol=protocol,
         )
         self._log_info(
-            f"[RPC] driver.start(network_host={network_host!r}, usb_device={usb_device!r}, "
+            f"[RPC] driver.connect(network_host={network_host!r}, usb_device={usb_device!r}, "
             f"magic={magic!r}, protocol={protocol!r}) -> {result}"
         )
         return result
 
-    def stop(self) -> None:
-        """AppAdapter interface — stop the driver if running."""
+    def start(
+        self,
+        network_host: str | None = None,
+        usb_device: str | None = None,
+        magic: int | None = None,
+        protocol: str | None = None,
+        udp_host: str | None = None,
+    ) -> bool:
+        """Deprecated alias for :meth:`connect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`connect`.
+        """
+        warnings.warn(
+            "TuiAdapter.start() is deprecated; use connect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.connect(
+            network_host=network_host,
+            usb_device=usb_device,
+            magic=magic,
+            protocol=protocol,
+            udp_host=udp_host,
+        )
+
+    def disconnect(self) -> None:
+        """AppAdapter interface — disconnect the driver if running."""
         if self._ruida_driver is not None:
-            self._log_info("[RPC] driver.stop()")
+            self._log_info("[RPC] driver.disconnect()")
             self._release_driver()
             self._session_connected.clear()
+
+    def stop(self) -> None:
+        """Deprecated alias for :meth:`disconnect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`disconnect`.
+        """
+        warnings.warn(
+            "TuiAdapter.stop() is deprecated; use disconnect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.disconnect()
 
     def run(
         self,
@@ -5857,67 +5939,109 @@ class TuiAdapter(App):
         """Register a status event listener.
 
         Emulates RdDriver.register_status_listener(). Delegates to the
-        underlying driver if active, raises RuntimeError otherwise.
+        underlying driver; when no driver exists (before the first connect,
+        or after a disconnect) the listener is buffered and wired onto the
+        next driver created by ``_create_driver()``.
         """
         if self._ruida_driver is None:
-            raise RuntimeError("No active driver. Call start() first.")
-        self._ruida_driver.register_status_listener(listener)
-        self._log_info(f"[RPC] register_status_listener({listener!r})")
+            self._pending_status_listeners.append(listener)
+            self._log_info(f"[RPC] register_status_listener({listener!r}) buffered")
+        else:
+            self._ruida_driver.register_status_listener(listener)
+            self._log_info(f"[RPC] register_status_listener({listener!r})")
 
     def register_error_listener(self, listener: Callable[[str], None]) -> None:
         """Register an error listener.
 
-        Emulates RdDriver.register_error_listener().
+        Emulates RdDriver.register_error_listener(). Delegates to the
+        underlying driver when present; otherwise buffers the listener for
+        the next driver created by ``_create_driver()``.
         """
         if self._ruida_driver is None:
-            raise RuntimeError("No active driver. Call start() first.")
-        self._ruida_driver.register_error_listener(listener)
-        self._log_info(f"[RPC] register_error_listener({listener!r})")
+            self._pending_error_listeners.append(listener)
+            self._log_info(f"[RPC] register_error_listener({listener!r}) buffered")
+        else:
+            self._ruida_driver.register_error_listener(listener)
+            self._log_info(f"[RPC] register_error_listener({listener!r})")
 
     def register_reply_listener(self, listener: Callable[[list[str]], None]) -> None:
         """Register a reply listener.
 
-        Emulates RdDriver.register_reply_listener().
+        Emulates RdDriver.register_reply_listener(). Delegates to the
+        underlying driver when present; otherwise buffers the listener for
+        the next driver created by ``_create_driver()``.
         """
         if self._ruida_driver is None:
-            raise RuntimeError("No active driver. Call start() first.")
-        self._ruida_driver.register_reply_listener(listener)
-        self._log_info(f"[RPC] register_reply_listener({listener!r})")
+            self._pending_reply_listeners.append(listener)
+            self._log_info(f"[RPC] register_reply_listener({listener!r}) buffered")
+        else:
+            self._ruida_driver.register_reply_listener(listener)
+            self._log_info(f"[RPC] register_reply_listener({listener!r})")
 
     def unregister_status_listener(
         self, listener: Callable[[RdStatusEvent | StatusDict], None]
     ) -> None:
         """Remove a previously registered status listener.
 
-        Silently no-ops if the driver is not active (e.g., disconnected).
+        Removes from the active driver if present, otherwise from the
+        pending buffer (silent no-op if absent from both).
         """
         if self._ruida_driver is not None:
             self._ruida_driver.unregister_status_listener(listener)
             self._log_info(f"[RPC] unregister_status_listener({listener!r})")
         else:
-            self._log_info(f"[RPC] unregister_status_listener skipped (no driver)")
+            try:
+                self._pending_status_listeners.remove(listener)
+                self._log_info(
+                    f"[RPC] unregister_status_listener({listener!r}) removed from buffer"
+                )
+            except ValueError:
+                self._log_info(
+                    f"[RPC] unregister_status_listener({listener!r}) skipped "
+                    f"(no driver, not buffered)"
+                )
 
     def unregister_error_listener(self, listener: Callable[[str], None]) -> None:
         """Remove a previously registered error listener.
 
-        Silently no-ops if the driver is not active (e.g., disconnected).
+        Removes from the active driver if present, otherwise from the
+        pending buffer (silent no-op if absent from both).
         """
         if self._ruida_driver is not None:
             self._ruida_driver.unregister_error_listener(listener)
             self._log_info(f"[RPC] unregister_error_listener({listener!r})")
         else:
-            self._log_info(f"[RPC] unregister_error_listener skipped (no driver)")
+            try:
+                self._pending_error_listeners.remove(listener)
+                self._log_info(
+                    f"[RPC] unregister_error_listener({listener!r}) removed from buffer"
+                )
+            except ValueError:
+                self._log_info(
+                    f"[RPC] unregister_error_listener({listener!r}) skipped "
+                    f"(no driver, not buffered)"
+                )
 
     def unregister_reply_listener(self, listener: Callable[[list[str]], None]) -> None:
         """Remove a previously registered reply listener.
 
-        Silently no-ops if the driver is not active (e.g., disconnected).
+        Removes from the active driver if present, otherwise from the
+        pending buffer (silent no-op if absent from both).
         """
         if self._ruida_driver is not None:
             self._ruida_driver.unregister_reply_listener(listener)
             self._log_info(f"[RPC] unregister_reply_listener({listener!r})")
         else:
-            self._log_info(f"[RPC] unregister_reply_listener skipped (no driver)")
+            try:
+                self._pending_reply_listeners.remove(listener)
+                self._log_info(
+                    f"[RPC] unregister_reply_listener({listener!r}) removed from buffer"
+                )
+            except ValueError:
+                self._log_info(
+                    f"[RPC] unregister_reply_listener({listener!r}) skipped "
+                    f"(no driver, not buffered)"
+                )
 
     def cancel_script(self) -> None:
         """Cancel the currently running script.
@@ -5935,7 +6059,7 @@ class TuiAdapter(App):
         driver is active (same guard as register_*_listener).
         """
         if self._ruida_driver is None:
-            raise RuntimeError("No active driver. Call start() first.")
+            raise RuntimeError("No active driver. Call connect() first.")
         self._ruida_driver.set_protect(enabled)
         self._log_info(f"[RPC] set_protect({enabled})")
 
@@ -5999,6 +6123,19 @@ class TuiAdapter(App):
             return {}
         result = self._ruida_driver.machine_status
         self._log_info(f"[RPC] machine_status -> {len(result)} items")
+        return result
+
+    @property
+    def current_status(self) -> StatusDict:
+        """Return the most recent controller replies for all tracked status fields.
+
+        Emulates RdDriver.current_status.
+        """
+        if self._ruida_driver is None:
+            self._log_info("[RPC] current_status -> {} (no driver)")
+            return {}
+        result = self._ruida_driver.current_status
+        self._log_info(f"[RPC] current_status -> {len(result)} items")
         return result
 
     @staticmethod

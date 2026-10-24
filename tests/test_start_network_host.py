@@ -1,5 +1,6 @@
-"""Tests for the ``network_host`` rename of ``start()``'s ``udp_host``
-argument (deprecated alias retained)."""
+"""Tests for the ``network_host`` rename of ``connect()``'s ``udp_host``
+argument (deprecated alias retained), and the deprecated ``start()``.
+``stop()`` lifecycle aliases."""
 
 from unittest.mock import Mock
 
@@ -40,23 +41,49 @@ def _fake_driver(monkeypatch):
     return driver, fake_transport
 
 
-def test_start_forwards_network_host(monkeypatch):
+def test_connect_forwards_network_host(monkeypatch):
     driver, fake_transport = _fake_driver(monkeypatch)
-    assert driver.start(network_host="192.168.1.100")
+    assert driver.connect(network_host="192.168.1.100")
     assert fake_transport.open.call_args.kwargs["network_host"] == "192.168.1.100"
 
 
-def test_start_accepts_deprecated_udp_host(monkeypatch):
+def test_connect_accepts_deprecated_udp_host(monkeypatch):
     driver, fake_transport = _fake_driver(monkeypatch)
     with pytest.warns(DeprecationWarning):
-        assert driver.start(udp_host="192.168.1.100")
+        assert driver.connect(udp_host="192.168.1.100")
     assert fake_transport.open.call_args.kwargs["network_host"] == "192.168.1.100"
 
 
-def test_start_rejects_both_host_args(monkeypatch):
+def test_connect_rejects_both_host_args(monkeypatch):
     driver, _ = _fake_driver(monkeypatch)
     with pytest.raises(ValueError):
-        driver.start(network_host="192.168.1.1", udp_host="192.168.1.2")
+        driver.connect(network_host="192.168.1.1", udp_host="192.168.1.2")
+
+
+def test_start_deprecated_alias_delegates_to_connect(monkeypatch):
+    driver, fake_transport = _fake_driver(monkeypatch)
+    with pytest.warns(DeprecationWarning):
+        assert driver.start(network_host="192.168.1.100")
+    assert fake_transport.open.call_args.kwargs["network_host"] == "192.168.1.100"
+
+
+def test_stop_deprecated_alias_delegates_to_disconnect(monkeypatch):
+    driver, _ = _fake_driver(monkeypatch)
+    driver.connect(network_host="192.168.1.100")
+    session = driver._session
+    with pytest.warns(DeprecationWarning):
+        driver.stop()
+    session.disconnect.assert_called_once()
+    assert driver._session is None
+
+
+def test_disconnect_tears_down_session(monkeypatch):
+    driver, _ = _fake_driver(monkeypatch)
+    driver.connect(network_host="192.168.1.100")
+    session = driver._session
+    driver.disconnect()
+    session.disconnect.assert_called_once()
+    assert driver._session is None
 
 
 if __name__ == "__main__":
