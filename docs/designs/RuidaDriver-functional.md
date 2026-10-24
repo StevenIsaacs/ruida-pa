@@ -10,7 +10,7 @@
 
 The Ruida Driver is a layered Python library and toolchain for communicating with Ruida laser controllers (e.g., the RDC6442S). It provides:
 
-- **Transport-agnostic communication** over UDP (Ethernet) or USB (serial), with automatic interface selection.
+- **Transport-agnostic communication** over UDP (Ethernet), TCP (port 50200), or USB (serial), with automatic interface selection and auto-detected swizzle magic from the ACK handshake.
 - **Connection lifecycle management** — automatic connect, ping-based health monitoring, and reconnect on failure.
 - **Script execution** — human-readable `.rds` scripts (rpascript format) are parsed, encoded to Ruida binary commands, and transmitted to the controller.
 - **Status monitoring** — periodic query commands poll controller memory for machine position, status bits, and card identity.
@@ -230,8 +230,8 @@ stateDiagram-v2
     SEND --> REPLY_PENDING: Packet sent; transport is USB\nand GET_SETTING present
     SEND --> IDLE: Packet sent; transport is USB\nand no GET_SETTING
 
-    ACK_PENDING --> REPLY_PENDING: 0xC6 ACK received\nand reply expected
-    ACK_PENDING --> IDLE: 0xC6 ACK received\nand no reply expected
+    ACK_PENDING --> REPLY_PENDING: ACK received and reply expected
+    ACK_PENDING --> IDLE: ACK received and no reply expected
     ACK_PENDING --> IDLE: non-ACK data (REPLY_ERROR)
     ACK_PENDING --> IDLE: Timeout (TIMEOUT)
 
@@ -251,8 +251,8 @@ stateDiagram-v2
 | `SEND` | Packet written; transport is UDP | `ACK_PENDING` |
 | `SEND` | Packet written; transport is USB; packet has GET_SETTING | `REPLY_PENDING` |
 | `SEND` | Packet written; transport is USB; no GET_SETTING | `IDLE` |
-| `ACK_PENDING` | Received 0xC6 ACK byte; reply expected | `REPLY_PENDING` |
-| `ACK_PENDING` | Received 0xC6 ACK byte; no reply expected | `IDLE` |
+| `ACK_PENDING` | ACK byte received; reply expected (magic auto-detected from LUT) | `REPLY_PENDING` |
+| `ACK_PENDING` | ACK byte received; no reply expected | `IDLE` |
 | `ACK_PENDING` | Received non-ACK data | `REPLY_ERROR` → `IDLE` |
 | `ACK_PENDING` | Timeout | `TIMEOUT` → `IDLE` |
 | `REPLY_PENDING` | All reply packets accumulated, then unpacked and forwarded | `IDLE` |

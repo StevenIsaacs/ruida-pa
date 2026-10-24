@@ -14,7 +14,7 @@ In the following the pattern **AGENT:** indicates something to be included in a 
 # Introduction
 This document provides an overview of the Ruida Driver. Described are overall structure, and Ruida idiosyncrasies and how they are handled. This is to be implemented using Python. To that end classes and their corresponding APIs are also described in this document.
 
-NOTE: Currently only the X and Y axes are supported. The code is tested using a Ruida RDC6442S controller. Behavior with other controllers is unknown at this time even though many should work as well -- providing the correct swizzle magic number is used.
+NOTE: Currently only the X and Y axes are supported. The code is tested using a Ruida RDC6442S controller. Behavior with other controllers is unknown at this time even though many should work as well -- the correct swizzle magic number is auto-detected from the ACK handshake (256-entry LUT generated from all 256 possible magic values, falling back to Transport.REPLY_ERROR if unknown).
 
 **This document is concerned with layers L4 thru L7 shown in the Structure diagram. Layers L1-L3 are shown for reference and are OS defined.**
 

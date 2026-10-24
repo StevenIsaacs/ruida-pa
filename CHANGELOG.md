@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `RdTransport._handshake_loop` now auto-detects the correct swizzle magic from the ACK byte via `MAGIC_LUT` lookup, calls `set_magic()` to update the swizzler, and fires `Transport.REPLY_ERROR` to trigger a retry with the correct magic (fix: `RdPacket.MAGIC_LUT {0xC6: 0x88}` provides the initial mapping; additional magic numbers can be added as discovered)
 - `RdDriver.current_status` — a `StatusDict` containing the most recent
   controller reply for every tracked status field (positions, bed size,
   card ID, mainboard version, machine features, machine status + its
