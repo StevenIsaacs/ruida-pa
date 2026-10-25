@@ -19,7 +19,12 @@ class Transport(ABC):
 
     @abstractmethod
     def read(self, length: int) -> Optional[bytes]:
-        """Non-blocking read. Returns None if no data available."""
+        """Non-blocking read of raw bytes. Returns None if no data available.
+
+        Transports return raw interface bytes only — no protocol framing,
+        swizzling or message parsing. The caller (``RdTransport``, L4) owns
+        any reassembly into Ruida ACK/reply units.
+        """
 
     @abstractmethod
     def drain(self) -> None:

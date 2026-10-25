@@ -8,16 +8,24 @@ Use this script to run tshark to capture a log file which can then be processed
 using decode.
 
 Parameters:
- 1 The Ruida controller IP address.
+ 1 The Ruida controller IP address, or the RPC server host with --rpc.
  2 The capture file name -- not including extension. This saves to <file>.log.
- 3 Optional parameters. (e.g. "-i <if>", "--tcp")
+ 3 Optional parameters. (e.g. "-i <if>", "--tcp", "--rpc")
 
 Options:
- --tcp    Capture the Ruida TCP stream on port 50200 instead of UDP.
- --udp    Capture Ruida UDP traffic (the default).
+  --tcp          Capture the Ruida TCP stream on port 50200 instead of UDP.
+  --udp          Capture Ruida UDP traffic (the default).
+  --rpc          Capture the TUI RPyC RPC server stream (default port 18812).
+                 On Linux the "any" interface (with promiscuous mode disabled)
+                 is selected automatically unless -i/--interface is given.
+  --rpc-port <n> RPC port to capture (default 18812). Only valid with --rpc.
 
 NOTE: Parameter 3 is often needed on Windows because it typically assumes the
 wrong interface. If this is the case use "-i Ethernet".
+
+NOTE: --rpc captures the binary RPyC protocol between the TUI RPC server and a
+client. The resulting .log is not decodable by rpa.py (which understands only
+the Ruida protocol); it is intended for external inspection (e.g. Wireshark).
 EOF
 exit 1
 }
@@ -49,15 +57,41 @@ _file=$2
 _path=$(dirname $_file)
 if [ -e $_path ]; then
     _proto=udp
+    _rpc_port=18812
     _tshark_args=()
-    for _arg in "${@:3}"; do
-        case "$_arg" in
+    shift 2
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
             --tcp) _proto=tcp ;;
             --udp) _proto=udp ;;
-            *) _tshark_args+=("$_arg") ;;
+            --rpc) _proto=rpc ;;
+            --rpc-port)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    echo "ERROR: --rpc-port requires a port number."
+                    usage
+                fi
+                _rpc_port="$1"
+                ;;
+            *) _tshark_args+=("$1") ;;
         esac
+        shift
     done
-    if [ "$_proto" = "tcp" ]; then
+    if [ "$_proto" = "rpc" ]; then
+        _filter="(ip.addr == $_ip && tcp.port == $_rpc_port)"
+        _fields="-e frame.time_delta -e tcp.srcport -e tcp.dstport -e tcp.len -e tcp.payload"
+        _has_iface=0
+        for _a in "${_tshark_args[@]}"; do
+            case "$_a" in
+                -i|-i*|--interface) _has_iface=1 ;;
+            esac
+        done
+        if [ "$_has_iface" = "0" ]; then
+            # The "any" pseudo-device cannot be opened in promiscuous mode;
+            # -p suppresses that error while still capturing loopback.
+            _tshark_args=(-i any -p "${_tshark_args[@]}")
+        fi
+    elif [ "$_proto" = "tcp" ]; then
         _filter="(ip.addr == $_ip && tcp.port == 50200)"
         _fields="-e frame.time_delta -e tcp.srcport -e tcp.dstport -e tcp.len -e tcp.payload"
     else

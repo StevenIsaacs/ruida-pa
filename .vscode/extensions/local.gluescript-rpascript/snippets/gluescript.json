@@ -126,12 +126,12 @@
     ],
     "description": "Select the laser head (1-based); only head 1 is wired - emits LASER_DEVICE_1"
   },
-  "dwell": {
-    "prefix": "dwell",
+  "pierce": {
+    "prefix": "pierce",
     "body": [
-      "dwell(${1:100.0})"
+      "pierce(${1:100.0})"
     ],
-    "description": "Fire the laser in place for duration milliseconds (expands to CUT_DWELL; the 'dwell on move' pattern)"
+    "description": "Pierce the laser in place for duration milliseconds (expands to CUT_PIERCE; the 'pierce on move' pattern)"
   },
   "add_delay": {
     "prefix": "add_delay",

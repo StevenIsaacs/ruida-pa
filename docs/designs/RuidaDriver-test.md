@@ -392,8 +392,8 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | Verify that `TuiAdapter` implements all required AppAdapter methods. |
 | **Prerequisites** | Import `TuiAdapter` from `rpascript.tui_adapter`. |
-| **Steps** | 1. Call `dir(TuiAdapter)` and check for method names: `create_driver_and_session`, `on_status_event`, `on_reply_data`, `on_error`, `run_script`, `start`, `stop`. |
-| **Expected result** | All seven methods are present. |
+| **Steps** | 1. Call `dir(TuiAdapter)` and check for method names: `create_driver_and_session`, `on_status_event`, `on_reply_data`, `on_error`, `run_script`, `connect`, `disconnect`. |
+| **Expected result** | All seven methods are present (`start`/`stop` remain as deprecated aliases). |
 
 #### Test 5.1.3: `run_tui()` Is Callable
 - [ ] Test 5.1.3

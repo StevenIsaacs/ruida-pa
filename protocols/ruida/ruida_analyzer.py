@@ -197,11 +197,10 @@ class RdPacket:
 
     """
 
-    MAGIC_LUT = {  # RAW ACK or NAK to swizzle magic number table.
-        # Raw Magic
-        0xC6: 0x88,
-        # TODO: Add more magic numbers.
-    }
+    _ack_lut: list[int] = [0] * 256  # default 0 = unknown magic
+    # Generate 256-entry LUT using RdSwizzler.swizzle_lut(ACK) for magic
+    # detection. LUT[raw_byte] = magic that makes unswizzle_byte(raw_byte,
+    # magic) == ACK (0xCC). Generated once on first access.
 
     def __init__(self, args, reader: UdpDumpReader, output: RpaEmitter):
         """
@@ -326,9 +325,14 @@ class RdPacket:
                     )
                 if _is_ack:
                     _r = self.reader.data[0]
-                    if _r in self.MAGIC_LUT:
-                        self.magic = self.MAGIC_LUT[_r]
-                        self._swizzler.set_magic(self.magic)
+                    # Generate 256-entry LUT once: index = raw ACK byte,
+                    # value = magic that makes unswizzle_byte(raw_byte, magic) == ACK
+                    if not hasattr(self, '_ack_lut') or self._ack_lut == [0] * 256:
+                        self._ack_lut = self._swizzler.swizzle_lut(ACK)  # ACK = 0xCC
+                    magic = self._ack_lut[_r]
+                    if magic != 0:
+                        self.magic = magic
+                        self._swizzler.set_magic(magic)
                         self.out.verbose(f"Detected magic: 0x{self.magic:02X}")
                         break
                     else:

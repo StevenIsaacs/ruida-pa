@@ -62,7 +62,7 @@ REGISTRY_METHODS = [
     "frequency",
     "pwm",
     "select_laser",
-    "dwell",
+    "pierce",
     "add_delay",
     "laser_on_delay",
     "laser_off_delay",
@@ -1408,7 +1408,7 @@ class GlueScript:
         """Generate rpascript to stop the current job.
 
         Named stop_job (never stop) so this job-control command cannot
-        shadow the RdDriver lifecycle stop() teardown. On RdDriver, sends
+        shadow the RdDriver lifecycle disconnect() teardown. On RdDriver, sends
         the lines immediately via _emit_live_lines; on a standalone
         GlueScript (default hook), returns the generated lines unchanged.
         Returns the sent lines, or None if nothing was sent.
@@ -2018,22 +2018,22 @@ class GlueScript:
                 laser,
             )
 
-    def dwell(self, duration: float) -> None:
-        """Fire the laser in place at the current position for ``duration``
-        milliseconds, then continue with the next action ("dwell on move").
+    def pierce(self, duration: float) -> None:
+        """Pierce at the current position for ``duration`` milliseconds, then
+        continue with the next action ("pierce on move").
 
         The head does not move while the laser fires: position it first with
-        ``move_xy_to()``/``cut_xy_to()``, then dwell, then move on — the
+        ``move_xy_to()``/``cut_xy_to()``, then pierce, then move on — the
         GlueScript equivalent of a MeerK40t ``DwellCut`` / RDWorks "dot"
         pause.
 
         Args:
-            duration: Dwell time in milliseconds (>= 0).
+            duration: Pierce time in milliseconds (>= 0).
 
         Raises:
             ValueError: If ``duration`` is not finite or is negative.
         """
-        self._emit_delay_action("dwell", "CUT_DWELL", duration)
+        self._emit_delay_action("pierce", "CUT_PIERCE", duration)
 
     def add_delay(self, duration: float) -> None:
         """Add ``duration`` milliseconds of delay to each cut segment in the
@@ -2499,7 +2499,7 @@ class GlueScript:
             self._pending_max_power = 70.0
             self._pending_warnings = []
             self._speed_dirty = False
-            self._power_dirty = False
+            self._power_dirty = True
             self._assembling = True
 
             try:

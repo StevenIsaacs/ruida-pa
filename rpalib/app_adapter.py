@@ -7,6 +7,7 @@ to interact with the Ruida session/driver stack. Subclasses include TuiAdapter
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -83,8 +84,32 @@ class AppAdapter(ABC):
         """
         return __version__
 
+    def connect(self) -> None:
+        """Connect the adapter. Default implementation is a no-op."""
+
+    def disconnect(self) -> None:
+        """Disconnect the adapter. Default implementation is a no-op."""
+
     def start(self) -> None:
-        """Start the adapter. Default implementation is a no-op."""
+        """Deprecated alias for :meth:`connect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`connect`.
+        """
+        warnings.warn(
+            "AppAdapter.start() is deprecated; use connect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.connect()
 
     def stop(self) -> None:
-        """Stop the adapter. Default implementation is a no-op."""
+        """Deprecated alias for :meth:`disconnect`. Will be removed in a future release.
+
+        Emits a ``DeprecationWarning`` and delegates to :meth:`disconnect`.
+        """
+        warnings.warn(
+            "AppAdapter.stop() is deprecated; use disconnect()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.disconnect()

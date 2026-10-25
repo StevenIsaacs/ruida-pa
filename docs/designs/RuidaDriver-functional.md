@@ -10,7 +10,7 @@
 
 The Ruida Driver is a layered Python library and toolchain for communicating with Ruida laser controllers (e.g., the RDC6442S). It provides:
 
-- **Transport-agnostic communication** over UDP (Ethernet) or USB (serial), with automatic interface selection.
+- **Transport-agnostic communication** over UDP (Ethernet), TCP (port 50200), or USB (serial), with automatic interface selection and auto-detected swizzle magic from the ACK handshake.
 - **Connection lifecycle management** — automatic connect, ping-based health monitoring, and reconnect on failure.
 - **Script execution** — human-readable `.rds` scripts (rpascript format) are parsed, encoded to Ruida binary commands, and transmitted to the controller.
 - **Status monitoring** — periodic query commands poll controller memory for machine position, status bits, and card identity.
@@ -35,7 +35,7 @@ columns 1
     block:l4block
         columns 1
         l4["Ruida Transport (L4)\nRdTransport — transport selection, swizzle, checksum, handshake thread"]
-        transport_abc["Transport (ABC)\n├── UdpTransport — UDP socket\n└── UsbTransport — serial (pyserial)"]
+        transport_abc["Transport (ABC)\n├── UdpTransport — UDP socket\n├── TcpTransport — TCP socket (port 50200)\n└── UsbTransport — serial (pyserial)"]
     end
     l3["Network / Datalink / Physical (L1–L3)"]
     l7 --> l6
@@ -52,8 +52,8 @@ flowchart TD
     B["RdDriver.run() (L6)\nqueue to background script runner"]
     C["ScriptRunner._run_loop()\nScriptParser.parse_lines() → list[dict]\nencode_command() per cmd → bytearray\naccumulate file_checksum\nhandle END_JOB"]
     D["RdTransport.write() (L4)\nchunk commands, swizzle\nprepend checksum (UDP)\nqueue to handshake thread"]
-    E["Handshake Thread\nIDLE → SEND → ACK_PENDING (UDP)\n→ REPLY_PENDING → IDLE"]
-    F["UdpTransport / UsbTransport\nsocket.sendto() / serial.write()"]
+    E["Handshake Thread\nIDLE → SEND → ACK_PENDING (UDP/TCP)\n→ REPLY_PENDING → IDLE"]
+    F["UdpTransport / TcpTransport / UsbTransport\nsocket.sendto() / socket.sendall() / serial.write()"]
     G["Ruida Controller"]
     A --> B --> C --> D --> E --> F --> G
 ```
@@ -63,12 +63,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     RC["Ruida Controller"]
-    TR["UdpTransport / UsbTransport\nsocket.recv() / serial.read()"]
+    TR["UdpTransport / TcpTransport / UsbTransport\nsocket.recv() / socket.recv() / serial.read()"]
     HST["Handshake Thread\n_wait_for_data() → _unpack_replies()\nunswizzle, split 9-byte chunks\nvalidate 0xDA header"]
     NRL["RdTransport._notify_reply_listeners()\n(reply data listeners)"]
     NS["RdTransport._notify_status()\n(TransportEvent listeners)"]
     RS["RdStatus._transport_listener (L5)\nevent-driven state machine\nsets threading.Event"]
-    DR["RdDriver._on_reply() (L6)\nRdDecoder.decode_address() / decode_value()\nupdate _machine_status dict\nfire MACHINE_STATUS_* events\nqueue FEATURES_SCRIPT on MEM_CARD_ID reply\nforward raw replies to reply listeners"]
+    DR["RdDriver._on_reply() (L6)\nRdDecoder.decode_address() / decode_value()\nupdate _machine_status dict + _current_status StatusDict\nfire MACHINE_STATUS_* events\nqueue FEATURES_SCRIPT on MEM_CARD_ID reply\nforward raw replies to reply listeners"]
     TUI["TuiAdapter.on_reply_data() (L7)\ndisplay in TUI side panel"]
     RC --> TR --> HST
     HST --> NRL
@@ -100,6 +100,7 @@ An abstract base class defining the interface for all transport implementations.
 | `is_open` | *property* → `bool` | `True` when the transport is open. |
 | `is_usb` | *property* → `bool` | `True` if this is a USB/serial transport. |
 | `is_udp` | *property* → `bool` | `True` if this is a UDP transport. |
+| `is_tcp` | *property* → `bool` | `True` if this is a TCP transport. |
 
 ### 3.2 UDP Transport — `UdpTransport`
 
@@ -129,7 +130,19 @@ Implements `Transport` for USB/serial communication via `pyserial`. Requires the
 - **`drain()`** — Loops `serial.read(4096)` until empty.
 - **`is_usb`** → `True`; **`is_udp`** → `False`.
 
-### 3.4 Transport Events — `TransportEvent` Enum
+### 3.4 TCP Transport — `TcpTransport`
+
+**File:** `ruidadriver/transport/tcp_transport.py`
+
+Implements `Transport` for TCP network communication. Newer controllers (e.g. the RDC8445S) accept the swizzled Ruida command stream on TCP port 50200 instead of UDP. This is a raw byte-stream transport: it performs no protocol framing, swizzling, or message parsing, so `RdTransport` (L4) is responsible for reassembling the stream into the ACK/reply units the handshake expects.
+
+- **`open(host, port=50200, timeout=3.0)`** — Connects via `socket.create_connection()`, sets `TCP_NODELAY`, and switches the socket to non-blocking. Returns `False` on `OSError`.
+- **`write(packet)`** — Sends via `socket.sendall()` with a 2s send timeout, then restores non-blocking mode.
+- **`read(length)`** — Non-blocking `socket.recv()`. Returns `None` on `BlockingIOError`/`InterruptedError`; raises `ConnectionResetError` (and closes the socket) when the peer closes the connection, so the status monitor can reconnect.
+- **`drain()`** — Loops `recv(65536)` until empty or the connection errors.
+- **`is_tcp`** → `True`; **`is_usb`**/**`is_udp`** → `False`.
+
+### 3.5 Transport Events — `TransportEvent` Enum
 
 **File:** `ruidadriver/transport_events.py`
 
@@ -139,7 +152,8 @@ class TransportEvent(Enum):
     CLOSED            # Transport closed
     TIMEOUT           # Timeout while waiting for ACK or reply
     DROPPED           # Underlying link dropped unexpectedly
-    ACK_RECEIVED      # UDP ACK byte (0xC6) received
+    ACK_RECEIVED      # UDP/TCP ACK byte received
+    BUSY              # ACK received but reply timed out (controller responsive but busy)
     REPLY_RECEIVED    # GET_SETTING reply data received
     REPLY_FORWARDED   # Reply data unpacked and forwarded to listeners
     REPLY_ERROR       # Reply data did not pass validation
@@ -147,13 +161,13 @@ class TransportEvent(Enum):
     MALFORMED_REPLY   # Reply shorter than the 9-byte minimum (incomplete/malformed)
 ```
 
-### 3.5 Ruida Transport Coordinator — `RdTransport`
+### 3.6 Ruida Transport Coordinator — `RdTransport`
 
 **File:** `ruidadriver/rd_transport.py`
 
-`RdTransport` is the central L4 class. It wraps `UdpTransport` and `UsbTransport`, providing a unified interface for upper layers with automatic transport selection, swizzle packing, checksum calculation, and command/response sequencing via a dedicated handshake thread.
+`RdTransport` is the central L4 class. It wraps `UdpTransport`, `TcpTransport` and `UsbTransport`, providing a unified interface for upper layers with automatic transport selection, swizzle packing, checksum calculation, and command/response sequencing via a dedicated handshake thread. TCP byte-stream reassembly (ACK/reply framing) is owned here: the lower transport classes return raw bytes only.
 
-#### 3.5.1 Configuration
+#### 3.6.1 Configuration
 
 ```python
 def configure(
@@ -166,20 +180,30 @@ def configure(
 ) -> None
 ```
 
-Must be called before `open()`. Creates `UdpTransport` and/or `UsbTransport` instances based on the parameters. Setting both is valid — USB will be preferred at open time.
+Must be called before `open()`. Creates `UdpTransport`/`TcpTransport` and/or `UsbTransport` instances based on the parameters. Setting both is valid — USB will be preferred at open time.
 
 - `timeout`: Normal per-call timeout in milliseconds for waiting on ACK/reply.
 - `gross_timeout`: Long timeout in milliseconds for operations during which the controller is unresponsive (e.g., home sequences).
 
-#### 3.5.2 Connection
+#### 3.6.2 Connection
 
 ```python
-def open() -> bool
+def open(
+    network_host: str = "",
+    usb_device: str = "",
+    protocol: str = "",
+    udp_host: str = "",
+) -> bool
 ```
+
+- `network_host`: Network host address; empty string reuses the previous value.
+- `usb_device`: USB device path; empty string reuses the previous value.
+- `protocol`: Network protocol, `"udp"` (default) or `"tcp"`; empty string reuses the previous value. An unsupported value raises `ValueError`.
+- `udp_host`: Deprecated alias for `network_host`.
 
 Opens the preferred transport:
 1. If `UsbTransport` was configured, attempts `usb.open(usb_device)`.
-2. If USB fails or is not configured, attempts `UdpTransport.open(network_host, 50200)`.
+2. If USB fails or is not configured, attempts the network transport's `open(network_host, 50200)` — `UdpTransport` for `protocol="udp"` (default) or `TcpTransport` for `protocol="tcp"`.
 3. If both fail, returns `False`.
 
 On success, starts the handshake thread and fires `TransportEvent.OPENED`.
@@ -196,7 +220,7 @@ def drain() -> None
 
 Calls `transport.drain()` if the transport is open — used by the status monitor during resync.
 
-#### 3.5.3 Write Path
+#### 3.6.3 Write Path
 
 ```python
 def write(commands: list[bytearray]) -> None
@@ -207,11 +231,11 @@ Accumulates encoded command bytearrays into a buffer. When adding a command woul
 Each package is produced by `_package(data)`:
 1. **Swizzle** the raw command bytes using `RpaSwizzler`.
 2. If the active transport is **UDP**, prepend a 2-byte big-endian checksum: `struct.pack(">H", sum(swizzled_data) & 0xFFFF)`. The checksum is **not** swizzled.
-3. If **USB**, no checksum is added; the swizzled bytes are used directly.
+3. If **USB** or **TCP**, no checksum is added; the swizzled bytes are used directly.
 
 Packages are placed on `_send_queue` (a `queue.Queue`) for the handshake thread.
 
-#### 3.5.4 Handshake Thread State Machine
+#### 3.6.4 Handshake Thread State Machine
 
 The handshake thread implements a four-state machine for command/response sequencing:
 
@@ -225,12 +249,12 @@ stateDiagram-v2
     IDLE --> SEND: Packet dequeued from send queue
     IDLE --> IDLE: Queue empty (200ms timeout)
 
-    SEND --> ACK_PENDING: Packet sent; transport is UDP
-    SEND --> REPLY_PENDING: Packet sent; transport is USB\nand GET_SETTING present
-    SEND --> IDLE: Packet sent; transport is USB\nand no GET_SETTING
+    SEND --> ACK_PENDING: Packet sent -- transport is UDP/TCP
+    SEND --> REPLY_PENDING: Packet sent-- transport is USB\nand GET_SETTING present
+    SEND --> IDLE: Packet sent -- transport is USB\nand no GET_SETTING
 
-    ACK_PENDING --> REPLY_PENDING: 0xC6 ACK received\nand reply expected
-    ACK_PENDING --> IDLE: 0xC6 ACK received\nand no reply expected
+    ACK_PENDING --> REPLY_PENDING: ACK received and reply expected
+    ACK_PENDING --> IDLE: ACK received and no reply expected
     ACK_PENDING --> IDLE: non-ACK data (REPLY_ERROR)
     ACK_PENDING --> IDLE: Timeout (TIMEOUT)
 
@@ -247,11 +271,11 @@ stateDiagram-v2
 | `IDLE` | Packet dequeued from send queue | `SEND` |
 | `IDLE` | Queue empty (200ms timeout) | `IDLE` (loop) |
 | `IDLE` | Shutdown | Exit thread |
-| `SEND` | Packet written; transport is UDP | `ACK_PENDING` |
+| `SEND` | Packet written; transport is UDP/TCP | `ACK_PENDING` |
 | `SEND` | Packet written; transport is USB; packet has GET_SETTING | `REPLY_PENDING` |
 | `SEND` | Packet written; transport is USB; no GET_SETTING | `IDLE` |
-| `ACK_PENDING` | Received 0xC6 ACK byte; reply expected | `REPLY_PENDING` |
-| `ACK_PENDING` | Received 0xC6 ACK byte; no reply expected | `IDLE` |
+| `ACK_PENDING` | ACK byte received; reply expected (magic auto-detected from LUT) | `REPLY_PENDING` |
+| `ACK_PENDING` | ACK byte received; no reply expected | `IDLE` |
 | `ACK_PENDING` | Received non-ACK data | `REPLY_ERROR` → `IDLE` |
 | `ACK_PENDING` | Timeout | `TIMEOUT` → `IDLE` |
 | `REPLY_PENDING` | All reply packets accumulated, then unpacked and forwarded | `IDLE` |
@@ -259,7 +283,7 @@ stateDiagram-v2
 
 **Note:** On failure transitions, the corresponding `TransportEvent` is fired to all status listeners before the state machine returns to `IDLE`.
 
-#### 3.5.5 Read Path / Unpacking
+#### 3.6.5 Read Path / Unpacking
 
 ```python
 def _unpack_replies(data: bytes) -> list[bytearray]
@@ -275,7 +299,7 @@ In the handshake thread's `REPLY_PENDING` state, all reply packets are first acc
    - Second byte must be `0x01` (GET_SETTING sub-command); if not, fire `UNEXPECTED_REPLY` and truncate.
 4. Valid chunks are collected and forwarded to reply listeners.
 
-#### 3.5.6 Wait-for-Data with Gross Timeout
+#### 3.6.6 Wait-for-Data with Gross Timeout
 
 ```python
 def _wait_for_data(timeout_ms: int) -> Optional[bytes]
@@ -283,9 +307,11 @@ def _wait_for_data(timeout_ms: int) -> Optional[bytes]
 
 Polls `transport.read(65536)` in a 5ms polling loop until the deadline. If `_use_gross_timeout` is enabled, replaces the per-call timeout with `_gross_timeout` (default 15s). Returns `None` if the deadline expires or shutdown is detected; returns the raw bytes otherwise.
 
+For a TCP transport, `_wait_for_data` delegates to `_wait_for_stream_data(timeout_ms)`: TCP has no datagram boundaries, so raw bytes are buffered in `_stream_rx` and re-framed into the units the handshake expects — a single ACK byte (separated from any coalesced replies) or a run of reply bytes left for `_unpack_replies` to frame. A reply whose first byte is `0xDA` is held until at least `_MIN_REPLY_LEN` (9) bytes are buffered so a fixed-length reply is not returned early. UDP (datagrams) and USB (no ACK) keep the raw read path.
+
 Gross timeout mode is toggled via `set_gross_timeout(state: bool)` and is used for long-running controller operations (home sequences, etc.).
 
-#### 3.5.7 GET_SETTING Detection
+#### 3.6.7 GET_SETTING Detection
 
 ```python
 def _has_get_setting(packet: bytearray) -> bool
@@ -293,7 +319,7 @@ def _has_get_setting(packet: bytearray) -> bool
 
 Scans the packaged packet for the two-byte marker `0xDA 0x01` to determine whether the handshake thread should expect a reply. This detection works on **unswizzled** data (before packing).
 
-#### 3.5.8 Listener Registration
+#### 3.6.8 Listener Registration
 
 Support for multiple status and reply listeners with thread-safe add/remove:
 
@@ -304,13 +330,15 @@ register_reply_listener(listener: Callable[[list[bytearray]], None])
 unregister_reply_listener(listener: Callable[[list[bytearray]], None])
 ```
 
-#### 3.5.9 Properties
+#### 3.6.9 Properties
 
 | Property | Returns |
 |---|---|
 | `is_open` | `True` if transport is not `None` and `transport.is_open` |
 | `is_usb` | Delegate to active transport |
 | `is_udp` | Delegate to active transport |
+| `is_tcp` | Delegate to active transport |
+| `protocol` | Selected network protocol (`"udp"` or `"tcp"`) |
 
 ---
 
@@ -341,6 +369,7 @@ class RdStatusEvent(Enum):
     TRANSPORT_MALFORMED_REPLY   # Re-surfaced TransportEvent.MALFORMED_REPLY (diagnostic)
     TRANSPORT_REPLY_ERROR       # Re-surfaced TransportEvent.REPLY_ERROR (diagnostic)
     TRANSPORT_UNEXPECTED_REPLY  # Re-surfaced TransportEvent.UNEXPECTED_REPLY (diagnostic)
+    BUSY                        # Controller ACKed a status query but sent no reply (e.g. homing)
 ```
 
 ### 4.2 Status Monitor — `RdStatus`
@@ -394,6 +423,7 @@ stateDiagram-v2
 
     REPLY_PENDING --> WAIT_TO_POLL: REPLY_FORWARDED\n(fire QUERY_RECEIVED)
     REPLY_PENDING --> SEND_QUERY: Timeout (retry, drain)
+    REPLY_PENDING --> SEND_QUERY: BUSY (fire BUSY,\nretry, no budget decrement)
     REPLY_PENDING --> CONNECTING: Timeout (retries exhausted,\nfire DISCONNECTED)
     REPLY_PENDING --> CONNECTING: DROPPED or CLOSED
 
@@ -413,7 +443,7 @@ Detailed state behavior:
 | **RESYNC** | Call `transport.drain()` to clear stale data. | → `CONNECTING`. |
 | **WAIT_TO_POLL** | Wait `query_interval` for the query interval to expire. | Timeout → `SEND_QUERY`; `DROPPED`/`CLOSED`/`TIMEOUT` → `CONNECTING`; shutdown → exit. |
 | **SEND_QUERY** | Guard: if transport not open → `CONNECTING`. Send `query_cmds` via `transport.write(query_cmds)`. Fire `QUERY_SENT`. | → `REPLY_PENDING`. |
-| **REPLY_PENDING** | If no `query_cmds` → `WAIT_TO_POLL` immediately. Wait for `REPLY_FORWARDED` (`QUERY_RETRY_DELAY` = 1s timeout). | `REPLY_FORWARDED` → fire `QUERY_RECEIVED` → `WAIT_TO_POLL`; `DROPPED`/`CLOSED` → `CONNECTING`; timeout → drain stale data (guarded by `is_idle`), retry → `SEND_QUERY` while retries remain; retries exhausted (`QUERY_RETRY_COUNT` = 3) → fire `DISCONNECTED` → `CONNECTING`. |
+| **REPLY_PENDING** | If no `query_cmds` → `WAIT_TO_POLL` immediately. Wait for `REPLY_FORWARDED` (`QUERY_RETRY_DELAY` = 1s timeout). | `REPLY_FORWARDED` → fire `QUERY_RECEIVED` → `WAIT_TO_POLL`; `BUSY` (controller ACKed but sent no reply, e.g. homing) → fire `BUSY` once → `SEND_QUERY` without consuming the retry budget; `DROPPED`/`CLOSED` → `CONNECTING`; timeout → drain stale data (guarded by `is_idle`), retry → `SEND_QUERY` while retries remain; retries exhausted (`QUERY_RETRY_COUNT` = 3) → fire `DISCONNECTED` → `CONNECTING`. |
 
 **Dead-controller detection latency:** A dead controller is detected after 3s of query timeouts (`QUERY_RETRY_COUNT` = 3 × `QUERY_RETRY_DELAY` = 1s) — up to ~4s from actual death when the remaining `WAIT_TO_POLL` wait is included. This is the accepted trade-off for responsive UDP↔USB switching.
 
@@ -557,6 +587,7 @@ RdDriver(session: RdSession)
 Stores the session reference, initializes:
 - `_script_queue`: `queue.Queue` for background script execution
 - `_machine_status`: `dict[int, Any]` mapping memory addresses to decoded values
+- `_current_status`: `StatusDict` holding the most recent reply for every tracked status field
 - `_status_listeners`, `_reply_listeners`: registered application callbacks
 
 #### 5.1.2 Hardcoded Commands
@@ -646,9 +677,17 @@ Called from the handshake thread for each batch of unpacked replies:
    - Decode address via `RdDecoder.decode_address()`.
    - Decode value via `RdDecoder.decode_value()`.
    - Store in `_machine_status[address]`.
-   - If address is `0x0400` (machine status): parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, `MACHINE_STATUS_JOB_RUNNING` events and fire them.
+   - Store the `(value, formatted)` tuple in `_current_status[<status_key>]` for the addressed field on **every** reply (not just on change), so `current_status` always reflects the most recent controller state for all tracked fields.
+   - If address is `0x0400` (machine status): refresh the `MACHINE_STATUS` entry and parse status bits into `MACHINE_STATUS_MOVING`, `MACHINE_STATUS_PAUSED`, `MACHINE_STATUS_JOB_RUNNING` keys in `_current_status`.
    - If address is `0x057E` (card ID): queue `_FEATURES_SCRIPT` via `self.run()`, wrapped in `try/except JobRunningError: pass` — the bed-size/features queries are skipped while a job runs and retried on the next card-ID reply (see §5.1.10).
 2. Forward raw replies to all registered reply listeners.
+
+`current_status` adds one synthetic entry beyond the reply-derived fields: while
+the session is connected it derives `TRANSPORT` live from the active interface
+as `(event_name, label)` (`("TRANSPORT_UDP", "UDP")`, `_TCP`, or `_USB`), using
+the same derivation as the `register_status_listener` replay. It is never stored
+in `_current_status` and never fired as an event; it is absent when there is no
+session or the session is not connected.
 
 #### 5.1.7 Machine Status Parsing
 
@@ -675,6 +714,7 @@ Thread-safe (RLock). Forwarding methods copy the listener list under lock and it
 | Property | Returns |
 |---|---|
 | `machine_status` | Read-only snapshot of `{address: decoded_value}` dict |
+| `current_status` | Read-only snapshot of the `StatusDict` of most recent replies for all tracked status fields, plus a live-derived `TRANSPORT` entry while connected |
 
 #### 5.1.10 Job-Running Guard (GlueScript Commands)
 
@@ -762,11 +802,11 @@ class AppAdapter(ABC):
     def run_script(self, script: list[str]) -> None:
         raise RuntimeError("Adapter not initialized.")
 
-    def start(self) -> None: ...   # no-op
-    def stop(self) -> None: ...    # no-op
+    def connect(self) -> None: ...    # no-op
+    def disconnect(self) -> None: ... # no-op
 ```
 
-Subclasses must implement the three callback methods and `create_driver_and_session()`. The `start()`/`stop()`/`run_script()` methods provide sensible defaults.
+Subclasses must implement the three callback methods and `create_driver_and_session()`. The `connect()`/`disconnect()`/`run_script()` methods provide sensible defaults (`start()`/`stop()` remain as deprecated aliases).
 
 ### 6.2 `TuiAdapter` — Textual TUI
 
@@ -1305,9 +1345,10 @@ ruidadriver/
     rd_transport.py       # RdTransport (L4 coordinator)
     transport_events.py   # TransportEvent enum
     transport/
-        __init__.py       # Re-exports Transport, UdpTransport, UsbTransport
+        __init__.py       # Re-exports Transport, TcpTransport, UdpTransport, UsbTransport
         base.py           # Transport ABC
         udp_transport.py  # UdpTransport
+        tcp_transport.py  # TcpTransport
         usb_transport.py  # UsbTransport
     rd_status.py          # RdStatus (L5 status monitor)
     rd_session.py         # RdSession (L5 session manager)

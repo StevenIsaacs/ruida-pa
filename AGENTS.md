@@ -10,8 +10,10 @@ A tool that decodes binary UDP packets captured from Ruida CNC/laser controllers
 python rpa.py capture.log              # Decode a tshark log file
 ./capture <ip> <file>                  # Capture tshark log (bash)
 ./capture <ip> <file> --tcp            # Capture TCP stream on port 50200 (bash)
+./capture <host> <file> --rpc          # Capture RPyC RPC stream on port 18812 (bash)
 ./capture.ps1 -if Ethernet -ip <IP> -out <file>  # Capture (PowerShell)
 ./capture.ps1 -if Ethernet -ip <IP> -out <file> -Protocol tcp  # Capture TCP (PowerShell)
+./capture.ps1 -if <loopback> -ip <IP> -out <file> -Protocol rpc  # Capture RPC (PowerShell)
 ./decode <file>                        # Produces <file>.tshark + <file>-vrb.tshark
 ./link <type> <case> <app>             # Symlink a test case into discovery/
 ```
@@ -70,7 +72,8 @@ There are no unit tests, no formatter, no linter, no type checker, and no CI pip
 - `.vscode/launch.json` exists for debugging.
 - `--plot-moves` opens a Bokeh server application in browser showing interactive head moves with power/speed popups, context menus, and filtering.
 - Ignored dirs: `discovery/`, `testing/`, `tmp/`, `build/`, `dist/`, `__pycache__`, `.png` files.
-- Temporary files are to be placed in `tmp/`.
+- Temporary files should only be created in `tmp/`. The files contained in this directory will be purged regularly. Do NOT use `/tmp`.
+- Never instrument code with debug log messages. The VSCode Python debugger is used to run the TUI for debugging. The VSCode debugger's "Add Logpoint..." is used for emitting debug messages. If a debug message is needed to diagnose a problem, inform the user to add a logpoint at the appropriate line(s).
 - Test output files are to be placed in `tmp/`.
 - Test output file names have the form `<base>-<run>.<ext>` where:
 	- `<base>` is the base name of the input file.
@@ -89,8 +92,10 @@ There are no unit tests, no formatter, no linter, no type checker, and no CI pip
 			- `tmp/selected-01-rt.txt` for the decode file generated using `tmp/selected-01.tshark` as the input file.
 		A second run will have the number `02` instead of `01`.
 
-- `commit.txt`: To be written only when the user requests it (e.g. "Write a new commit.txt"). This contains pre-composed change summary lines and placed in the project root. Multiple summary lines are used when more than one issue (i.e. new feature or problem fix) has been resolved in a single commit. NOTE: Each issue should have only one line. Change details are to be written to the testing log (below). Each summary line should be prefixed a word indicating the nature of the change. These are:
+- `commit.txt`: To be written only when the user requests it (e.g. "Write a new commit.txt"). This contains short pre-composed change summary lines and placed in the project root. Multiple summary lines are used when more than one issue (i.e. new feature or problem fix) has been resolved in a single commit. NOTE: Each issue should have only one line containing a short summary of the change. Change details are to be written to the testing log (below). Each summary line should be prefixed a word indicating the nature of the change. These are:
 	- `version:` The version number has been bumped.
 	- `feature:` A new feature has been added.
+	- `enhancement:` An existing feature has been modified.
 	- `fix:` A problem has been fixed.
 - Testing logs are maintained in `docs/logs` and have names formatted as `<__version__>-testing.md`. These are updated with detailed Problem, Solution and Verification information sections (not a bullet list). Within each section use bullet lists to itemize the problems, solutions and verifications. The testing log for the current version is to be updated when `commit.txt` is written.
+- Bump the version number ONLY when prompted to do so. Consider the current version number to be unreleased.

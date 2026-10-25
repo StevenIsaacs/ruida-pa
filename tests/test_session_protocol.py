@@ -38,7 +38,7 @@ def test_session_start_udp_alias_normalizes_to_host():
 
 def _run_session(monkeypatch, line):
     driver = Mock()
-    driver.start.return_value = True
+    driver.connect.return_value = True
     monkeypatch.setattr(ruida_driver, "RdDriver", lambda: driver)
     out = io.StringIO()
     commands = ScriptParser().parse_lines([line, "session end"])
@@ -48,24 +48,24 @@ def _run_session(monkeypatch, line):
 
 def test_script_session_passes_tcp_protocol(monkeypatch):
     driver, _ = _run_session(monkeypatch, "session start host=192.168.1.58 proto=tcp")
-    assert driver.start.call_args.kwargs["protocol"] == "tcp"
-    assert driver.start.call_args.kwargs["network_host"] == "192.168.1.58"
+    assert driver.connect.call_args.kwargs["protocol"] == "tcp"
+    assert driver.connect.call_args.kwargs["network_host"] == "192.168.1.58"
 
 
 def test_script_session_udp_alias_still_connects(monkeypatch):
     driver, _ = _run_session(monkeypatch, "session start udp=192.168.1.58 proto=tcp")
-    assert driver.start.call_args.kwargs["network_host"] == "192.168.1.58"
+    assert driver.connect.call_args.kwargs["network_host"] == "192.168.1.58"
 
 
 def test_script_session_defaults_protocol(monkeypatch):
     driver, _ = _run_session(monkeypatch, "session start host=192.168.1.10")
-    assert driver.start.call_args.kwargs["protocol"] is None
-    assert driver.start.call_args.kwargs["network_host"] == "192.168.1.10"
+    assert driver.connect.call_args.kwargs["protocol"] is None
+    assert driver.connect.call_args.kwargs["network_host"] == "192.168.1.10"
 
 
 def test_script_session_rejects_unknown_protocol(monkeypatch):
     driver, output = _run_session(monkeypatch, "session start host=192.168.1.10 proto=sctp")
-    driver.start.assert_not_called()
+    driver.connect.assert_not_called()
     assert "Unsupported network protocol" in output
 
 
@@ -88,8 +88,8 @@ def test_tui_session_start_passes_tcp_protocol():
 
     asyncio.run(adapter._start_session(host="192.168.1.58", proto="tcp"))
 
-    assert driver.start.call_args.kwargs["protocol"] == "tcp"
-    assert driver.start.call_args.kwargs["network_host"] == "192.168.1.58"
+    assert driver.connect.call_args.kwargs["protocol"] == "tcp"
+    assert driver.connect.call_args.kwargs["network_host"] == "192.168.1.58"
     assert adapter._last_protocol == "tcp"
 
 
@@ -98,5 +98,5 @@ def test_tui_session_start_rejects_unknown_protocol():
 
     asyncio.run(adapter._start_session(host="192.168.1.58", proto="sctp"))
 
-    driver.start.assert_not_called()
+    driver.connect.assert_not_called()
     adapter._log_error.assert_called_once()

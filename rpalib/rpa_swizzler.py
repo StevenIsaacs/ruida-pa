@@ -46,6 +46,20 @@ class RpaSwizzler:
         self._swizzle_lut = [self.swizzle_byte(i, magic) for i in range(256)]
         self._unswizzle_lut = [self.unswizzle_byte(i, magic) for i in range(256)]
 
+    def swizzle_lut(self, seed: int) -> list[int]:
+        """Generate 256-entry LUT: index = raw byte, value = magic.
+
+        For each magic value 0-255, computes swizzle_byte(seed, magic) and
+        stores LUT[swizzled_result] = magic. When seed=ACK (0xCC), the resulting
+        LUT makes unswizzle_byte(raw_byte, LUT[raw_byte]) == ACK.
+        """
+        lut = [0] * 256
+        for magic in range(256):
+            self.set_magic(magic)
+            swizzled = self.swizzle_byte(seed, magic)
+            lut[swizzled] = magic
+        return lut
+
     # ------------------------------------------------------------------
     # Static byte-level methods (moved from rpascript/interpreter.py
     # and protocols/ruida/ruida_analyzer.py)

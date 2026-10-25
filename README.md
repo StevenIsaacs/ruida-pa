@@ -195,6 +195,21 @@ Ruida command stream over TCP (e.g. the RDC8445S, on port 50200), pass `--tcp`:
 ./capture.ps1 -if Ethernet -ip <IP> -out <file> -Protocol tcp   # PowerShell
 ```
 
+To capture the RPyC RPC traffic between the TUI/RPC server and a client
+(default port 18812), pass `--rpc`. On Linux the `any` interface (with
+promiscuous mode disabled) is selected automatically unless `-i`/`--interface`
+is given:
+
+```bash
+./capture <rpc_host> my-job --rpc              # bash
+./capture <rpc_host> my-job --rpc --rpc-port 18812
+./capture.ps1 -if <loopback> -ip <IP> -out <file> -Protocol rpc   # PowerShell
+```
+
+NOTE: `--rpc` captures the binary RPyC protocol. The resulting `.log` is not
+decodable by `rpa.py` (which understands only the Ruida protocol); it is intended
+for external inspection (e.g. Wireshark).
+
 ### Analyze Captured Data
 
 #### Basic Analysis
@@ -294,9 +309,9 @@ driver.cut_xy_to(10.0, 110.0)
 driver.end_job()
 
 driver.stage_gluescript()          # assemble low-level rpascript
-driver.start(network_host="192.168.1.100")
+driver.connect(network_host="192.168.1.100")
 driver.run_job()                   # execute in the background
-driver.stop()
+driver.disconnect()
 ```
 
 The full driver surface — lifecycle, listeners, head/tail scripts, GlueScript authoring, live jog/home/job-control commands, and the RPC path — is documented in the [Integration Guide](docs/guides/integration-guide.md) and the [RdDriver interface reference](docs/api/RdDriver-interface.md).

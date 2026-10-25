@@ -1,7 +1,11 @@
-"""Tests for TcpTransport stream framing and RdTransport TCP handshake.
+"""Tests for TcpTransport (raw byte stream) and RdTransport TCP framing.
 
 A localhost socket stands in for the controller. Byte sequences mirror
 traffic captured from an RDC8445S on TCP port 50200 (magic 0x88).
+
+TcpTransport is a raw byte-stream transport: it returns raw interface bytes
+and does no protocol framing. Stream reassembly into ACK/reply units is owned
+by RdTransport (L4), exercised through the reply listener below.
 """
 
 import socket
@@ -16,11 +20,17 @@ from rpalib.rpa_swizzler import RpaSwizzler
 from ruidadriver.rd_status import RdStatus
 from ruidadriver.rd_transport import RdTransport
 from ruidadriver.transport import TcpTransport
+from ruidadriver.transport_events import TransportEvent
 
 MAGIC = 0x88
 CARD_ID_QUERY = bytes([0xDA, 0x00, 0x05, 0x7E])
 CARD_ID_REPLY = bytes([0xDA, 0x01, 0x05, 0x7E, 0x09, 0x00, 0x42, 0x20, 0x10])
 X_POS_REPLY = bytes([0xDA, 0x01, 0x04, 0x21, 0x00, 0x00, 0x00, 0x4E, 0x0F])
+# A variable-length reply (> 9 bytes) with 7-bit value bytes, as produced for
+# C-string values (e.g. MEM_MAINBOARD_VERSION).
+VAR_REPLY = bytes(
+    [0xDA, 0x01, 0x05, 0x7E, 0x09, 0x00, 0x42, 0x20, 0x10, 0x11, 0x12, 0x13]
+)
 
 
 def swz(data: bytes) -> bytes:
@@ -37,9 +47,7 @@ def server():
 
 
 def connect(server):
-    swizzler = RpaSwizzler()
-    swizzler.set_magic(MAGIC)
-    transport = TcpTransport(swizzler)
+    transport = TcpTransport()
     port = server.getsockname()[1]
     assert transport.open("127.0.0.1", port)
     peer, _ = server.accept()
@@ -56,30 +64,57 @@ def read_until(transport, timeout=2.0):
     return None
 
 
-def test_ack_and_reply_in_one_segment_are_split(server):
+def _open_rd_tcp(server, monkeypatch, timeout=1000):
+    """Return an RdTransport opened over the localhost server's TCP port."""
+    port = server.getsockname()[1]
+    original_open = TcpTransport.open
+    monkeypatch.setattr(
+        TcpTransport,
+        "open",
+        lambda self, host, _port=50200, **kw: original_open(self, host, port),
+    )
+    rd = RdTransport()
+    rd.configure(magic=MAGIC, timeout=timeout)
+    return rd
+
+
+def _handshake(server, monkeypatch, controller_payload, timeout=1000):
+    """Run a CARD_ID query against a controller sending ``payload``.
+
+    Returns (received, replies): the bytes the controller read from us, and
+    the list of reply lists the RdTransport reply listener received.
+    """
+    rd = _open_rd_tcp(server, monkeypatch, timeout=timeout)
+    replies = []
+    rd.register_reply_listener(replies.append)
+    received = []
+
+    def controller():
+        peer, _ = server.accept()
+        peer.settimeout(2.0)
+        received.append(peer.recv(64))
+        peer.sendall(controller_payload)
+        time.sleep(0.5)
+        peer.close()
+
+    thread = threading.Thread(target=controller, daemon=True)
+    thread.start()
+    assert rd.open(network_host="127.0.0.1", protocol="tcp")
+    rd.write([bytearray(CARD_ID_QUERY)])
+
+    deadline = time.monotonic() + 3.0
+    while not replies and time.monotonic() < deadline:
+        time.sleep(0.01)
+    rd.close()
+    thread.join(timeout=2.0)
+    return received, replies
+
+
+def test_tcp_read_returns_raw_bytes(server):
     transport, peer = connect(server)
     peer.sendall(swz(bytes([ACK]) + CARD_ID_REPLY))
-    assert read_until(transport) == swz(bytes([ACK]))
-    assert read_until(transport) == swz(CARD_ID_REPLY)
-    transport.close()
-    peer.close()
-
-
-def test_consecutive_replies_are_returned_together(server):
-    transport, peer = connect(server)
-    peer.sendall(swz(CARD_ID_REPLY + X_POS_REPLY))
-    assert read_until(transport) == swz(CARD_ID_REPLY + X_POS_REPLY)
-    transport.close()
-    peer.close()
-
-
-def test_partial_reply_waits_for_remaining_bytes(server):
-    transport, peer = connect(server)
-    peer.sendall(swz(CARD_ID_REPLY[:4]))
-    time.sleep(0.05)
-    assert transport.read(65536) is None
-    peer.sendall(swz(CARD_ID_REPLY[4:]))
-    assert read_until(transport) == swz(CARD_ID_REPLY)
+    data = read_until(transport)
+    assert data == swz(bytes([ACK]) + CARD_ID_REPLY)
     transport.close()
     peer.close()
 
@@ -99,6 +134,63 @@ def test_write_sends_raw_swizzled_bytes(server):
     assert peer.recv(64) == swz(CARD_ID_QUERY)
     transport.close()
     peer.close()
+
+
+def test_ack_and_reply_in_one_segment_are_split(server, monkeypatch):
+    received, replies = _handshake(
+        server, monkeypatch, swz(bytes([ACK]) + CARD_ID_REPLY)
+    )
+    assert received == [swz(CARD_ID_QUERY)]
+    assert replies and bytes(replies[0][0]) == CARD_ID_REPLY
+
+
+def test_consecutive_replies_are_returned_together(server, monkeypatch):
+    received, replies = _handshake(
+        server, monkeypatch, swz(bytes([ACK]) + CARD_ID_REPLY + X_POS_REPLY)
+    )
+    assert received == [swz(CARD_ID_QUERY)]
+    assert replies and len(replies[0]) == 2
+    assert bytes(replies[0][0]) == CARD_ID_REPLY
+    assert bytes(replies[0][1]) == X_POS_REPLY
+
+
+def test_variable_length_reply_is_forwarded_intact(server, monkeypatch):
+    received, replies = _handshake(
+        server, monkeypatch, swz(bytes([ACK]) + VAR_REPLY)
+    )
+    assert received == [swz(CARD_ID_QUERY)]
+    assert replies and bytes(replies[0][0]) == VAR_REPLY
+
+
+def test_partial_reply_is_reassembled_at_l4(server, monkeypatch):
+    rd = _open_rd_tcp(server, monkeypatch, timeout=1000)
+    replies = []
+    rd.register_reply_listener(replies.append)
+    received = []
+
+    def controller():
+        peer, _ = server.accept()
+        peer.settimeout(2.0)
+        received.append(peer.recv(64))
+        peer.sendall(swz(bytes([ACK]) + CARD_ID_REPLY[:4]))
+        time.sleep(0.1)
+        peer.sendall(swz(CARD_ID_REPLY[4:]))
+        time.sleep(0.5)
+        peer.close()
+
+    thread = threading.Thread(target=controller, daemon=True)
+    thread.start()
+    assert rd.open(network_host="127.0.0.1", protocol="tcp")
+    rd.write([bytearray(CARD_ID_QUERY)])
+
+    deadline = time.monotonic() + 3.0
+    while not replies and time.monotonic() < deadline:
+        time.sleep(0.01)
+    rd.close()
+    thread.join(timeout=2.0)
+
+    assert received == [swz(CARD_ID_QUERY)]
+    assert replies and bytes(replies[0][0]) == CARD_ID_REPLY
 
 
 def test_rd_transport_tcp_handshake_without_checksum(server, monkeypatch):
@@ -188,3 +280,44 @@ def test_resync_after_ping_failure_closes_stream():
 
     transport.drain.assert_called_once()
     transport.close_stream.assert_called_once()
+
+
+def test_ack_without_reply_fires_busy(server, monkeypatch):
+    port = server.getsockname()[1]
+    received = []
+
+    def controller():
+        peer, _ = server.accept()
+        peer.settimeout(2.0)
+        received.append(peer.recv(64))
+        peer.sendall(swz(bytes([ACK])))  # ACK only, no reply
+        time.sleep(0.5)
+        peer.close()
+
+    thread = threading.Thread(target=controller, daemon=True)
+    thread.start()
+
+    original_open = TcpTransport.open
+    monkeypatch.setattr(
+        TcpTransport,
+        "open",
+        lambda self, host, _port=50200, **kw: original_open(self, host, port),
+    )
+
+    rd = RdTransport()
+    rd.configure(magic=MAGIC, timeout=100)
+    events = []
+    rd.register_status_listener(events.append)
+    assert rd.open(network_host="127.0.0.1", protocol="tcp")
+    rd.write([bytearray(CARD_ID_QUERY)])
+
+    deadline = time.monotonic() + 3.0
+    while TransportEvent.BUSY not in events and time.monotonic() < deadline:
+        time.sleep(0.01)
+    rd.close()
+    thread.join(timeout=2.0)
+
+    assert received == [swz(CARD_ID_QUERY)]
+    assert TransportEvent.ACK_RECEIVED in events
+    assert TransportEvent.BUSY in events
+    assert TransportEvent.TIMEOUT not in events
