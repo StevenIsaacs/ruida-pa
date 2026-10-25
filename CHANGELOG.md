@@ -137,6 +137,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ACK_PENDING` for UDP/TCP), and the `BUSY` transport/session events and
   `REPLY_PENDING → SEND_QUERY` (BUSY) / `REPLY_PENDING → IDLE` (BUSY/TIMEOUT)
   transitions are documented.
+- `docs/designs/RuidaDriver-functional.md` now shows TCP throughout: the
+  Section 2 architecture diagrams (layered `Transport (ABC)` block and the
+  write/read data-flow nodes) include `TcpTransport`, and Section 3 (L4
+  Transport Layer) gains a new `TcpTransport` subsection, an `is_tcp` row in
+  the `Transport` ABC table, the protocol-aware `open()` signature
+  (`protocol="udp"`/`"tcp"`), "USB or TCP" no-checksum notes, `ACK_PENDING`
+  for UDP/TCP in the handshake machine, and `is_tcp`/`protocol` property
+  rows plus the `tcp_transport.py` directory entry.
 
 ### Fixed
 
