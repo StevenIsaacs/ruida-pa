@@ -104,16 +104,9 @@ class RdTransport:
         self._swizzler = RpaSwizzler()
         # Generate 256-entry LUT: index = raw ACK byte received from controller,
         # value = magic that makes unswizzle_byte(raw_byte, magic) == ACK (0xCC)
-        # Brute-force over all 256 possible magic values.
-        self._ack_lut: list[int] = [0] * 256  # default 0 = unknown magic
-        for magic in range(256):
-            self._swizzler.set_magic(magic)
-            # Pseudo-code from user: self._swizzle_lut[self._swizzler.swizzle(ACK)] = magic
-            # This generates LUT[swizzled_value] = magic
-            # Testing confirms: lut[self._swizzler.swizzle_byte(ACK, magic)] = magic
-            # maps raw_byte -> magic correctly (verified: unswizzle_byte(raw, LUT[raw]) == ACK)
-            swizzled = self._swizzler.swizzle_byte(ACK, magic)
-            self._ack_lut[swizzled] = magic
+        # Using the new RdSwizzler.swizzle_lut() method for consistency with
+        # RdPacket magic detection. Verified: unswizzle_byte(raw, LUT[raw]) == ACK.
+        self._ack_lut: list[int] = self._swizzler.swizzle_lut(ACK)  # ACK = 0xCC
         self._chunk_size = 1024
         self._timeout = 500  # ms per-call timeout
         self._gross_timeout = 15000  # ms overall gross timeout
