@@ -1,7 +1,7 @@
 # TUI User Guide
 
 **Application:** `rpa-script`  
-**Source:** `rpascript/tui.py` → `rpascript/tui_adapter.py` (TuiAdapter class)
+**Source:** `ruida_pa/rpascript/tui.py` → `ruida_pa/rpascript/tui_adapter.py` (TuiAdapter class)
 
 ---
 
@@ -34,7 +34,7 @@ should not be run using the TUI because of the overhead involved.
 rpa-script
 
 # From source directory
-python rpascript/tui.py
+python ruida_pa/rpascript/tui.py
 ```
 
 No arguments needed — the TUI starts immediately. If a script file is provided

@@ -19,7 +19,7 @@ except ImportError:
         "Bokeh and Tornado are required for plotting. Install with: pip install ruida-pa"
     )
 
-from rpalib.bokeh_view import BokehView
+from ruida_pa.rpalib.bokeh_view import BokehView
 
 log = logging.getLogger(__name__)
 

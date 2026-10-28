@@ -16,19 +16,19 @@ import logging
 import warnings
 from typing import Any, Callable, TypedDict
 
-import protocols.ruida.ruida_protocol as rdap
-from rpalib.ruida_transcoder import RdDecoder, RdEncoder
-from rpascript.encoding import (
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
+from ruida_pa.rpalib.ruida_transcoder import RdDecoder, RdEncoder
+from ruida_pa.rpascript.encoding import (
     encode_command,
     is_end_job,
     parse_value,
     should_include_in_checksum,
 )
-from rpascript.interpreter import ScriptParser
-from ruidadriver.rd_session import RdSession
-from ruidadriver.rd_gluescript import GlueScript, JobRunningError
-from ruidadriver.rd_status import RdStatusEvent
-from ruidadriver.rd_transport import RdTransport, _resolve_network_host
+from ruida_pa.rpascript.interpreter import ScriptParser
+from ruida_pa.ruidadriver.rd_session import RdSession
+from ruida_pa.ruidadriver.rd_gluescript import GlueScript, JobRunningError
+from ruida_pa.ruidadriver.rd_status import RdStatusEvent
+from ruida_pa.ruidadriver.rd_transport import RdTransport, _resolve_network_host
 
 _UNSET = object()  # Sentinel for "never seen before" in status change detection
 
@@ -158,8 +158,8 @@ class RdDriver(GlueScript):
             _address_to_bit_keys: dict[int, list[tuple[str, int]]] — maps 0x0400 to status bit descriptors
             _address_to_spec: dict[int, tuple] — (format_string, decoder_fn, raw_type) per handled address
         """
-        from protocols.ruida.ruida_protocol import MT
-        from rpascript.interpreter import ScriptParser
+        from ruida_pa.protocols.ruida.ruida_protocol import MT
+        from ruida_pa.rpascript.interpreter import ScriptParser
 
         parser = ScriptParser(warning_callback=lambda msg, syn: logging.warning(f"{msg}  |  Syntax: {syn}"))
 
@@ -486,7 +486,7 @@ class RdDriver(GlueScript):
         Returns (None, None) if the address is not in the MT table. The
         decoder's `decoder` attribute carries the rd_<fn> method name.
         """
-        from protocols.ruida.ruida_protocol import MT, RD_TYPES, RDT_BYTES
+        from ruida_pa.protocols.ruida.ruida_protocol import MT, RD_TYPES, RDT_BYTES
         msb = (address >> 8) & 0xFF
         lsb = address & 0xFF
         mt_entry = MT.get(msb, {}).get(lsb)
@@ -522,7 +522,7 @@ class RdDriver(GlueScript):
         mnemonic, d = RdDriver._build_decoder(address)
         if d is None:
             # Fallback: TBD format (binary, hex, decimal)
-            from protocols.ruida.ruida_protocol import TBDU35
+            from ruida_pa.protocols.ruida.ruida_protocol import TBDU35
             val = RdDecoder().decode_value(raw_reply)
             return (None, TBDU35[0].format(val))
         decoder_method = getattr(d, f"rd_{d.decoder}")

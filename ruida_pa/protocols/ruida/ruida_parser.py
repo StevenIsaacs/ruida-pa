@@ -6,10 +6,10 @@ byte and whether the current byte is part of a reply or not.
 NOTE: This does not verify the host/controller packet handshake.
 """
 
-import protocols.ruida.rpa_plotter as rpa_plotter
-import protocols.ruida.ruida_protocol as rdap
-from rpalib.rpa_emitter import RpaEmitter
-from rpalib.ruida_transcoder import RdDecoder
+import ruida_pa.protocols.ruida.rpa_plotter as rpa_plotter
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
+from ruida_pa.rpalib.rpa_emitter import RpaEmitter
+from ruida_pa.rpalib.ruida_transcoder import RdDecoder
 
 
 class RdParser:

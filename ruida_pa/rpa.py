@@ -4,18 +4,18 @@ import sys
 import time
 from pathlib import Path
 
-import protocols.ruida.ruida_analyzer as rpa
-from rpalib.rpa_emitter import RpaEmitter
-from protocols.ruida.ruida_parser import RdParser
-from rpalib.rd_binary_reader import RdBinaryStream
-from rpascript.interpreter import ScriptParser
-from rpascript.encoding import encode_command
-from rpalib.ruida_transcoder import RdEncoder
-from rpalib.rpa_swizzler import RpaSwizzler
+import ruida_pa.protocols.ruida.ruida_analyzer as rpa
+from ruida_pa.rpalib.rpa_emitter import RpaEmitter
+from ruida_pa.protocols.ruida.ruida_parser import RdParser
+from ruida_pa.rpalib.rd_binary_reader import RdBinaryStream
+from ruida_pa.rpascript.interpreter import ScriptParser
+from ruida_pa.rpascript.encoding import encode_command
+from ruida_pa.rpalib.ruida_transcoder import RdEncoder
+from ruida_pa.rpalib.rpa_swizzler import RpaSwizzler
 
 # Graceful Bokeh import: BokehApp is None if Bokeh not installed.
 try:
-    from rpalib.bokeh_app import BokehApp
+    from ruida_pa.rpalib.bokeh_app import BokehApp
 except ImportError:
     BokehApp = None
 
@@ -24,7 +24,7 @@ try:
     from bokeh.embed import file_html
     from bokeh.models import ColumnDataSource
     from bokeh.resources import CDN
-    from rpalib.bokeh_view import BokehView
+    from ruida_pa.rpalib.bokeh_view import BokehView
 except ImportError:
     file_html = None
     ColumnDataSource = None
@@ -32,8 +32,8 @@ except ImportError:
     BokehView = None
 
 # --- Version ---
-# Single source of truth for the package version; rpa.py re-exports it.
-from rpalib.version import __version__
+# Single source of truth for the package version; ruida_pa.rpa re-exports it.
+from ruida_pa.rpalib.version import __version__
 
 
 def parse_arguments():
@@ -300,7 +300,7 @@ def main():
         args.generate_script = True  # Auto-enable --generate-script
     script_gen = None
     if getattr(args, "generate_script", False):
-        from rpascript.generator import ScriptGenerator
+        from ruida_pa.rpascript.generator import ScriptGenerator
 
         script_path = str(Path(base).with_suffix(".rds"))
         script_gen = ScriptGenerator(script_path, source_file=args.input_file)

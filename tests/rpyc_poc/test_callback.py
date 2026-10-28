@@ -9,8 +9,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from rpyc.utils.factory import connect
 from rpyc.utils.server import ThreadedServer
-from rpalib.rpyc_service import RpycTuiService
-from rpascript.tui_adapter import TuiAdapter
+from ruida_pa.rpalib.rpyc_service import RpycTuiService
+from ruida_pa.rpascript.tui_adapter import TuiAdapter
 
 
 received_events = []

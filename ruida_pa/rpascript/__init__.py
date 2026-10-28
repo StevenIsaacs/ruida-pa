@@ -11,7 +11,7 @@ Primary classes:
 """
 
 try:
-    from rpascript.interpreter import ScriptInterpreter, ScriptParser
+    from ruida_pa.rpascript.interpreter import ScriptInterpreter, ScriptParser
 except ImportError:
     # Submodules not yet available (skeleton stage)
     ScriptParser = None  # type: ignore

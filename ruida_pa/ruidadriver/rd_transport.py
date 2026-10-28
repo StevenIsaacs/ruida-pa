@@ -13,15 +13,15 @@ import time
 import warnings
 from typing import Callable, Optional
 
-from protocols.ruida.ruida_protocol import ACK
-from rpalib.rpa_swizzler import RpaSwizzler
-from ruidadriver.transport import (
+from ruida_pa.protocols.ruida.ruida_protocol import ACK
+from ruida_pa.rpalib.rpa_swizzler import RpaSwizzler
+from ruida_pa.ruidadriver.transport import (
     TcpTransport,
     Transport,
     UdpTransport,
     UsbTransport,
 )
-from ruidadriver.transport_events import TransportEvent
+from ruida_pa.ruidadriver.transport_events import TransportEvent
 
 
 def parse_network_protocol(value: str | None) -> str | None:

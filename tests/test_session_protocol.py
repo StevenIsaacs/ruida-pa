@@ -6,10 +6,10 @@ from unittest.mock import Mock
 
 import pytest
 
-import ruidadriver.ruida_driver as ruida_driver
-from rpascript.interpreter import ScriptInterpreter, ScriptParser
-from rpascript.tui_adapter import TuiAdapter
-from ruidadriver.rd_transport import parse_network_protocol
+import ruida_pa.ruidadriver.ruida_driver as ruida_driver
+from ruida_pa.rpascript.interpreter import ScriptInterpreter, ScriptParser
+from ruida_pa.rpascript.tui_adapter import TuiAdapter
+from ruida_pa.ruidadriver.rd_transport import parse_network_protocol
 
 
 @pytest.mark.parametrize(

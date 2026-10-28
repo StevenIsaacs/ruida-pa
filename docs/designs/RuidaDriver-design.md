@@ -8,7 +8,7 @@ All file references are relative to the project directory (current working direc
 
 Testing will utilize the `rpa-script` which was implemented as part of the `docs/plans/ProtocolDiscoveryTools-plan.md` plan. More detail is provided in the Testing section of this document.
 
-All test code for the RuidaDriver should be saved in `ruidadriver/test`.
+All test code for the RuidaDriver should be saved in `ruida_pa/ruidadriver/test`.
 
 In the following the pattern **AGENT:** indicates something to be included in a layer's implementation plan.
 # Introduction
@@ -88,7 +88,7 @@ The application calls the Adapter using an Application defined API which convert
 The Adapter registers a `RdDriver` listener to receive decoded reply data. The Adapter then converts these into Application compatible signals and data formats and forwards them to the application using Application defined methods.
 ### Threading Differences
 The Adapter is also responsible for dealing with the differences in threading models between the Application and the Ruida Driver. For example: Internally the Ruida Driver uses the Python `threading` package for preemptive threading whereas the Application may use the `asyncio` package for cooperative threading. The Adapter uses either threading model when needed. `threading` signals are forwarded to the Application as `asyncio` signals if necessary.
-### The TuiAdapter Class -- rpascript/tui_adapter.py
+### The TuiAdapter Class -- ruida_pa/rpascript/tui_adapter.py
 This is to allow using `rpa-script` to generate command lists which can be used for live testing the implementation of this design and later discovery of Ruida controller behavior using live sessions.
 #### User Interface
 The `TuiAdapter` creates a Terminal User Interface (TUI) using [Textualize/textual](https://github.com/textualize/textual/) This is used to display status and reply data as well as support user interaction.
@@ -127,7 +127,7 @@ This layer is responsible for:
 - **Relaying** status signals from either the Session or Controller to the App providing the App has registered to receive such signals.
 NOTE: All session and controller signals are first received by the Driver for diagnostic and statistical purposes.
 NOTE: This transport does NOT support the keypad interface (UDP port 50207) because it is not very responsive and is not necessary given the available move commands.
-### RdDriver Class -- ruidadriver/rd_driver.py
+### RdDriver Class -- ruida_pa/ruidadriver/rd_driver.py
 This implements the Ruida Driver API and uses the RdSession and RdStatus to communicate with a Ruida controller. Ruida command encoding of unswizzled data is performed by this class using the RdEncoder and RdDecoder classes described below. Conversely, this class also decodes reply data received from the Ruida controller.
 
 To help maintain UI responsiveness RdDriver provides double buffering using a queue to trigger a background interpretation of the script using the Background Script Runner.
@@ -173,7 +173,7 @@ GET_SETTING MEM_CURRENT_POSITION_Y
 GET_SETTING MEM_CURRENT_POSITION_Z
 GET_SETTING MEM_CURRENT_POSITION_U
 ```
-`RdDriver` parses the `MEM_MACHINE_STATUS` reply into three separate events which are recorded and forwarded individually. These are (see protocols/ruida/ruida_protocol.py):
+`RdDriver` parses the `MEM_MACHINE_STATUS` reply into three separate events which are recorded and forwarded individually. These are (see ruida_pa/protocols/ruida/ruida_protocol.py):
 ```
 MACHINE_STATUS_MOVING
 MACHINE_STATUS_PAUSED
@@ -212,7 +212,7 @@ This class implements the Session features for managing a session with a Ruida c
 - `status`: The instance of RdStatus for registering listeners and setting ping and status message lists. This is intended to be used by `RdDriver`.
 #### The Through Interface
 This is basically calling the Ruida Transport directly. An attribute named `transport`  is provide to support through access to the Ruida Transport layer. Basically, this exposes RdTransport to the upper layers.
-### RdStatus -- ruidadriver/rd_status.py
+### RdStatus -- ruida_pa/ruidadriver/rd_status.py
 This is a sub-component of the Session Layer which is responsible for monitoring machine and connection status and informing its listeners of status changes and implements the following methods:
 `register_status_listener(listener: Callable)`
 	Register a session status change listener (see Session Status Events).
@@ -346,7 +346,7 @@ This layer is responsible for:
 - **Failure notification**: Informs the session layer of timeouts or unexpected replies.
 ## Ruida Specific Transport (L4)
 This represents the interface between the Ruida Transport and OS specific transport interfaces which in this case are UDP, TCP and USB/Serial.
-### RdTransport Class -- ruidadriver/rd_transport.py
+### RdTransport Class -- ruida_pa/ruidadriver/rd_transport.py
 This class implements the Ruida Transport layer features and is based upon the Transport class. This class also wraps the UdpTransport, TcpTransport and UsbTransport classes so that, other than the `configure` method, the upper layers (L5 and L6) can be transport agnostic.
 #### Listeners
 Two types of listeners can be registered, Status and Reply. Multiple listeners for each type are supported. Currently, listeners can only be registered. There is no corresponding un-register.
@@ -449,7 +449,7 @@ stateDiagram-v2
 	IDLE --> [*]: Shutdown
 ```
 
-### Transport Abstract Class -- ruidadriver/transport.py
+### Transport Abstract Class -- ruida_pa/ruidadriver/transport.py
 This is an abstract class on which the other transport classes (UDP, TCP and USB) are based and is designed to be called only from the `RdTransport` class. It defines a standardized API for transport classes defined below.  This defines the following methods:
 `open(**args)`
 	Open a device for communications. Returns True if the device was successfully opened. NOTE: This only means the OS opened the interface. No communications occurs at this time. No other method in this class can be called if not open.
@@ -475,7 +475,7 @@ This is an abstract class on which the other transport classes (UDP, TCP and USB
 	A property which returns True if the active transport is UDP.
 `is_tcp`
 	A property which returns True if the active transport is TCP.
-### UdpTransport Class -- ruidadriver/transport/udp_transport.py
+### UdpTransport Class -- ruida_pa/ruidadriver/transport/udp_transport.py
 This class implements the interface with the OS defined UDP interface. It is based upon the Transport abstract class.
 #### API Implementation Specifics
 `open(host: str, port: int)`
@@ -486,7 +486,7 @@ This class implements the interface with the OS defined UDP interface. It is bas
 	Returns False.
 `is_udp`
 	Returns True.
-### UsbTransport Class -- ruidadriver/transport/usb_transport.py
+### UsbTransport Class -- ruida_pa/ruidadriver/transport/usb_transport.py
 This class implements the interface with the OS defined USB/Serial interface. It is based upon the Transport abstract class. NOTE: This transport class is Ruida specific and therefore assumes baud rate to be 115200 and data/parity/stop bits to be `8N1`.
 #### API Implementation Specifics
 `open(device: str)`
@@ -503,7 +503,7 @@ This class implements the interface with the OS defined USB/Serial interface. It
 	Returns True.
 `is_udp`
 	Returns False.
-### TcpTransport Class -- ruidadriver/transport/tcp_transport.py
+### TcpTransport Class -- ruida_pa/ruidadriver/transport/tcp_transport.py
 This class implements the interface with the OS defined TCP stream interface for controllers that accept the command stream on TCP port 50200 (e.g. the RDC8445S). It is based upon the Transport abstract class.
 #### API Implementation Specifics
 This transport is a **raw byte-stream** transport: it performs no protocol framing, swizzling or message parsing. `read()` returns raw interface bytes (up to the requested length) or `None`, and it is the responsibility of `RdTransport` (L4) to reassemble the stream into the ACK and reply units the handshake expects — TCP has no datagram boundaries, so an ACK and its replies can arrive in a single read.
@@ -520,9 +520,9 @@ This transport is a **raw byte-stream** transport: it performs no protocol frami
 `is_tcp`
 	Returns True.
 # Dependencies
-### rpalib/ruida_transcoder.py -- RdEncoder and RdDecoder
+### ruida_pa/rpalib/ruida_transcoder.py -- RdEncoder and RdDecoder
 Jogging commands, machine status monitoring and job execution require translation to and from Ruida controller data formats. The _Driver_ and _Session_ layers in particular need to encode using `RdEncoder` and decode using `RdDecoder`.
-### protocols/ruida/ruida_protocol.py
+### ruida_pa/protocols/ruida/ruida_protocol.py
 This is used by RdDriver.
 # Additional Requirements
 This driver code along with the underlying layers will be packaged so they can be installed by an application using Python `pip`.
@@ -536,20 +536,21 @@ This is the directory structure relative to the project directory.
 
 In the following a directory name is preceded by a `+` and a file is preceded by a `|`. Indentation is used to show directory tree structure. A `#` precedes a comment to indicate which classes are defined in a file.
 ```
-+ ruidadriver
-	| rd_driver.py       # Contains RdDriver class.
-	| rd_controller.py   # Contains RdStatus class.
-	| rd_session.py      # Contains RdSession class.
-	| rd_transport.py    # Contains RdTransport class.
-	| transport.py       # Contains Transport abstract class.
-	+ transport # Underlying transports.
-	  | udp_transport.py # Contains UdpTransport class.
-	  | tcp_transport.py # Contains TcpTransport class.
-	  | usb_transport.py # Contains UsbTransport class.
-+ rpalib
-	| app_adapter.py     # The AppAdapter abstract and template class.
-+ rpascript
-	| tui_adapter.py     # The TuiAdapter class for scripted sessions.
++ ruida_pa
+	+ ruidadriver
+		| rd_driver.py       # Contains RdDriver class.
+		| rd_controller.py   # Contains RdStatus class.
+		| rd_session.py      # Contains RdSession class.
+		| rd_transport.py    # Contains RdTransport class.
+		| transport.py       # Contains Transport abstract class.
+		+ transport # Underlying transports.
+		  | udp_transport.py # Contains UdpTransport class.
+		  | tcp_transport.py # Contains TcpTransport class.
+		  | usb_transport.py # Contains UsbTransport class.
+	+ rpalib
+		| app_adapter.py     # The AppAdapter abstract and template class.
+	+ rpascript
+		| tui_adapter.py     # The TuiAdapter class for scripted sessions.
 ```
 ## Iterations
 Implementation shall be comprised of a number of iterations with one iteration for each layer beginning with L4 and proceeding to L7 (bottom up). Each iteration shall have a separate implementation plan comprised of phases specific to the layer being implemented.

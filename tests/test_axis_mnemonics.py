@@ -1,10 +1,10 @@
 """Tests for the per-axis X/Y/Z/U mnemonic renames and their deprecated
 _1.._4 aliases in the MT memory table."""
 
-import protocols.ruida.ruida_protocol as rdap
-from rpalib.ruida_transcoder import RdEncoder
-from rpascript.interpreter import ScriptParser
-from ruidadriver.ruida_driver import RdDriver
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
+from ruida_pa.rpalib.ruida_transcoder import RdEncoder
+from ruida_pa.rpascript.interpreter import ScriptParser
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 AXIS_SUFFIXES = ("X", "Y", "Z", "U")
 ROWS = (

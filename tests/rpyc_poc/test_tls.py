@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 from rpyc.utils.authenticators import SSLAuthenticator
 from rpyc.utils.factory import ssl_connect
 from rpyc.utils.server import ThreadedServer
-from rpalib.rpyc_service import RpycTuiService
+from ruida_pa.rpalib.rpyc_service import RpycTuiService
 
 
 def _gen_self_signed_certs(tempdir):

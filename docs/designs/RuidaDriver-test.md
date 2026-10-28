@@ -381,7 +381,7 @@ These tests require no controller. They verify the core wire-format logic using 
 | Field | Value |
 |-------|-------|
 | **Objective** | Verify that `AppAdapter` cannot be instantiated directly (abstract class). |
-| **Prerequisites** | Import `AppAdapter` from `rpalib.app_adapter`. |
+| **Prerequisites** | Import `AppAdapter` from `ruida_pa.rpalib.app_adapter`. |
 | **Steps** | 1. Attempt `AppAdapter()`. |
 | **Expected result** | `TypeError` raised: "Can't instantiate abstract class AppAdapter with abstract methods...". |
 
@@ -391,7 +391,7 @@ These tests require no controller. They verify the core wire-format logic using 
 | Field | Value |
 |-------|-------|
 | **Objective** | Verify that `TuiAdapter` implements all required AppAdapter methods. |
-| **Prerequisites** | Import `TuiAdapter` from `rpascript.tui_adapter`. |
+| **Prerequisites** | Import `TuiAdapter` from `ruida_pa.rpascript.tui_adapter`. |
 | **Steps** | 1. Call `dir(TuiAdapter)` and check for method names: `create_driver_and_session`, `on_status_event`, `on_reply_data`, `on_error`, `run_script`, `connect`, `disconnect`. |
 | **Expected result** | All seven methods are present (`start`/`stop` remain as deprecated aliases). |
 
@@ -401,7 +401,7 @@ These tests require no controller. They verify the core wire-format logic using 
 | Field | Value |
 |-------|-------|
 | **Objective** | Verify that `run_tui()` is a callable function (does not test the actual TUI launch). |
-| **Prerequisites** | Import `run_tui` from `rpascript.tui_adapter`. |
+| **Prerequisites** | Import `run_tui` from `ruida_pa.rpascript.tui_adapter`. |
 | **Steps** | 1. Verify `callable(run_tui)` returns `True`. |
 | **Expected result** | `run_tui` is callable. |
 
@@ -416,7 +416,7 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | Verify the TUI launches without errors. |
 | **Prerequisites** | `.venv` active. |
-| **Steps** | 1. Run: `python -m rpascript --tui` or `./.venv/bin/rpa-script --tui`.<br>2. Observe the terminal. |
+| **Steps** | 1. Run: `python -m ruida_pa.rpascript --tui` or `./.venv/bin/rpa-script --tui`.<br>2. Observe the terminal. |
 | **Expected result** | TUI appears with Header, log area, command input, side panel, and Footer. No traceback or crash. |
 
 #### Test 5.2.2: Verify TUI Layout
@@ -489,7 +489,7 @@ These tests require no controller. They verify the core wire-format logic using 
 | **Objective** | Verify that `!session` displays the repr of the session object |
 | **Prerequisites** | Active session in TUI |
 | **Steps** | 1. With active TUI session, type `!session` and press Enter |
-| **Expected result** | Log shows `<ruidadriver.rd_session.RdSession object at 0x...>` (or similar repr) |
+| **Expected result** | Log shows `<ruida_pa.ruidadriver.rd_session.RdSession object at 0x...>` (or similar repr) |
 
 #### Test 5.3.2: Method Call — `!transport._package test_data`
 - [ ] Test 5.3.2
@@ -660,7 +660,7 @@ These tests require no controller. They verify the core wire-format logic using 
 
 | Field | Value |
 |-------|-------|
-| **Objective** | Verify that `rpa.py decode` correctly interprets the captured traffic. |
+| **Objective** | Verify that `rpa decode` correctly interprets the captured traffic. |
 | **Prerequisites** | Capture file from Test 6.1. |
 | **Steps** | 1. Run `rpa integration-test.log`.<br>2. Examine the decoded output for the GET_SETTING command and its reply. |
 | **Expected result** | Decoded output shows the command mnemonic (`GET_SETTING`), memory address (`MEM_CARD_ID`), and the reply value. |
@@ -671,7 +671,7 @@ These tests require no controller. They verify the core wire-format logic using 
 |-------|-------|
 | **Objective** | End-to-end verification: an `.rds` script is encoded, sent to the controller, captured on the wire, and decoded back to the original script form. |
 | **Prerequisites** | Controller on network. `rpa-script` CLI available. |
-| **Steps** | 1. Create a simple `.rds` script file (e.g., `CORE NOP`).<br>2. Run `rpa-script script.rds -o tmp/encoded-output` to produce tshark-format output.<br>3. Pipe the tshark output through `rpa.py` to decode: `rpa tmp/encoded-output`.<br>4. Alternatively, send the script live and capture with `./capture`, then decode with `rpa.py`. |
+| **Steps** | 1. Create a simple `.rds` script file (e.g., `CORE NOP`).<br>2. Run `rpa-script script.rds -o tmp/encoded-output` to produce tshark-format output.<br>3. Pipe the tshark output through `rpa` to decode: `rpa tmp/encoded-output`.<br>4. Alternatively, send the script live and capture with `./capture`, then decode with `rpa`. |
 | **Expected result** | Decoded output matches the original `.rds` commands (round-trip fidelity). |
 
 ---
@@ -713,7 +713,7 @@ If the issue appears to be at the protocol/wire level:
    ```
    ./capture 192.168.1.100 problem-capture.log
    ```
-2. Run the capture through `rpa.py`:
+2. Run the capture through `rpa`:
    ```
    rpa problem-capture.log
    ```
@@ -726,10 +726,10 @@ If the issue is in Python code:
 
 1. Open the project in VSCode.
 2. Set breakpoints in the relevant layer files:
-   - **L4**: `ruidadriver/rd_transport.py`, `ruidadriver/transport/`
-   - **L5**: `ruidadriver/rd_status.py`, `ruidadriver/rd_session.py`
-   - **L6**: `ruidadriver/ruida_driver.py`, `rpascript/interpreter.py`, `rpascript/encoding.py`
-   - **L7**: `rpascript/tui_adapter.py`, `rpalib/app_adapter.py`
+   - **L4**: `ruida_pa/ruidadriver/rd_transport.py`, `ruida_pa/ruidadriver/transport/`
+   - **L5**: `ruida_pa/ruidadriver/rd_status.py`, `ruida_pa/ruidadriver/rd_session.py`
+   - **L6**: `ruida_pa/ruidadriver/ruida_driver.py`, `ruida_pa/rpascript/interpreter.py`, `ruida_pa/rpascript/encoding.py`
+   - **L7**: `ruida_pa/rpascript/tui_adapter.py`, `ruida_pa/rpalib/app_adapter.py`
 3. Reproduce the failure under the debugger.
 4. Capture stack traces and variable state.
 

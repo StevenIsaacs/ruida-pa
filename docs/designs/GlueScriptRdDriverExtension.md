@@ -3,7 +3,7 @@ In the following:
 - `rpascript` refers to the low level Ruida commands as defined in `ruida_protocol.py` and currently supported by `RdDriver.run`.
 - `gluescript` refers to a high level script intended to be used by application adapters.
 # AGENTS
-The information contained in this document is intended to be used to write a plan for adding `gluescript` and `rpascript` generation methods in a new `GlueScript` class defined in a new file, `ruidadriver/rd_gluescript.py`. Therefore, this document is to be used to write a new guide named `docs/guides/gluescript-guide.md` and update the `docs/guides/integration-guide.md` document.
+The information contained in this document is intended to be used to write a plan for adding `gluescript` and `rpascript` generation methods in a new `GlueScript` class defined in a new file, `ruida_pa/ruidadriver/rd_gluescript.py`. Therefore, this document is to be used to write a new guide named `docs/guides/gluescript-guide.md` and update the `docs/guides/integration-guide.md` document.
 
 Implementation involves `RdDriver` being extended to include the new `GlueScript` methods. Use inheritance to do so. i.e. `def class RdDriver(GlueScript):`
 
@@ -452,7 +452,7 @@ comment([
 ```
 
 ### inline(...)
-Append a list of `rpascript` commands. This appends the list of commands to the `rpascript` being generated. The lines are inserted at the call point in the assembled rpascript. It is highly recommended this method not be used for appending `rpascript` commands except in cases where it is necessary to work around a problem or for experimentation.
+Append a list of `rpascript` commands. This appends the list of commands to the `rpascript` being generated. The lines are inserted at the call point in the assembled ruida_pa.rpascript. It is highly recommended this method not be used for appending `rpascript` commands except in cases where it is necessary to work around a problem or for experimentation.
 
 Prototype:
 ```
@@ -741,7 +741,7 @@ followed by a power change, and a power change requires a preceding layer
 selection.
 
 Pending settings with no following cut are dropped at the `declare_layer()`
-boundary or at end-of-job — they never reach the rpascript. When both
+boundary or at end-of-job — they never reach the ruida_pa.rpascript. When both
 `cut_speed()` and `power_range()` are pending, the flush emits
 `CUT_SPEED_LASER_1` first, then the power block, so the power minimum is
 scaled against the speed that is about to be cut.

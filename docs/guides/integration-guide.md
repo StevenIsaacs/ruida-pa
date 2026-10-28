@@ -1,9 +1,9 @@
 # Integration Guide
 
-**Application:** `rpa.py` / `rpa-script`  
-**Source:** `ruidadriver/ruida_driver.py` (RdDriver),
-`ruidadriver/rd_gluescript.py` (GlueScript),
-`rpalib/rpyc_client.py` (RpcRdDriver)
+**Application:** `rpa` / `rpa-script`  
+**Source:** `ruida_pa/ruidadriver/ruida_driver.py` (RdDriver),
+`ruida_pa/ruidadriver/rd_gluescript.py` (GlueScript),
+`ruida_pa/rpalib/rpyc_client.py` (RpcRdDriver)
 **Audience:** Application adapters for applications EXTERNAL to this project
 **Status:** As-built (describes current implementation)
 
@@ -23,7 +23,7 @@ programmatically through the RdDriver API, either directly or over RPyC.
 
 Application adapters should build laser jobs with the high-level GlueScript API
 (`declare_job`/`declare_layer`/move/cut/`stage_gluescript`) rather than hand-writing
-low-level rpascript. GlueScript simultaneously generates a high-level transcript
+low-level ruida_pa.rpascript. GlueScript simultaneously generates a high-level transcript
 (persisted to `.cglu` files) and the low-level rpascript that the controller executes.
 
 ### Prerequisites
@@ -59,7 +59,7 @@ itself *is* the GlueScript, holding both the scripting state (transcript lines,
 job/layer storage) and the live connection.
 
 ```python
-from ruidadriver.ruida_driver import RdDriver
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
 driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
@@ -338,7 +338,7 @@ GlueScript does **not** generate the Offset Settings (§10.6) or Array Settings
 **Constructing a job with GlueScript:**
 
 ```python
-from ruidadriver.ruida_driver import RdDriver
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
 
@@ -383,7 +383,7 @@ driver.set_tail_script([
 
 The checksum value in `END_JOB` must match the running sum of all preceding
 commands that participate in checksum calculation (see `should_include_in_checksum`
-in `rpascript/encoding.py` for the exclusion rules). When using `auto_checksum=True`,
+in `ruida_pa/rpascript/encoding.py` for the exclusion rules). When using `auto_checksum=True`,
 the driver recalculates and patches `END_JOB` automatically.
 
 **Composing and executing:**
@@ -399,10 +399,10 @@ To export the composed script as a binary `.rd` file (compatible with RDWorks),
 use the `ScriptParser` + `encode_command` pipeline:
 
 ```python
-from rpascript.interpreter import ScriptParser
-from rpascript.encoding import encode_command
-from rpalib.ruida_transcoder import RdEncoder
-from rpalib.rpa_swizzler import RpaSwizzler
+from ruida_pa.rpascript.interpreter import ScriptParser
+from ruida_pa.rpascript.encoding import encode_command
+from ruida_pa.rpalib.ruida_transcoder import RdEncoder
+from ruida_pa.rpalib.rpa_swizzler import RpaSwizzler
 
 # Compose full script — this is the staged GlueScript output
 # (optionally wrapped with head/tail as composed by run_job)
@@ -436,7 +436,7 @@ with open("output.rd", "wb") as f:
 print(f"Wrote {len(raw)} bytes ({len(swizzled)} swizzled)")
 ```
 
-The same pipeline is used internally by `rpa.py --generate-rd`. The `magic`
+The same pipeline is used internally by `rpa --generate-rd`. The `magic`
 byte (`0x88` for RDWorks) selects the swizzle
 pattern; capture-from-controller files typically use `0x88`, while
 capture-from-software may use `0x89`.
@@ -445,7 +445,7 @@ capture-from-software may use `0x89`.
 
 1. Stage a job with GlueScript (`declare_job` → `declare_layer` → operations → `end_job` → `stage_gluescript`)
 2. Generate `.rd` via the encoding pipeline
-3. Run `python rpa.py output.rd` to decode and verify all sections
+3. Run `rpa output.rd` to decode and verify all sections
 4. Compare command sequence against `rpascript-guide.md §10.10`
 
 The decoded output should preserve the original section order, parameter
@@ -551,10 +551,10 @@ thread; avoid issuing it while a TUI-side `/connect` is still in progress.
 
 ### 3.2 Connecting
 
-`RpcRdDriver` (`rpalib/rpyc_client.py`)
+`RpcRdDriver` (`ruida_pa/rpalib/rpyc_client.py`)
 mirrors the full `RdDriver` surface and self-connects when constructed with
 no arguments. The `token` argument selects the connect handshake; the module
-docstring in `rpalib/rpyc_client.py` is the authoritative wording, summarized
+docstring in `ruida_pa/rpalib/rpyc_client.py` is the authoritative wording, summarized
 here:
 
 - `RpcRdDriver()` (`token=None`, the default) — the PRIMARY self-connect
@@ -582,7 +582,7 @@ must configure the server with `token=...` (any value); the empty-token
 prefix then passes for localhost.
 
 ```python
-from rpalib.rpyc_client import RpcRdDriver
+from ruida_pa.rpalib.rpyc_client import RpcRdDriver
 
 # PRIMARY: self-connect to the default token-less server
 rpc_driver = RpcRdDriver()
@@ -845,7 +845,7 @@ authored over RPC is retained in the driver and can be executed after
 
 **Version introspection:** `get_version()` returns the ruida-pa version of
 the server process; the `version_mismatch` property compares it with the
-client's local `rpalib.version.__version__`. An app adapter should check
+client's local `ruida_pa.rpalib.version.__version__`. An app adapter should check
 this after connecting and warn (or refuse) on a mismatch, since the RPC
 surface can differ between versions. A raw service root from a server
 older than this feature raises `AttributeError` on `get_version()` — treat
@@ -901,7 +901,7 @@ without the wrapper would instead surface `AttributeError`, since no
 
 Calling the service root directly sends one RPC per command: every
 `move_*_to`/`cut_*_to` call round-trips individually, so a large job is chatty
-on the wire. `rpalib/rpyc_client.RpcRdDriver` is a thin client-side wrapper
+on the wire. `ruida_pa/rpalib/rpyc_client.RpcRdDriver` is a thin client-side wrapper
 around the same service root that buffers the high-volume layer actions —
 `move_xy_to`/`move_x_to`/`move_y_to`, `cut_xy_to`/`cut_x_to`/`cut_y_to`,
 `power`, `power_range`, `set_mode`, `set_overscan`,
@@ -1014,7 +1014,7 @@ guard rejects the suffix).
 consistent with the direct driver: `gluescript` returns the client's
 buffered transcript (including unflushed lines) and `job_complete` reads
 the local flag set by `end_job()`. `rpascript` remains a server snapshot
-of the last-flushed assembled rpascript. The method aliases
+of the last-flushed assembled ruida_pa.rpascript. The method aliases
 `get_gluescript()`/`get_rpascript()` return the server's last-flushed
 state (so `gluescript` and `get_gluescript()` diverge: the property is
 live local, the method is the server snapshot).
@@ -1084,7 +1084,7 @@ Both classes implement the same surface; the table summarizes the groups.
 | Head/tail scripts | `set_head_script`, `set_tail_script`, `get_head_script`, `get_tail_script` | Configured before connection over RPC (see §3.6) |
 | Listeners | `register_status_listener`, `register_error_listener`, `register_reply_listener`, and the `unregister_*` counterparts | Over RPC matched by equality, not identity (see §3.5) |
 | Properties | `gluescript`, `rpascript`, `job_complete`, `is_connected`, `machine_status`, `current_status`, `protect_enabled` | `gluescript`/`job_complete` are live local on both; `rpascript` and the status snapshots are server-side over RPC (see §4.3) |
-| Version | `get_version`, `version_mismatch` | RPC-only on the wrapper; the direct driver shares the process version (`rpalib.version.__version__`) |
+| Version | `get_version`, `version_mismatch` | RPC-only on the wrapper; the direct driver shares the process version (`ruida_pa.rpalib.version.__version__`) |
 | Protection | `set_protect` | Blocks settings writes when enabled |
 | Format utilities | `format_reply_value`, `format_reply`, `format_reply_list`, `decode_status_value` | Static on direct driver, instance methods over RPC |
 | Jog & home | `jog_set_xy_speed`, `jog_set_z_speed`, `jog_set_u_speed`, `jog_set_xy_rel`, `jog_set_z_rel`, `jog_set_u_rel`, `jog_xy_to`, `jog_x_to`, `jog_y_to`, `jog_z_to`, `jog_u_to`, `jog_xy_rel`, `jog_x_rel`, `jog_y_rel`, `jog_z_rel`, `jog_u_rel`, `home`, `home_z`, `home_u` | Live-only commands, forwarded immediately |
@@ -1112,7 +1112,7 @@ before switching.
 | Listener delivery | Local callables invoked synchronously from the session thread | Callbacks cross the wire via RPyC netref proxies (see §3.5); identity matching is by equality, not identity — pass the SAME listener object to unregister |
 | Error timing | Authoring errors raise at call time | Authoring errors raise at call time too — `ValueError` for `declare_layer` mode/overscan only; out-of-range power and `power_range` constraints (`min_power > max_power`, `min_power` below the power floor) emit `# warning:` comments instead of raising, consistent with the direct driver; `power_range` keeps its `_job_complete` fail-fast guard; a corrupted `max_cut_speed` surfaces as `ValueError` at the next `cut_*` action (flush), not at `power_range()` |
 | `connect()` session location | Opens the controller session on THIS machine | Opens the session on the SERVER machine (wherever the TUI runs); an RPC `connect()` with a different `network_host`/`usb_device`/`protocol` replaces the active server-side session |
-| Version reporting | Shares the process version (`rpalib.version.__version__`) | `get_version()` reports the SERVER process version; `version_mismatch` compares it with the client's, so a client/server version mismatch is detectable (see §3.7) |
+| Version reporting | Shares the process version (`ruida_pa.rpalib.version.__version__`) | `get_version()` reports the SERVER process version; `version_mismatch` compares it with the client's, so a client/server version mismatch is detectable (see §3.7) |
 | Shutdown | `disconnect()` ends the controller session | `close()` ends the RPC connection (idempotent; closes only self-opened connections; post-close calls raise `RuntimeError("driver closed")` and `is_connected` reads False) |
 
 `power_range` constraint violations (no declared layer) raise `ValueError`
@@ -1205,7 +1205,7 @@ messages) first.
 Validate script syntax and structure before sending to hardware:
 
 ```python
-from rpascript.interpreter import ScriptParser
+from ruida_pa.rpascript.interpreter import ScriptParser
 
 parser = ScriptParser()
 try:
@@ -1228,7 +1228,7 @@ To validate a gluescript transcript instead, re-stage it —
 Test checksum mismatch handling with `auto_checksum`:
 
 ```python
-from ruidadriver.ruida_driver import RdDriver
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
 # With auto_checksum=False (default), mismatch raises ValueError
@@ -1247,7 +1247,7 @@ driver.run(["MOVE_FAR_XY X=100mm Y=200mm", "END_JOB = 99999"],
 Test job assembly via GlueScript, staged without a connection:
 
 ```python
-from ruidadriver.ruida_driver import RdDriver
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
 
@@ -1282,7 +1282,7 @@ for optional pre/postamble around the staged job.
 Test that `cancel_script()` correctly prevents re-queue on disconnect:
 
 ```python
-from ruidadriver.ruida_driver import RdDriver
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 import time
 
 driver = RdDriver()
@@ -1326,10 +1326,10 @@ Before writing any integration code, read in this order:
 
 | File | What It Contains |
 |------|-----------------|
-| `ruidadriver/ruida_driver.py` | RdDriver class (full lifecycle, listeners, flow control) — class starts at line 54, 791 lines total |
-| `ruidadriver/rd_gluescript.py` | GlueScript mixin — high-level job scripting (declare_job, declare_layer, move/cut, stage_gluescript); RdDriver inherits from it (class RdDriver(GlueScript)) |
-| `rpalib/rpyc_client.py` | RpcRdDriver: buffers layer actions, delta staging |
-| `rpascript/interpreter.py` | ScriptParser for offline validation |
+| `ruida_pa/ruidadriver/ruida_driver.py` | RdDriver class (full lifecycle, listeners, flow control) — class starts at line 54, 791 lines total |
+| `ruida_pa/ruidadriver/rd_gluescript.py` | GlueScript mixin — high-level job scripting (declare_job, declare_layer, move/cut, stage_gluescript); RdDriver inherits from it (class RdDriver(GlueScript)) |
+| `ruida_pa/rpalib/rpyc_client.py` | RpcRdDriver: buffers layer actions, delta staging |
+| `ruida_pa/rpascript/interpreter.py` | ScriptParser for offline validation |
 
 ### 7.3 What to Give an Agent
 

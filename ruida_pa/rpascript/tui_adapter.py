@@ -30,10 +30,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 import argparse
-from rpalib.rpa_emitter import RpaEmitter
-from rpalib.version import __version__
+from ruida_pa.rpalib.rpa_emitter import RpaEmitter
+from ruida_pa.rpalib.version import __version__
 try:
-    from rpalib.bokeh_app import BokehApp
+    from ruida_pa.rpalib.bokeh_app import BokehApp
 except ImportError:
     BokehApp = None
 
@@ -42,17 +42,17 @@ try:
     from bokeh.embed import file_html
     from bokeh.models import ColumnDataSource
     from bokeh.resources import CDN
-    from rpalib.bokeh_view import BokehView
+    from ruida_pa.rpalib.bokeh_view import BokehView
 except ImportError:
     file_html = None
     ColumnDataSource = None
     CDN = None
     BokehView = None
-from protocols.ruida.ruida_analyzer import RuidaProtocolAnalyzer
-from protocols.ruida.ruida_parser import RdParser
-from rpalib.rd_binary_reader import RdBinaryStream
-from rpascript.generator import ScriptGenerator
-from rpalib.rpa_swizzler import RpaSwizzler
+from ruida_pa.protocols.ruida.ruida_analyzer import RuidaProtocolAnalyzer
+from ruida_pa.protocols.ruida.ruida_parser import RdParser
+from ruida_pa.rpalib.rd_binary_reader import RdBinaryStream
+from ruida_pa.rpascript.generator import ScriptGenerator
+from ruida_pa.rpalib.rpa_swizzler import RpaSwizzler
 
 from rich.highlighter import ReprHighlighter
 from rich.segment import Segment
@@ -71,13 +71,13 @@ from textual.selection import Selection
 from textual.strip import Strip
 from textual.widgets import Header, Input, RichLog, Static, TextArea
 
-from rpalib.ruida_transcoder import RdDecoder, RdEncoder
-from rpascript.encoding import encode_command, is_resolvable_address, parse_value
-from rpascript.interpreter import ScriptParser, reconstruct_script_line
-from ruidadriver.rd_status import RdStatusEvent
-from ruidadriver.rd_transport import _resolve_network_host, parse_network_protocol
-from ruidadriver.ruida_driver import RdDriver, StatusDict
-from ruidadriver.rd_gluescript import (
+from ruida_pa.rpalib.ruida_transcoder import RdDecoder, RdEncoder
+from ruida_pa.rpascript.encoding import encode_command, is_resolvable_address, parse_value
+from ruida_pa.rpascript.interpreter import ScriptParser, reconstruct_script_line
+from ruida_pa.ruidadriver.rd_status import RdStatusEvent
+from ruida_pa.ruidadriver.rd_transport import _resolve_network_host, parse_network_protocol
+from ruida_pa.ruidadriver.ruida_driver import RdDriver, StatusDict
+from ruida_pa.ruidadriver.rd_gluescript import (
     GlueScript,
     JobRunningError,
     _join_continuation_lines,
@@ -2830,7 +2830,7 @@ class TuiAdapter(App):
             self._log_error("Bokeh is not installed. Install with: pip install ruida-pa")
             return
 
-        from protocols.ruida.rpa_plotter import RpaPlotter
+        from ruida_pa.protocols.ruida.rpa_plotter import RpaPlotter
 
         parsed = self._parser.parse_lines(self._loaded_script)
         if not parsed:
@@ -3177,7 +3177,7 @@ class TuiAdapter(App):
 
     def _cmd_scan_mem(self) -> None:
         """Generate a GET_SETTING script for all MT memory addresses."""
-        from protocols.ruida.ruida_protocol import MT, UNKNOWN_ADDRESS
+        from ruida_pa.protocols.ruida.ruida_protocol import MT, UNKNOWN_ADDRESS
 
         lines: list[str] = []
         for msb in sorted(MT):
@@ -4016,7 +4016,7 @@ class TuiAdapter(App):
             return
 
         try:
-            from protocols.ruida.rpa_plotter import RpaPlotter
+            from ruida_pa.protocols.ruida.rpa_plotter import RpaPlotter
 
             ns = argparse.Namespace(
                 input_file=self._plot_source or "<gluescript>",
@@ -4972,7 +4972,7 @@ class TuiAdapter(App):
             key = None
             token = None
 
-        from rpalib.rpyc_service import start_rpyc_server
+        from ruida_pa.rpalib.rpyc_service import start_rpyc_server
 
         def _report_failure(error: BaseException) -> None:
             """Report a server start failure on the TUI thread (thread-safe)."""

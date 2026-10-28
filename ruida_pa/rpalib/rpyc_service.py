@@ -34,8 +34,8 @@ from rpyc.utils.authenticators import AuthenticationError
 from rpyc.utils.factory import connect_stream
 from rpyc.utils.server import ThreadedServer
 
-from rpascript.tui_adapter import TuiAdapter
-from ruidadriver.rd_transport import _resolve_network_host
+from ruida_pa.rpascript.tui_adapter import TuiAdapter
+from ruida_pa.ruidadriver.rd_transport import _resolve_network_host
 
 _log = logging.getLogger(__name__)
 

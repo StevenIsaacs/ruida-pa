@@ -7,7 +7,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from rpalib.rpyc_service import _make_authenticator
+from ruida_pa.rpalib.rpyc_service import _make_authenticator
 import rpyc
 from rpyc.core.stream import SocketStream
 from rpyc.utils.factory import connect_stream

@@ -21,7 +21,7 @@ argument, exactly as before.
 Token handshake
 ---------------
 ``connect_rpc()`` speaks the length-prefixed token protocol implemented
-by the server authenticator (rpalib/rpyc_service.py):
+by the server authenticator (ruida_pa/rpalib/rpyc_service.py):
 - ``token=None``: send NOTHING. This pairs with the default token-less
   server (``start_rpyc_server(token=None)``), which installs no
   authenticator and never reads a handshake.
@@ -161,17 +161,17 @@ from typing import Any, Callable
 from rpyc.core.stream import SocketStream
 from rpyc.utils.factory import connect_stream
 
-from rpalib.gluescript_signature import (
+from ruida_pa.rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
     gluescript_signature,
 )
-from rpalib.version import __version__
-from ruidadriver.rd_gluescript import (
+from ruida_pa.rpalib.version import __version__
+from ruida_pa.ruidadriver.rd_gluescript import (
     GlueScript,
     JobRunningError,
     _join_continuation_lines,
 )
-from ruidadriver.rd_transport import _resolve_network_host
+from ruida_pa.ruidadriver.rd_transport import _resolve_network_host
 
 logger = logging.getLogger(__name__)
 

@@ -3,10 +3,10 @@
 
 import pytest
 
-from rpalib.rpyc_client import RpcRdDriver
-from rpalib.rpyc_service import RpycTuiService
-from rpascript.tui_adapter import TuiAdapter
-from ruidadriver.rd_gluescript import GlueScript, JobRunningError
+from ruida_pa.rpalib.rpyc_client import RpcRdDriver
+from ruida_pa.rpalib.rpyc_service import RpycTuiService
+from ruida_pa.rpascript.tui_adapter import TuiAdapter
+from ruida_pa.ruidadriver.rd_gluescript import GlueScript, JobRunningError
 
 DELAY_METHODS = ("pierce", "add_delay", "laser_on_delay", "laser_off_delay")
 

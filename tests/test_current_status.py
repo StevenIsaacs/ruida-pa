@@ -2,8 +2,8 @@
 
 from unittest.mock import Mock
 
-from rpalib.ruida_transcoder import RdEncoder
-from ruidadriver.ruida_driver import RdDriver
+from ruida_pa.rpalib.ruida_transcoder import RdEncoder
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 
 def _reply(msb: int, lsb: int, value: int) -> bytearray:

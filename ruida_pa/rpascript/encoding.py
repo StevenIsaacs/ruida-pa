@@ -10,8 +10,8 @@ All functions are pure — same inputs always produce same outputs, no side effe
 
 from typing import Any
 
-import protocols.ruida.ruida_protocol as rdap
-from rpalib.ruida_transcoder import RdEncoder
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
+from ruida_pa.rpalib.ruida_transcoder import RdEncoder
 
 # Decoder function name (DDEC from param spec) → RdEncoder method name.
 _ENCODER_MAP: dict[str, str | None] = {

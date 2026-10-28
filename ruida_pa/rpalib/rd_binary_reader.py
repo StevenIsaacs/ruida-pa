@@ -5,7 +5,7 @@ Provides unswizzled bytes to the Ruida protocol parser from RDWorks
 binary export files (.rd extension).
 """
 
-from rpalib.rpa_swizzler import RpaSwizzler
+from ruida_pa.rpalib.rpa_swizzler import RpaSwizzler
 
 
 class RdBinaryStream:

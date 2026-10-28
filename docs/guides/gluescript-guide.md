@@ -1,7 +1,7 @@
 # GlueScript Guide
 
 **Format:** GlueScript (high-level) → rpascript (low-level)  
-**Source:** `ruidadriver/rd_gluescript.py` (GlueScript class)  
+**Source:** `ruida_pa/ruidadriver/rd_gluescript.py` (GlueScript class)  
 **Consumed by:** `RdDriver.run_job()` via `RdDriver` which inherits from `GlueScript`  
 **Status:** As-built (describes current implementation)
 
@@ -84,9 +84,9 @@ Since rpascript represents the current understanding  of the Ruida controller pr
 
 | Path | Role |
 |------|------|
-| `ruidadriver/rd_gluescript.py` | `GlueScript` class — high-level job scripting mixin |
-| `ruidadriver/ruida_driver.py` | `RdDriver(GlueScript)` — combines scripting with execution |
-| `rpascript/tui_adapter.py` | TUI adapter — `/gluescript` command implementation |
+| `ruida_pa/ruidadriver/rd_gluescript.py` | `GlueScript` class — high-level job scripting mixin |
+| `ruida_pa/ruidadriver/ruida_driver.py` | `RdDriver(GlueScript)` — combines scripting with execution |
+| `ruida_pa/rpascript/tui_adapter.py` | TUI adapter — `/gluescript` command implementation |
 
 ---
 
@@ -209,7 +209,7 @@ driver.declare_job("Array Job", ref_point="MACHINE", columns=2, rows=3, xstep=10
 #### `end_job()`
 
 Complete the job definition. Marks the job as ready for staging and emits
-`END_JOB` in the rpascript.
+`END_JOB` in the ruida_pa.rpascript.
 
 **Raises:** `RuntimeError` if called twice or before `declare_job()`.
 
@@ -365,7 +365,7 @@ be used in `IMAGE`/`DEPTHMAP` layers as well.
 **Emission timing (flush at cut):** pending settings are emitted only by a
 following `cut_*` action. Pending settings with no following cut are
 dropped at the `declare_layer()` boundary or at end-of-job — they never
-reach the rpascript. When both `cut_speed()` and `power_range()` are
+reach the ruida_pa.rpascript. When both `cut_speed()` and `power_range()` are
 pending, the flush emits `CUT_SPEED_LASER_1` first, then the power block,
 so the power minimum is scaled against the speed that is about to be cut.
 
@@ -553,7 +553,7 @@ which are live-only).
 **Emission timing (flush at cut):** pending settings are emitted only by a
 following `cut_*` action. Pending settings with no following cut are dropped
 at the `declare_layer()` boundary or at end-of-job — they never reach the
-rpascript. When both `cut_speed()` and `power_range()` are pending, the
+ruida_pa.rpascript. When both `cut_speed()` and `power_range()` are pending, the
 flush emits `CUT_SPEED_LASER_1` first, then the power block, so the power
 minimum is scaled against the speed that is about to be cut.
 
@@ -639,7 +639,7 @@ driver.select_laser(1)
 # Produces: LASER_DEVICE_1
 ```
 
-Only laser head 1 is currently wired in rpascript. Selecting any other head
+Only laser head 1 is currently wired in ruida_pa.rpascript. Selecting any other head
 logs a warning
 (`select_laser(2) ignored - only laser head 1 is currently wired in
 rpascript`) and emits nothing, so the job keeps a single-head transcript.
@@ -886,7 +886,7 @@ reads a status-event cache with the same poll-driven freshness.
 
 #### `comment(comments: list[str])`
 
-Append comment lines to the rpascript. Each comment is prefixed with `# `.
+Append comment lines to the ruida_pa.rpascript. Each comment is prefixed with `# `.
 
 ```python
 driver.comment(["Setup complete", "Starting engrave pass"])
@@ -932,7 +932,7 @@ A warning is logged during staging if `inline()` was used.
 #### VSCode extension support
 
 The repo ships a workspace extension at
-`.vscode/extensions/local.gluescript-rpascript/` providing syntax
+`.vscode/extensions/local.gluescript-ruida_pa/rpascript/` providing syntax
 highlighting, language configuration, and snippets for `.cglu`
 (GlueScript) and `.rds` (rpascript) files. Opening the repo as the VSCode
 workspace root prompts a one-time install, after which the extension
@@ -947,7 +947,7 @@ keywords.
 
 Finalize the rpascript, expanding deferred variable references.
 
-- When `gluescript` is `None`: finalizes the currently generated rpascript.
+- When `gluescript` is `None`: finalizes the currently generated ruida_pa.rpascript.
 - When `gluescript` is provided: re-generates rpascript by processing each
   gluescript command line through the command registry, then finalizes.
 
@@ -1004,7 +1004,7 @@ returns `[]` when no driver.
 
 #### `get_rpascript() -> list[str]`
 
-Return a copy of the assembled rpascript. Adapter-level getter exposed over
+Return a copy of the assembled ruida_pa.rpascript. Adapter-level getter exposed over
 RPC (also accessible as the `driver.rpascript` attribute); returns `[]` when
 no driver.
 
@@ -1613,7 +1613,7 @@ the last layer in the job.
 ## 11. Complete Python Example
 
 ```python
-from ruidadriver.ruida_driver import RdDriver
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
 

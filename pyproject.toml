@@ -42,11 +42,8 @@ Repository = "https://github.com/StevenIsaacs/ruida-pa"
 Issues = "https://github.com/StevenIsaacs/ruida-pa/issues"
 
 [project.scripts]
-rpa = "rpa:main"
-rpa-script = "rpascript.tui:main"
-
-[tool.setuptools]
-py-modules = ["rpa"]
+rpa = "ruida_pa.rpa:main"
+rpa-script = "ruida_pa.rpascript.tui:main"
 
 [tool.setuptools.packages.find]
-include = ["rpalib*", "protocols*", "rpascript*", "ruidadriver*"]
+include = ["ruida_pa*"]

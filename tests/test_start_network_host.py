@@ -6,9 +6,9 @@ from unittest.mock import Mock
 
 import pytest
 
-import ruidadriver.ruida_driver as ruida_driver
-from ruidadriver.rd_transport import _resolve_network_host
-from ruidadriver.ruida_driver import RdDriver
+import ruida_pa.ruidadriver.ruida_driver as ruida_driver
+from ruida_pa.ruidadriver.rd_transport import _resolve_network_host
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 
 def test_resolve_network_host_neither():

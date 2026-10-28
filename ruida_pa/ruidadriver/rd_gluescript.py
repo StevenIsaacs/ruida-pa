@@ -14,11 +14,11 @@ import re
 import shlex
 from typing import Any, Callable, Iterable
 
-from rpalib.gluescript_signature import (
+from ruida_pa.rpalib.gluescript_signature import (
     GlueScriptDeltaMismatchError,
     gluescript_signature,
 )
-from rpalib.version import __version__
+from ruida_pa.rpalib.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -1014,7 +1014,7 @@ class GlueScript:
         attrs: list[str] = []
         attrs.append(f"# Layer {self._layer - 1}: {label}")
         # Escape '#' so the rpascript interpreter's inline-comment stripping
-        # does not eat the color value (matches rpascript/generator.py).
+        # does not eat the color value (matches ruida_pa/rpascript/generator.py).
         attrs.append(f"LAYER_COLOR Layer:{self._layer - 1} Color:{color.replace('#', '\\#')}")
         attrs.append(
             f"CUT_SPEED_LASER_1 Layer:{self._layer - 1} Speed:{speed}mm/S"
