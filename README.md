@@ -316,6 +316,8 @@ driver.disconnect()
 
 The full driver surface — lifecycle, listeners, head/tail scripts, GlueScript authoring, live jog/home/job-control commands, and the RPC path — is documented in the [Integration Guide](docs/guides/integration-guide.md) and the [RdDriver interface reference](docs/api/RdDriver-interface.md).
 
+The RPC server is opt-in and binds to localhost by default, where authentication and TLS are optional; whatever authentication is explicitly configured (token and/or TLS) is enforced for every client, loopback included. Binding a non-loopback address requires both a token and TLS — the server refuses to start otherwise — and the production client (`RpcRdDriver`) supports verified TLS (including mutual TLS) with the token handshake running inside the encrypted session.
+
 > **Breaking change in import paths:** all Python modules now live under the single `ruida_pa` namespace — `ruida_pa.protocols`, `ruida_pa.rpalib`, `ruida_pa.rpascript`, `ruida_pa.ruidadriver` and `ruida_pa.rpa` — instead of installing `protocols`, `rpalib`, `rpascript`, `ruidadriver` and `rpa` at the top level ([#14](https://github.com/StevenIsaacs/ruida-pa/issues/14)). When upgrading from 0.23.0 or earlier, update imports to the new names, e.g. `from ruidadriver.ruida_driver import RdDriver` becomes `from ruida_pa.ruidadriver.ruida_driver import RdDriver`. The `rpa` and `rpa-script` console commands are unchanged.
 
 ## Script Generation & Round-Trip Testing

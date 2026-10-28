@@ -21,16 +21,19 @@ Clients call these without the ``exposed_`` prefix
 from __future__ import annotations
 
 import concurrent.futures
+import hmac
+import ipaddress
 import logging
 import queue
 import socket
+import ssl
 import threading
 import warnings
 import weakref
 from typing import Any, Callable
 
 import rpyc
-from rpyc.utils.authenticators import AuthenticationError
+from rpyc.utils.authenticators import AuthenticationError, SSLAuthenticator
 from rpyc.utils.factory import connect_stream
 from rpyc.utils.server import ThreadedServer
 
@@ -38,6 +41,10 @@ from ruida_pa.rpascript.tui_adapter import TuiAdapter
 from ruida_pa.ruidadriver.rd_transport import _resolve_network_host
 
 _log = logging.getLogger(__name__)
+
+# Bounds the token handshake so a client that connects and sends nothing
+# cannot hold the handler thread forever.
+_HANDSHAKE_TIMEOUT = 10.0
 
 
 class RpycTuiService(rpyc.Service):
@@ -947,6 +954,125 @@ class RpycTuiService(rpyc.Service):
         return TuiAdapter.decode_status_value(address, raw_reply)
 
 
+def _is_loopback_host(host: str) -> bool:
+    """Return True when ``host`` is a loopback bind address.
+
+    ``localhost`` and any loopback IP literal (127.0.0.0/8, ::1) count.
+    Every other name or literal — including wildcard addresses such as
+    0.0.0.0 — is treated as non-loopback, so the strict non-loopback
+    policy applies.
+    """
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _recv_exactly(sock: socket.socket, count: int) -> bytes:
+    """Read exactly ``count`` bytes, returning fewer only on EOF."""
+    data = b""
+    while len(data) < count:
+        chunk = sock.recv(count - len(data))
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
+def _make_authenticator(token: str) -> Callable:
+    """Create a token authenticator for ThreadedServer.
+
+    Protocol:
+    - Client connects TCP socket (possibly TLS-wrapped first)
+    - Client sends: 1 byte length + N bytes token (UTF-8)
+    - Server validates with constant-time comparison
+
+    The token is required from EVERY client, loopback included:
+    configuring a token is an explicit request for authentication, so
+    there is no local bypass. The handshake is bounded by a socket
+    timeout so a client that connects and sends nothing cannot hold
+    the handler thread forever.
+    """
+    token_bytes = token.encode("utf-8")
+    if not token_bytes:
+        raise ValueError("token must be a non-empty string")
+    if len(token_bytes) > 255:
+        raise ValueError("token longer than 255 UTF-8 bytes")
+
+    def authenticator(sock: socket.socket) -> tuple[socket.socket, object]:
+        """Authenticate a client connection.
+
+        Returns (socket, credentials) on success.
+        Raises AuthenticationError on failure.
+        """
+        try:
+            sock.settimeout(_HANDSHAKE_TIMEOUT)
+            raw_len = _recv_exactly(sock, 1)
+            if not raw_len:
+                raise AuthenticationError("No token provided")
+            token_len = raw_len[0]
+            client_token = _recv_exactly(sock, token_len)
+            if len(client_token) != token_len:
+                raise AuthenticationError("Token truncated")
+            if not hmac.compare_digest(client_token, token_bytes):
+                raise AuthenticationError("Invalid token")
+        finally:
+            sock.settimeout(None)
+        return sock, {"user": "token-auth", "authenticated": True}
+
+    return authenticator
+
+
+def _build_authenticator(
+    token: str | None = None,
+    cert_path: str | None = None,
+    key_path: str | None = None,
+    ca_path: str | None = None,
+) -> Callable | None:
+    """Compose the RPyC authenticator from the requested token/TLS config.
+
+    Returns None when neither token nor TLS is configured (the default
+    loopback-only, unauthenticated mode). Otherwise returns a single
+    authenticator for ThreadedServer that applies, in order:
+
+    1. TLS — wraps the accepted socket server-side via RPyC's supported
+       SSLAuthenticator. When ``ca_path`` is given, client certificates
+       are REQUIRED (mutual TLS); otherwise the session is encrypted
+       but the client itself is not verified.
+    2. Token — the length-prefixed token handshake, run over the
+       (possibly TLS-wrapped) socket, so the token is never sent in
+       the clear.
+
+    TLS and token auth compose instead of one replacing the other: a
+    server configured with both requires a client to pass both checks.
+    """
+    if (cert_path is None) != (key_path is None):
+        raise ValueError("TLS requires both cert_path and key_path")
+
+    token_auth = _make_authenticator(token) if token else None
+    tls_auth = None
+    if cert_path and key_path:
+        tls_auth = SSLAuthenticator(
+            keyfile=key_path,
+            certfile=cert_path,
+            ca_certs=ca_path,
+            cert_reqs=ssl.CERT_REQUIRED if ca_path else ssl.CERT_NONE,
+        )
+
+    if tls_auth is None:
+        return token_auth
+    if token_auth is None:
+        return tls_auth
+
+    def authenticator(sock: socket.socket) -> tuple[socket.socket, object]:
+        sock, _peer_cert = tls_auth(sock)  # encrypt (and maybe verify client)
+        return token_auth(sock)            # token check over TLS
+
+    return authenticator
+
+
 def start_rpyc_server(
     tui_adapter: TuiAdapter | None = None,
     host: str = "127.0.0.1",
@@ -959,59 +1085,66 @@ def start_rpyc_server(
 ) -> ThreadedServer:
     """Start the RPyC server.
 
+    Security policy:
+
+    - Loopback binds (localhost, 127.0.0.0/8, ::1): authentication and
+      TLS are optional. A token or TLS explicitly requested is enforced
+      for every client, loopback included — there is no local bypass.
+    - Non-loopback binds: TLS (cert_path + key_path) AND a token are
+      both required; anything less raises PermissionError instead of
+      starting an unauthenticated remote machine-control listener.
+    - TLS uses RPyC's supported authenticator API (SSLAuthenticator via
+      ``authenticator=``). ``ca_path`` turns on client-certificate
+      verification (mutual TLS).
+    - Token and TLS compose: with both configured, the client must
+      present the token over the established TLS session.
+
     Args:
         tui_adapter: Optional TuiAdapter instance. Creates a new one if None.
         host: Bind address (default: 127.0.0.1).
         port: Bind port (default: 18812).
-        cert_path: Path to TLS certificate (enables TLS if provided).
+        cert_path: Path to TLS certificate (enables TLS with key_path).
         key_path: Path to TLS private key.
-        ca_path: Path to CA certificate for client cert verification.
-        token: Authentication token. Empty/None allows localhost without token.
+        ca_path: Path to CA certificate; requires client certificates
+            signed by it (mutual TLS).
+        token: Authentication token, required from every client when set.
         auto_start: Whether to call server.start() immediately (default: True).
                     Set to False to start the server manually later.
 
     Returns:
         The started ThreadedServer instance.
+
+    Raises:
+        PermissionError: A non-loopback bind without token and TLS.
+        ValueError: TLS cert/key configured inconsistently, or an
+            invalid token.
     """
-    service = RpycTuiService(tui_adapter)
-
-    # Build authenticator if token is provided
-    authenticator = None
-    if token is not None:
-        authenticator = _make_authenticator(token)
-
-    # Build TLS configuration if cert is provided
-    ssl_ctx = None
-    if cert_path and key_path:
-        import ssl
-
-        ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        ssl_ctx.load_cert_chain(cert_path, keyfile=key_path)
-        if ca_path:
-            ssl_ctx.load_verify_locations(ca_path)
-            ssl_ctx.verify_mode = ssl.CERT_REQUIRED
-
-    def _make_server() -> ThreadedServer:
-        if ssl_ctx is not None:
-            return ThreadedServer(
-                service,
-                hostname=host,
-                port=port,
-                ssl_ctx=ssl_ctx,
-                authenticator=authenticator,
-            )
-        return ThreadedServer(
-            service,
-            hostname=host,
-            port=port,
-            authenticator=authenticator,
+    token = token or None
+    if not _is_loopback_host(host) and not (token and cert_path and key_path):
+        missing = []
+        if not token:
+            missing.append("a token")
+        if not (cert_path and key_path):
+            missing.append("TLS (cert_path/key_path)")
+        raise PermissionError(
+            f"Refusing to start the RPC server on non-loopback address "
+            f"{host!r} without {' and '.join(missing)}: remote machine "
+            f"control must be encrypted and token-authenticated. Bind a "
+            f"loopback address for unauthenticated local use."
         )
+
+    service = RpycTuiService(tui_adapter)
+    authenticator = _build_authenticator(
+        token=token, cert_path=cert_path, key_path=key_path, ca_path=ca_path
+    )
 
     # ThreadedServer binds its listener socket in __init__, so a port
     # already in use (e.g. a second TUI instance) raises OSError here.
     # Surface it with context instead of a bare "[Errno 98]".
     try:
-        server = _make_server()
+        server = ThreadedServer(
+            service, hostname=host, port=port, authenticator=authenticator
+        )
     except OSError as e:
         raise OSError(
             f"Cannot bind RPyC server to {host}:{port}: {e} — "
@@ -1019,65 +1152,13 @@ def start_rpyc_server(
         ) from e
 
     _log.info(
-        "RPyC server starting on %s:%s (TLS=%s, auth=%s)",
+        "RPyC server starting on %s:%s (TLS=%s, client-certs=%s, auth=%s)",
         host,
         port,
         "yes" if cert_path else "no",
-        "yes" if token else "no",
+        "required" if (cert_path and ca_path) else "no",
+        "token" if token else "none",
     )
     if auto_start:
         server.start()
     return server
-
-
-def _make_authenticator(token: str) -> Callable:
-    """Create a token authenticator.
-
-    Returns an authenticator function suitable for ThreadedServer.
-
-    Protocol:
-    - Client connects TCP socket
-    - Client sends: 1 byte length + N bytes token (UTF-8)
-    - Server validates with constant-time comparison
-
-    Localhost connections with empty/no token are allowed:
-    - No data sent at all (recv returns empty) → allowed for localhost
-    - Empty token sent (1-byte length prefix with value 0) → allowed for localhost
-    """
-    import hmac
-
-    token_bytes = token.encode("utf-8")
-
-    def authenticator(sock: socket.socket) -> tuple[socket.socket, object]:
-        """Authenticate a client connection.
-
-        Returns (socket, credentials) on success.
-        Raises AuthenticationError on failure.
-        """
-        peername = sock.getpeername()
-        is_local = peername and peername[0] in ("127.0.0.1", "::1", "localhost")
-
-        # Read token length (1 byte)
-        raw_len = sock.recv(1)
-        if not raw_len:
-            if is_local:
-                # Localhost with no token — allow
-                return sock, {"user": "local", "authenticated": False}
-            raise AuthenticationError("No token provided by non-localhost client")
-
-        token_len = raw_len[0]
-        client_token = sock.recv(token_len)
-
-        if len(client_token) != token_len:
-            raise AuthenticationError("Token truncated")
-
-        # Empty token from localhost is allowed
-        if is_local and token_len == 0 and client_token == b"":
-            return sock, {"user": "local", "authenticated": False}
-
-        if not hmac.compare_digest(client_token, token_bytes):
-            raise AuthenticationError("Invalid token")
-
-        return sock, {"user": "token-auth", "authenticated": True}
-
-    return authenticator

@@ -18,8 +18,8 @@ connected root (``connect_stream(...).root``, as in
 tests/rpyc_poc/test_auth.py) is still accepted as the first positional
 argument, exactly as before.
 
-Token handshake
----------------
+Token handshake and TLS
+-----------------------
 ``connect_rpc()`` speaks the length-prefixed token protocol implemented
 by the server authenticator (ruida_pa/rpalib/rpyc_service.py):
 - ``token=None``: send NOTHING. This pairs with the default token-less
@@ -27,12 +27,15 @@ by the server authenticator (ruida_pa/rpalib/rpyc_service.py):
   authenticator and never reads a handshake.
 - ``token`` a non-empty str: send a 1-byte length prefix followed by
   the UTF-8 token bytes. A token longer than 255 UTF-8 bytes raises
-  ``ValueError`` — the length prefix is a single byte.
-- ``token=""``: send the documented empty-token prefix ``b"\\x00"``,
-  accepted as the localhost path by authenticator-enabled servers.
-  tests/rpyc_poc/test_auth.py's ``_client_connect`` sends ``b"\\x00"``
-  for ``token=None`` — a convention predating this one, deliberately
-  unchanged because that file tests the authenticator itself.
+  ``ValueError`` — the length prefix is a single byte. A
+  token-configured server requires this from EVERY client, loopback
+  included; there is no empty-token localhost bypass.
+
+TLS is enabled by ``ca_path`` (verify the server against that CA or a
+self-signed server certificate) and is always verified — there is no
+unverified TLS mode. ``cert_path``/``key_path`` add a client
+certificate for servers that require mutual TLS. When both TLS and a
+token are configured, the token handshake runs over the TLS session.
 
 Timeout semantics
 -----------------
@@ -154,6 +157,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import ssl
 import struct
 import warnings
 from typing import Any, Callable
@@ -182,6 +186,9 @@ def connect_rpc(
     token: str | None = None,
     config: dict[str, Any] | None = None,
     timeout: float = 5,
+    cert_path: str | None = None,
+    key_path: str | None = None,
+    ca_path: str | None = None,
 ) -> Any:
     """Open a TCP connection to an RPyC server and return the connection.
 
@@ -190,15 +197,16 @@ def connect_rpc(
     ``svc``.
 
     Args:
-        host: Server hostname.
+        host: Server hostname. With TLS enabled this is also the
+            ``server_hostname`` used for certificate verification, so
+            it must match the server certificate's DNS name or IP SAN.
         port: Server TCP port.
         token: Authentication token. ``None`` sends no handshake (the
             token-less server default); a non-empty str sends a 1-byte
-            length prefix plus the UTF-8 bytes; ``""`` sends the
-            documented empty-token ``b"\\x00"`` prefix accepted on
-            localhost by authenticator-enabled servers. Tokens longer
-            than 255 UTF-8 bytes raise ``ValueError`` (single-byte
-            prefix).
+            length prefix plus the UTF-8 bytes. Tokens longer than 255
+            UTF-8 bytes raise ``ValueError`` (single-byte prefix). A
+            token-configured server rejects every other client,
+            loopback included — there is no empty-token local bypass.
         config: Extra rpyc client config merged over the defaults
             (``import_custom_exceptions`` and
             ``instantiate_custom_exceptions`` so a server-raised
@@ -206,27 +214,51 @@ def connect_rpc(
             degrading to ``GenericException``). The
             ``sync_request_timeout`` key is always forced to
             ``timeout``.
-        timeout: Bounds the TCP connect and the handshake send (the
-            socket timeout), and is merged into rpyc's
+        timeout: Bounds the TCP connect and the TLS/token handshake
+            (the socket timeout), and is merged into rpyc's
             ``sync_request_timeout`` — the only real bound on every
             RPC, since rpyc's poll path never consults a socket
             ``settimeout``.
+        cert_path: Client certificate for servers that require mutual
+            TLS (server started with ``ca_path``). Requires
+            ``key_path`` and ``ca_path``.
+        key_path: Private key for ``cert_path``.
+        ca_path: CA bundle (or the self-signed server certificate) used
+            to verify the server. Passing it enables TLS, which is
+            always verified — there is no unverified TLS mode. The
+            token handshake (when ``token`` is set) runs over the TLS
+            session, so the token is never sent in the clear.
 
     Returns:
         The connected ``rpyc.core.protocol.Connection``; its ``.root``
         is the service root netref.
 
     Raises:
-        ValueError: If ``token`` is longer than 255 UTF-8 bytes.
-        The connect/handshake/GETROOT error otherwise, with the socket
-        closed before re-raising.
+        ValueError: Inconsistent TLS arguments or a token longer than
+            255 UTF-8 bytes.
+        The connect/TLS/handshake/GETROOT error otherwise, with the
+        socket closed before re-raising.
     """
+    if token is not None and len(token.encode()) > 255:
+        raise ValueError("token longer than 255 UTF-8 bytes")
+    if (cert_path is None) != (key_path is None):
+        raise ValueError("client certificate requires both cert_path and key_path")
+    if ca_path is None and (cert_path is not None or key_path is not None):
+        raise ValueError(
+            "cert_path/key_path require ca_path — client TLS always verifies the server"
+        )
+
     sock = socket.create_connection((host, port), timeout=timeout)
     try:
+        if ca_path is not None:
+            tls_ctx = ssl.create_default_context(
+                purpose=ssl.Purpose.SERVER_AUTH, cafile=ca_path
+            )
+            if cert_path is not None:
+                tls_ctx.load_cert_chain(cert_path, keyfile=key_path)
+            sock = tls_ctx.wrap_socket(sock, server_hostname=host)
         if token is not None:
             token_bytes = token.encode()
-            if len(token_bytes) > 255:
-                raise ValueError("token longer than 255 UTF-8 bytes")
             sock.sendall(struct.pack("B", len(token_bytes)) + token_bytes)
         # RPyC's poll path ignores socket timeouts, so the stream needs
         # a fully blocking socket.
@@ -295,6 +327,9 @@ class RpcRdDriver(GlueScript):
         token: str | None = None,
         config: dict[str, Any] | None = None,
         timeout: float = 5,
+        cert_path: str | None = None,
+        key_path: str | None = None,
+        ca_path: str | None = None,
     ) -> None:
         """Wrap a service root, connecting to the server when none is given.
 
@@ -306,11 +341,16 @@ class RpcRdDriver(GlueScript):
             host: Server host for the self-connecting path.
             port: Server port for the self-connecting path.
             token: Auth token for the self-connecting path; see
-                ``connect_rpc()`` for the None vs str vs "" modes.
+                ``connect_rpc()``.
             config: Extra rpyc client config for the self-connecting
                 path, merged over the ``connect_rpc()`` defaults.
             timeout: Connect timeout and rpyc ``sync_request_timeout``
                 for the self-connecting path.
+            cert_path: Client certificate for mutual-TLS servers; see
+                ``connect_rpc()``.
+            key_path: Private key for ``cert_path``.
+            ca_path: CA bundle verifying the server; enables TLS; see
+                ``connect_rpc()``.
         """
         # Initialize the RPC attribute surface BEFORE any connect work
         # so a connect failure leaves close()/__del__ safe.
@@ -325,7 +365,8 @@ class RpcRdDriver(GlueScript):
         else:
             conn = connect_rpc(
                 host=host, port=port, token=token, config=config,
-                timeout=timeout,
+                timeout=timeout, cert_path=cert_path, key_path=key_path,
+                ca_path=ca_path,
             )
             self._conn = conn
             self._svc = conn.root

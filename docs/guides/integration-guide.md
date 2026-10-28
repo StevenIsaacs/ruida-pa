@@ -553,8 +553,9 @@ thread; avoid issuing it while a TUI-side `/connect` is still in progress.
 
 `RpcRdDriver` (`ruida_pa/rpalib/rpyc_client.py`)
 mirrors the full `RdDriver` surface and self-connects when constructed with
-no arguments. The `token` argument selects the connect handshake; the module
-docstring in `ruida_pa/rpalib/rpyc_client.py` is the authoritative wording, summarized
+no arguments. The `token`/`ca_path`/`cert_path`/`key_path` arguments select
+the authentication and TLS handshake; the module docstring in
+`ruida_pa/rpalib/rpyc_client.py` is the authoritative wording, summarized
 here:
 
 - `RpcRdDriver()` (`token=None`, the default) — the PRIMARY self-connect
@@ -563,23 +564,35 @@ here:
 - `RpcRdDriver(token="...")` — pairs with a token-configured server
   (configured by the server operator); sends a 1-byte length prefix
   plus the UTF-8 token bytes (tokens longer than 255 bytes raise
-  `ValueError`).
-- `RpcRdDriver(token="")` — sends the empty-token prefix `b"\x00"`, the
-  localhost path accepted by authenticator-enabled servers.
+  `ValueError`). A token-configured server requires the token from
+  EVERY client, loopback included — there is no local bypass.
+- `RpcRdDriver(ca_path="ca.pem")` — enables TLS, always verified against
+  that CA bundle (or the server's self-signed certificate). TLS cannot
+  be disabled to unverified mode. With a token configured on the
+  server, the token handshake runs over the TLS session.
+- `RpcRdDriver(ca_path=..., cert_path=..., key_path=...)` — adds a
+  client certificate for servers that require mutual TLS (server
+  started with `ca_path`).
 - For callers that already hold a connected RPyC root, `RpcRdDriver` still
   accepts it as the first positional argument; the self-connecting form
   above is the recommended entry point.
 
-The old `test_auth.py` convention — send `b"\x00"` for `token=None` —
-applies ONLY to authenticator-enabled servers (that file tests the
-authenticator itself). With `token=None` no authenticator is installed: the
-server never reads a token byte, and a stray `b"\x00"` corrupts the RPyC
-stream (zlib error). The new convention — `token=None` sends NOTHING — is
-for the default token-less server. For an authenticator-enabled server, an
-empty token is still allowed for localhost connections, but the
-*authenticator* must be installed even for localhost — the server operator
-must configure the server with `token=...` (any value); the empty-token
-prefix then passes for localhost.
+Server security policy (enforced by `start_rpyc_server()`,
+`ruida_pa/rpalib/rpyc_service.py`):
+
+- **Loopback binds** (`localhost`, `127.0.0.0/8`, `::1`):
+  authentication and TLS are optional. Whatever is explicitly
+  requested — token and/or TLS — is enforced for every client,
+  including local ones.
+- **Non-loopback binds**: TLS (`cert_path` + `key_path`) AND a token
+  are both required; anything less raises `PermissionError` instead of
+  starting an unauthenticated remote machine-control listener.
+- **TLS and token compose**: a server configured with both requires a
+  client to present the token over the established TLS session.
+
+A stray `b"\x00"` sent to a token-less server still corrupts the RPyC
+stream (zlib error) — `token=None` sends NOTHING, which is why it pairs
+with the default token-less server.
 
 ```python
 from ruida_pa.rpalib.rpyc_client import RpcRdDriver
@@ -594,8 +607,8 @@ rpc_driver.register_error_listener(lambda e: print(f"[ERROR] {e}"))
 
 # For a token-configured server, pass the token the server operator configured:
 #     rpc_driver = RpcRdDriver(token="s3cret!t0k3n")
-# For an authenticator-enabled server over localhost, the empty-token path:
-#     rpc_driver = RpcRdDriver(token="")
+# For a TLS server, pass the CA that verifies it (plus the token when set):
+#     rpc_driver = RpcRdDriver(token="s3cret!t0k3n", ca_path="server-cert.pem")
 
 # Author a job before any session exists — no controller required yet.
 # Moves and cuts are buffered locally, not round-tripped per action.
@@ -633,30 +646,42 @@ rpc_driver.run_job()
 
 The token authentication protocol uses a simple length-prefixed exchange:
 
-1. Client connects TCP socket
+1. Client connects TCP socket (or TLS session, when the server is
+   TLS-enabled — the token is then sent over the encrypted channel)
 2. Client sends 1 byte (token length N) + N bytes (token UTF-8)
 3. Server validates with constant-time comparison (`hmac.compare_digest`)
 4. If valid, RPyC handshake proceeds normally
 
-**Localhost exception:** Send `token=""` to use the localhost path of an
-authenticator-enabled server: the empty-token prefix (`b"\x00"`) is accepted
-from `127.0.0.1`, `::1`, or `localhost`. Use it for local testing without a
-secret; remote connections still require a real token.
+**No localhost exception:** a token-configured server requires the token
+from EVERY client, `127.0.0.1`/`::1`/`localhost` included. Configuring a
+token is an explicit request for authentication, so there is no local
+bypass; a token-less or empty-token (`b"\x00"`) client is rejected.
 
 **Auth failure behavior:** Invalid tokens cause the server to immediately close the connection. The client receives an `EOFError` or `ConnectionRefusedError` on the first RPyC call.
 
 ### 3.4 TLS Configuration
 
-TLS is configured server-side by the server operator. The `RpcRdDriver`
-self-connect path — `connect_rpc()` and `RpcRdDriver.__init__` — does
-not accept an `ssl.SSLContext`, so to connect to a TLS-enabled server the
-app adapter must establish the connection itself with rpyc's SSL-capable
-connect: an `ssl.SSLContext` via rpyc's SSL stream/factory helpers
-(`rpyc.utils.factory.ssl_connect`, or `SocketStream.ssl_connect` with
-`connect_stream`). Trust the server's CA certificate by passing
-`ca_certs`, and present a client certificate via `certfile`/`keyfile` if
-the server requires one. Once the connection is established, pass its
-root to `RpcRdDriver(svc)` — the caller-provided root form.
+TLS is configured server-side by the server operator (`cert_path`/
+`key_path` on `start_rpyc_server()`, or `--rpc-cert`/`--rpc-key` on the
+TUI). The client side is built into the production connect path:
+`connect_rpc()` and `RpcRdDriver` accept `ca_path` (verify the server
+against that CA bundle or its self-signed certificate — TLS is always
+verified) plus optional `cert_path`/`key_path` for a client certificate
+when the server requires mutual TLS (`ca_path` server-side).
+
+```python
+# Verified TLS, no token:
+rpc_driver = RpcRdDriver(ca_path="server-cert.pem")
+# Token over TLS:
+rpc_driver = RpcRdDriver(token="s3cret!t0k3n", ca_path="server-cert.pem")
+# Mutual TLS (server started with ca_path=<client-CA>):
+rpc_driver = RpcRdDriver(ca_path="server-cert.pem",
+                         cert_path="client-cert.pem", key_path="client-key.pem")
+```
+
+When the server is configured with both TLS and a token, the client must
+present the token over the established TLS session; the two compose
+rather than one replacing the other.
 
 ### 3.5 Netref Callback Caveats
 

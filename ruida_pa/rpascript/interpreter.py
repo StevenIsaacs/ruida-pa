@@ -262,7 +262,7 @@ class ScriptParser:
             if len(tokens) < 2:
                 self._warning_callback(
                     f'{line_num}: "server" requires an action: start or stop',
-                    'server start [host=...] [port=...] [token=...] or server stop'
+                    'server start [host=...] [port=...] [token=...] [cert=...] [key=...] [ca=...] or server stop'
                 )
                 return None
             action = tokens[1].lower()
@@ -301,7 +301,7 @@ class ScriptParser:
             else:
                 self._warning_callback(
                     f'{line_num}: Unknown server action "{action}". Use "start" or "stop".',
-                    'server start [host=...] [port=...] [token=...] or server stop'
+                    'server start [host=...] [port=...] [token=...] [cert=...] [key=...] [ca=...] or server stop'
                 )
                 return None
 
