@@ -1,6 +1,6 @@
 # Integration Guide
 
-**Application:** `rpa` / `rpa-script`  
+**Application:** `rpa` / `rpa-script`
 **Source:** `ruida_pa/ruidadriver/ruida_driver.py` (RdDriver),
 `ruida_pa/ruidadriver/rd_gluescript.py` (GlueScript),
 `ruida_pa/rpalib/rpyc_client.py` (RpcRdDriver)
@@ -23,8 +23,8 @@ programmatically through the RdDriver API, either directly or over RPyC.
 
 Application adapters should build laser jobs with the high-level GlueScript API
 (`declare_job`/`declare_layer`/move/cut/`stage_gluescript`) rather than hand-writing
-low-level ruida_pa.rpascript. GlueScript simultaneously generates a high-level transcript
-(persisted to `.cglu` files) and the low-level rpascript that the controller executes.
+low-level `rpascript`. GlueScript simultaneously generates a high-level transcript
+(persisted to `.cglu` files) and the low-level `rpascript` that the controller executes.
 
 ### Prerequisites
 
@@ -1014,7 +1014,7 @@ guard rejects the suffix).
 consistent with the direct driver: `gluescript` returns the client's
 buffered transcript (including unflushed lines) and `job_complete` reads
 the local flag set by `end_job()`. `rpascript` remains a server snapshot
-of the last-flushed assembled ruida_pa.rpascript. The method aliases
+of the last-flushed assembled `rpascript`. The method aliases
 `get_gluescript()`/`get_rpascript()` return the server's last-flushed
 state (so `gluescript` and `get_gluescript()` diverge: the property is
 live local, the method is the server snapshot).

@@ -33,7 +33,7 @@ python -m ruida_pa.rpa capture.log     # Decode a tshark log file
 
 All Python modules live under the single `ruida_pa` namespace (issue #14); always import `ruida_pa.*`.
 
-Only the Ruida UDP protocol is currently implemented. Adding a new protocol means creating a parallel `ruida_pa/protocols/<name>/` directory with its own analyzer.
+Only the Ruida protocol is currently implemented. Adding a new protocol means creating a parallel `ruida_pa/protocols/<name>/` directory with its own analyzer.
 
 ## Workflow
 
@@ -53,7 +53,7 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 - A mnemonic is "verified" only when its byte-level semantics have been confirmed (e.g. from LightBurn captures, the ruida-laser source, or manual controller probing).
 - Verified mnemonics are marked by appending `# Verified <source>` to the END of the mnemonic's declaration line, e.g.: `0x04: ("MEM_IO_ENABLE", TBDU35),  # Verified LightBurn` — where `<source>` names the verification source (e.g. `LightBurn`, `ruida-laser`).
 - ALL mnemonics start in the UNVERIFIED state: no trailing comment at all. Never add the marker preemptively.
-- When a mnemonic becomes verified, add the `# Verified <source>` comment to the corresponding line(s) AND update the VSCode extension's verified-mnemonic list in `.vscode/extensions/local.gluescript-ruida_pa/rpascript/syntaxes/ruida_pa.rpascript.tmLanguage.json` (the `verified` repository rule) so the mnemonic renders green in `.rds` files.
+- When a mnemonic becomes verified, add the `# Verified <source>` comment to the corresponding line(s) AND update the VSCode extension's verified-mnemonic list in `.vscode/extensions/local.gluescript-rpascript/syntaxes/rpascript.tmLanguage.json` (the `verified` repository rule) so the mnemonic renders green in `.rds` files.
 ### Scripting and TUI
 - Parameter decoder tuples: `(format_string, decoder_fn, raw_type)` — e.g. `('X={}mm', dim, 'int_35')`.
 - Checksum is a running sum of bytes in engrave/cut commands; excludes memory and jog commands. Known ~220-byte discrepancy with LightBurn captures.

@@ -88,7 +88,7 @@ Consequences of the strict flush-at-cut spec:
 
 - **Dropped without a cut:** pending settings with no following cut are
   dropped at the `declare_layer()` boundary or at end-of-job — they never
-  reach the ruida_pa.rpascript.
+  reach the `rpascript`.
 - **Only the last range flushes:** two `power_range()` calls before a cut
   emit only the LAST range (each call replaces the pending values and
   warnings, never extends).

@@ -1,7 +1,7 @@
 # rpascript Guide
 
-**Format:** rpascript (`.rds`)  
-**Consumed by:** `RdDriver.run(script: list[str])`  
+**Format:** rpascript (`.rds`)
+**Consumed by:** `RdDriver.run(script: list[str])`
 **Status:** As-built (describes current implementation)
 
 ---
@@ -801,7 +801,7 @@ NOTES:
   MeerK40t) emit overscan before `SELECT_LAYER`, but the controller accepts
   either order.
 - Multiple laser heads are supported by the Ruida controller but only one is
-  currently supported in ruida_pa.rpascript.
+  currently supported in `rpascript`.
 - A valid min and max power is actually in the range of 8% to 70%. Values outside
   this range should issue a warning. Power levels below 8% may not be sufficient
   to fire the laser. Power levels above 70% can reduce the life of the laser tube.

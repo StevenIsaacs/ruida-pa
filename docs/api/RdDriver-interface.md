@@ -1,8 +1,8 @@
 # RdDriver Interface Specification
 
-**Package:** `ruida_pa.ruidadriver.ruida_driver`  
-**Class:** `RdDriver`  
-**Layers:** L6 (Driver) → delegates to L5 (RdSession/RdStatus) → L4 (RdTransport)  
+**Package:** `ruida_pa.ruidadriver.ruida_driver`
+**Class:** `RdDriver`
+**Layers:** L6 (Driver) → delegates to L5 (RdSession/RdStatus) → L4 (RdTransport)
 **Status:** As-built (describes current implementation)
 
 ---
@@ -58,8 +58,8 @@ def connect(self, network_host: str | None = None, usb_device: str | None = None
    and/or USB.
 9. Starts the background script runner (registers listeners, configures ping/query commands, starts status monitor thread).
 
-**Return value:** `True` if transport opened successfully on first attempt.  
-`False` if open failed — the status monitor will retry in background.  
+**Return value:** `True` if transport opened successfully on first attempt.
+`False` if open failed — the status monitor will retry in background.
 The application can check `is_connected` later to confirm.
 
 ### 2.2 `disconnect()` — Clean Teardown
@@ -244,7 +244,7 @@ RpcRdDriver(svc=None, *, host="127.0.0.1", port=18812,
   consistent with the direct driver — `gluescript` returns the client's
   buffered transcript (including unflushed lines) and `job_complete`
   reads the local flag set by `end_job()`. `rpascript` remains a server
-  snapshot of the last-flushed assembled ruida_pa.rpascript. The method aliases
+  snapshot of the last-flushed assembled `rpascript`. The method aliases
   `get_gluescript()`/`get_rpascript()` return the server's last-flushed
   state (so `gluescript` and `get_gluescript()` diverge: the property is
   live local, the method is the server snapshot).

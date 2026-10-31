@@ -37,7 +37,7 @@ In-depth guides for working with the scripting and interface layers are availabl
 
 The repository ships a zero-build VSCode **workspace extension** for authoring
 the two script formats, located at
-`.vscode/extensions/local.gluescript-ruida_pa/rpascript/`:
+`.vscode/extensions/local.gluescript-rpascript/`:
 
 - **GlueScript (`.cglu`)** — the high-level job scripting transcript used by the `/gluescript` TUI command, documented in the [GlueScript guide](docs/guides/gluescript-guide.md).
 - **Ruida Script (`.rds`)** — the low-level line-oriented script format consumed by `RdDriver.run()`, documented in the [Ruida Script guide](docs/guides/rpascript-guide.md).
