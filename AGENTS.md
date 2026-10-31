@@ -2,12 +2,12 @@
 
 ## Project at a glance
 
-A tool that decodes binary UDP packets captured from Ruida CNC/laser controllers. Entry point: `rpa.py`.
+A tool that decodes binary UDP packets captured from Ruida CNC/laser controllers. Entry point: `ruida_pa/rpa.py` (run with `python -m ruida_pa.rpa`).
 
 ## Commands
 
 ```
-python rpa.py capture.log              # Decode a tshark log file
+python -m ruida_pa.rpa capture.log     # Decode a tshark log file
 ./capture <ip> <file>                  # Capture tshark log (bash)
 ./capture <ip> <file> --tcp            # Capture TCP stream on port 50200 (bash)
 ./capture <host> <file> --rpc          # Capture RPyC RPC stream on port 18812 (bash)
@@ -25,13 +25,15 @@ python rpa.py capture.log              # Decode a tshark log file
 
 | Path                           | Role                                                                     |
 | ------------------------------ | ------------------------------------------------------------------------ |
-| `rpa.py`                       | CLI entry — arg parsing, opens input, runs analyzer                      |
-| `rpalib/`                      | Output emission, line parsing, plotting UI (Bokeh)                       |
-| `protocols/ruida/`             | Protocol state machine, parser, command tables, checksum logic           |
-| `ruidadriver/rd_gluescript.py` | High-level job scripting (GlueScript mixin for RdDriver)                 |
+| `ruida_pa/rpa.py`              | CLI entry — arg parsing, opens input, runs analyzer                      |
+| `ruida_pa/rpalib/`             | Output emission, line parsing, plotting UI (Bokeh)                       |
+| `ruida_pa/protocols/ruida/`    | Protocol state machine, parser, command tables, checksum logic           |
+| `ruida_pa/ruidadriver/rd_gluescript.py` | High-level job scripting (GlueScript mixin for RdDriver)         |
 | `discovery/`                   | **Git submodule** — test cases (`tc/`), problems (`prb/`), captured logs |
 
-Only the Ruida UDP protocol is currently implemented. Adding a new protocol means creating a parallel `protocols/<name>/` directory with its own analyzer.
+All Python modules live under the single `ruida_pa` namespace (issue #14); always import `ruida_pa.*`.
+
+Only the Ruida protocol is currently implemented. Adding a new protocol means creating a parallel `ruida_pa/protocols/<name>/` directory with its own analyzer.
 
 ## Workflow
 
@@ -43,11 +45,11 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 
 ## Key conventions
 
-- Protocol command tables live in `protocols/ruida/ruida_protocol.py` (CT dict: byte → command name + param specs).
+- Protocol command tables live in `ruida_pa/protocols/ruida/ruida_protocol.py` (CT dict: byte → command name + param specs).
 
 ### Mnemonic verification
 
-- MT and CT protocol tables are defined ONLY in `protocols/ruida/ruida_protocol.py` (`MT` memory table and `CT` command table).
+- MT and CT protocol tables are defined ONLY in `ruida_pa/protocols/ruida/ruida_protocol.py` (`MT` memory table and `CT` command table).
 - A mnemonic is "verified" only when its byte-level semantics have been confirmed (e.g. from LightBurn captures, the ruida-laser source, or manual controller probing).
 - Verified mnemonics are marked by appending `# Verified <source>` to the END of the mnemonic's declaration line, e.g.: `0x04: ("MEM_IO_ENABLE", TBDU35),  # Verified LightBurn` — where `<source>` names the verification source (e.g. `LightBurn`, `ruida-laser`).
 - ALL mnemonics start in the UNVERIFIED state: no trailing comment at all. Never add the marker preemptively.
@@ -62,7 +64,7 @@ The `./link` script creates symlinks (`discovery/selected.log`, `selected.tshark
 
 ## No test/lint/CI infrastructure
 
-There are no unit tests, no formatter, no linter, no type checker, and no CI pipeline. Verify changes manually by running `rpa.py` against existing capture logs in `discovery/`.
+There are no unit tests, no formatter, no linter, no type checker, and no CI pipeline. Verify changes manually by running `rpa` against existing capture logs in `discovery/`.
 
 ## Dev tips
 

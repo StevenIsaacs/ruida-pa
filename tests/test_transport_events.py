@@ -10,9 +10,9 @@ Covers:
 
 from unittest.mock import Mock, PropertyMock
 
-from ruidadriver.rd_status import RdStatus, RdStatusEvent
-from ruidadriver.rd_transport import RdTransport
-from ruidadriver.transport_events import TransportEvent
+from ruida_pa.ruidadriver.rd_status import RdStatus, RdStatusEvent
+from ruida_pa.ruidadriver.rd_transport import RdTransport
+from ruida_pa.ruidadriver.transport_events import TransportEvent
 
 
 def _make_status(monkeypatch, *, is_usb=False, is_tcp=False, is_udp=True):

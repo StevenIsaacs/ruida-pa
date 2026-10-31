@@ -11,7 +11,7 @@ import warnings
 from abc import ABC, abstractmethod
 from typing import Any
 
-from rpalib.version import __version__
+from ruida_pa.rpalib.version import __version__
 
 
 class AppAdapter(ABC):

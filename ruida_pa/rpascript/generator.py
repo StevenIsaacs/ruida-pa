@@ -1,15 +1,15 @@
 """
 ScriptGenerator — converts decoded Ruida commands to .rds script format.
 
-This module bridges the decoded output of rpa.py's protocol parser with the
+This module bridges the decoded output of rpa's protocol parser with the
 script format used by rpa-script, enabling round-trip verification:
-  capture log → rpa.py decode → .rds script → rpa-script → tshark output → rpa.py decode
+  capture log → rpa decode → .rds script → rpa-script → tshark output → rpa decode
 """
 
 import os
 import re
 
-import protocols.ruida.ruida_protocol as rdap
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
 
 
 class ScriptGenerator:

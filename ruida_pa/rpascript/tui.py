@@ -2,15 +2,15 @@
 CLI entry point for rpa-script.
 
 Generates Ruida protocol binary output from .rds script files.
-Output can be piped directly to rpa.py for decoding.
+Output can be piped directly to rpa for decoding.
 """
 
 import argparse
 import logging
 import sys
 
-from rpa import __version__
-from rpascript.interpreter import ScriptInterpreter, ScriptParser
+from ruida_pa.rpa import __version__
+from ruida_pa.rpascript.interpreter import ScriptInterpreter, ScriptParser
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rpa-script",
         description="Generate Ruida protocol output from .rds scripts or launch interactive TUI.",
-        epilog="Examples: rpa-script myscript.rds | python rpa.py -   |   rpa-script --tui",
+        epilog="Examples: rpa-script myscript.rds | rpa -   |   rpa-script --tui",
     )
     parser.add_argument(
         "script",
@@ -94,7 +94,7 @@ def main() -> None:
 
     # TUI mode: launch interactive terminal interface
     if args.tui:
-        from rpascript.tui_adapter import run_tui
+        from ruida_pa.rpascript.tui_adapter import run_tui
 
         if args.script:
             print(

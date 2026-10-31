@@ -15,7 +15,7 @@ NOTE: This is a project which is rapidly evolving. New features and changes are 
 - **Flexible Output**: Console output, file output, verbose modes, and raw packet display
 - **Error Handling**: Configurable error handling with resync capabilities
 - **Move and Cut Plotting**: When enabled moves and cut lines are plotted using Bokeh
-- **Automation-friendly**: `rpa.py` accepts a tshark log file and produces structured, text-based output suitable for scripting, pipelines, and CI/CD systems.
+- **Automation-friendly**: `rpa` accepts a tshark log file and produces structured, text-based output suitable for scripting, pipelines, and CI/CD systems.
 - **Script Generation and Plot Export**: `--generate-rd` and `--save-plot` flags for binary `.rd` output and headless HTML plot export
 - **Controller Driver**: `RdDriver` connects to a Ruida controller over UDP, TCP, or USB serial, executes jobs built with the high-level GlueScript API, and reports status, replies, and errors through listeners
 - **Application Integration**: an application-specific adapter bridges an external application to `RdDriver`, directly in-process or remotely over RPyC (`RpcRdDriver`)
@@ -207,14 +207,14 @@ is given:
 ```
 
 NOTE: `--rpc` captures the binary RPyC protocol. The resulting `.log` is not
-decodable by `rpa.py` (which understands only the Ruida protocol); it is intended
+decodable by `rpa` (which understands only the Ruida protocol); it is intended
 for external inspection (e.g. Wireshark).
 
 ### Analyze Captured Data
 
 #### Basic Analysis
 ```bash
-python rpa.py capture.log
+rpa capture.log
 ```
 
 `.rd` — RDWorks binary files can be decoded directly.
@@ -222,25 +222,25 @@ python rpa.py capture.log
 #### Advanced Options
 ```bash
 # Verbose output with raw packet data
-python rpa.py --verbose --raw capture.log
+rpa --verbose --raw capture.log
 
 # Save decoded output to file
-python rpa.py -o decoded.txt capture.log
+rpa -o decoded.txt capture.log
 
 # Quiet mode, stop on first error
-python rpa.py --quiet --stop-on-error -o results.txt capture.log
+rpa --quiet --stop-on-error -o results.txt capture.log
 
 # Generate .rds script and .rd binary output
-python rpa.py --generate-rd capture.log
+rpa --generate-rd capture.log
 
 # Generate .rd binary from an existing .rds script
-python rpa.py script.rds
+rpa script.rds
 
 # Save interactive plot as standalone HTML
-python rpa.py --save-plot capture.log
+rpa --save-plot capture.log
 
 # Decode a binary .rd file directly
-python rpa.py capture.rd
+rpa capture.rd
 ```
 
 ## Command Line Options
@@ -286,14 +286,14 @@ traceback with Rich formatting. Press any key to exit the TUI.
 
 ## Driver & Application Integration
 
-RPA is more than an analyzer: it also ships a controller driver that can be embedded in an external application. `RdDriver` (in `ruidadriver/`) is the high-level driver layer. It connects to a Ruida controller over UDP, TCP (e.g. RDC8445S), or USB serial, encodes and queues rpascript for background execution, tracks machine status, and forwards status/reply/error events to registered listeners.
+RPA is more than an analyzer: it also ships a controller driver that can be embedded in an external application. `RdDriver` (in `ruida_pa/ruidadriver/`) is the high-level driver layer. It connects to a Ruida controller over UDP, TCP (e.g. RDC8445S), or USB serial, encodes and queues rpascript for background execution, tracks machine status, and forwards status/reply/error events to registered listeners.
 
 Because `RdDriver` subclasses `GlueScript`, the high-level job-authoring API — `declare_job()`, `declare_layer()`, `move_xy_to()`, `cut_xy_to()`, `power()`, `scan_rows()` (run-chunked raster fill), and the rest — is part of the driver itself. Build a job, call `stage_gluescript()` to assemble the low-level rpascript, then `run_job()` to execute it (optionally wrapping every job with head/tail scripts).
 
-An application does not call `RdDriver` directly; it uses an **application-specific adapter** that maps the application's own concepts (jobs, layers, toolpaths, machine state) onto the driver API. The same adapter can run in-process against `RdDriver`, or remotely against a TUI-hosted RPC server via `RpcRdDriver` (`rpalib/rpyc_client.py`), which mirrors the full driver surface over RPyC.
+An application does not call `RdDriver` directly; it uses an **application-specific adapter** that maps the application's own concepts (jobs, layers, toolpaths, machine state) onto the driver API. The same adapter can run in-process against `RdDriver`, or remotely against a TUI-hosted RPC server via `RpcRdDriver` (`ruida_pa/rpalib/rpyc_client.py`), which mirrors the full driver surface over RPyC.
 
 ```python
-from ruidadriver.ruida_driver import RdDriver
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 driver = RdDriver()
 driver.register_status_listener(lambda e: print(f"[STATUS] {e}"))
@@ -316,6 +316,8 @@ driver.disconnect()
 
 The full driver surface — lifecycle, listeners, head/tail scripts, GlueScript authoring, live jog/home/job-control commands, and the RPC path — is documented in the [Integration Guide](docs/guides/integration-guide.md) and the [RdDriver interface reference](docs/api/RdDriver-interface.md).
 
+> **Breaking change in import paths:** all Python modules now live under the single `ruida_pa` namespace — `ruida_pa.protocols`, `ruida_pa.rpalib`, `ruida_pa.rpascript`, `ruida_pa.ruidadriver` and `ruida_pa.rpa` — instead of installing `protocols`, `rpalib`, `rpascript`, `ruidadriver` and `rpa` at the top level ([#14](https://github.com/StevenIsaacs/ruida-pa/issues/14)). When upgrading from 0.23.0 or earlier, update imports to the new names, e.g. `from ruidadriver.ruida_driver import RdDriver` becomes `from ruida_pa.ruidadriver.ruida_driver import RdDriver`. The `rpa` and `rpa-script` console commands are unchanged.
+
 ## Script Generation & Round-Trip Testing
 
 `rpa-script` is a script interpreter that plays back Ruida Script (`.rds`) files and
@@ -327,7 +329,7 @@ enables round-trip testing: capture → decode → script → tshark → re-deco
 Use `--generate-script` to produce both a `.txt` decode file and a `.rds` script file:
 
 ```bash
-python rpa.py --generate-script -o output.txt capture.log
+rpa --generate-script -o output.txt capture.log
 ```
 
 This produces `output.txt` (human-readable decode) and `output.rds` (script file).
@@ -344,7 +346,7 @@ Convert a `.rds` script to tshark-format binary output:
 
 ```bash
 # Output to stdout (pipe directly to rpa for decoding)
-rpa-script script.rds | python rpa.py -
+rpa-script script.rds | rpa -
 
 # Output to file
 rpa-script script.rds -o output.tshark
@@ -357,13 +359,13 @@ then re-decode them to verify round-trip fidelity:
 
 ```bash
 # Step 1: Decode and generate script
-python rpa.py --generate-script capture.log
+rpa --generate-script capture.log
 
 # Step 2: Play back the script to regenerate packets
 rpa-script capture.rds -o capture-rt.tshark
 
 # Step 3: Re-decode the generated packets
-python rpa.py -o capture-rt.txt capture-rt.tshark
+rpa -o capture-rt.txt capture-rt.tshark
 
 # Step 4: Compare the original and round-trip decode files
 diff <(grep '^[0-9]' capture.txt) <(grep '^[0-9]' capture-rt.txt)
@@ -374,7 +376,7 @@ diff <(grep '^[0-9]' capture.txt) <(grep '^[0-9]' capture-rt.txt)
 Use `--generate-rd` to produce a binary `.rd` file alongside the decode output:
 
 ```bash
-python rpa.py --generate-rd -o output capture.log
+rpa --generate-rd -o output capture.log
 ```
 
 This produces `output.txt` (decode), `output.rds` (script), and `output.rd` (binary). If `-o` is omitted, the `.rd` file is named after the input file.
@@ -382,13 +384,13 @@ This produces `output.txt` (decode), `output.rds` (script), and `output.rd` (bin
 For `.rds` input, `.rd` output is generated directly without decode:
 
 ```bash
-python rpa.py script.rds     # Produces script.rd
+rpa script.rds     # Produces script.rd
 ```
 
 For `.rd` input, `--generate-rd` re-encodes with a `-reencoded` suffix to avoid overwriting:
 
 ```bash
-python rpa.py --generate-rd capture.rd    # Produces capture-reencoded.rd
+rpa --generate-rd capture.rd    # Produces capture-reencoded.rd
 ```
 
 The `--magic` flag controls the swizzle byte (default `0x88`).
@@ -643,7 +645,7 @@ The analyzer uses a finite state machine with the following states:
 
 - **Configurable driver commands**: Driver commands are currently hard-coded as `RdDriver` class private variables; a configuration file for these is planned.
 
-- **Additional protocol support**: The driver architecture is designed to support other protocols, such as GCODE, in the future. Adding a protocol means creating a parallel `protocols/<name>/` directory with its own analyzer.
+- **Additional protocol support**: The driver architecture is designed to support other protocols, such as GCODE, in the future. Adding a protocol means creating a parallel `ruida_pa/protocols/<name>/` directory with its own analyzer.
 
 - **U-axis plotting support**: Move plotting currently covers the X/Y axes; U-axis moves are a planned addition.
 

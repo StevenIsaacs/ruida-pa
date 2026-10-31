@@ -15,12 +15,12 @@ from unittest.mock import Mock
 
 import pytest
 
-from protocols.ruida.ruida_protocol import ACK
-from rpalib.rpa_swizzler import RpaSwizzler
-from ruidadriver.rd_status import RdStatus
-from ruidadriver.rd_transport import RdTransport
-from ruidadriver.transport import TcpTransport
-from ruidadriver.transport_events import TransportEvent
+from ruida_pa.protocols.ruida.ruida_protocol import ACK
+from ruida_pa.rpalib.rpa_swizzler import RpaSwizzler
+from ruida_pa.ruidadriver.rd_status import RdStatus
+from ruida_pa.ruidadriver.rd_transport import RdTransport
+from ruida_pa.ruidadriver.transport import TcpTransport
+from ruida_pa.ruidadriver.transport_events import TransportEvent
 
 MAGIC = 0x88
 CARD_ID_QUERY = bytes([0xDA, 0x00, 0x05, 0x7E])

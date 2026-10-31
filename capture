@@ -24,7 +24,7 @@ NOTE: Parameter 3 is often needed on Windows because it typically assumes the
 wrong interface. If this is the case use "-i Ethernet".
 
 NOTE: --rpc captures the binary RPyC protocol between the TUI RPC server and a
-client. The resulting .log is not decodable by rpa.py (which understands only
+client. The resulting .log is not decodable by rpa (which understands only
 the Ruida protocol); it is intended for external inspection (e.g. Wireshark).
 EOF
 exit 1

@@ -9,8 +9,8 @@ try:
 except ImportError:
     raise ImportError("Bokeh is required for plotting. Install with: pip install ruida-pa")
 
-import rpalib.rpa_line as rpa_l
-from rpalib.rpa_emitter import RpaEmitter
+import ruida_pa.rpalib.rpa_line as rpa_l
+from ruida_pa.rpalib.rpa_emitter import RpaEmitter
 
 
 class BokehPlotter:

@@ -18,7 +18,7 @@ Parameters:
   <file>       The .rd file name -- without extension.
   --dir, -d    Recursively process all .rd files in <directory>.
   --keep       Keep temporary output files after a successful round trip.
-  <options>    Optional arguments forwarded to rpa.py (e.g. --magic 0xNN).
+  <options>    Optional arguments forwarded to rpa (e.g. --magic 0xNN).
 EOF
 exit 1
 }
@@ -66,7 +66,7 @@ else
     _mode="file"
 fi
 
-# Remaining options passed to rpa.py
+# Remaining options passed to rpa
 _opts="${*:2}"
 if [ "$_mode" = "dir" ]; then
     _opts="$*"
@@ -87,7 +87,7 @@ if [[ -z "$VIRTUAL_ENV" ]]; then
 fi
 
 _rpa_cmd=rpa
-command -v rpa >/dev/null 2>&1 || _rpa_cmd="python rpa.py"
+command -v rpa >/dev/null 2>&1 || _rpa_cmd="python -m ruida_pa.rpa"
 
 mkdir -p "$_script_dir/tmp"
 
@@ -134,7 +134,7 @@ for _entry in "${_rd_files[@]}"; do
     fi
 
     # Step 2: Copy .rds to -rt name for re-encode
-    # (rpa.py derives the .rd output name from the .rds input filename)
+    # (rpa derives the .rd output name from the .rds input filename)
     if ! cp "$_outbase.rds" "$_outbase-rt.rds"; then
         echo "ERROR: Copy failed for $_outbase.rds"
         _errors=$((_errors + 1))

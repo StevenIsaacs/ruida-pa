@@ -26,7 +26,7 @@ def _version_from_pyproject():
     [project] table does not declare both name = "ruida-pa" and a
     version (the name guard keeps vendored copies from being used).
     """
-    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    pyproject_path = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
     if not pyproject_path.exists():
         return None
 

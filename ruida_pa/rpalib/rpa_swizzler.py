@@ -61,8 +61,8 @@ class RpaSwizzler:
         return lut
 
     # ------------------------------------------------------------------
-    # Static byte-level methods (moved from rpascript/interpreter.py
-    # and protocols/ruida/ruida_analyzer.py)
+    # Static byte-level methods (moved from ruida_pa/rpascript/interpreter.py
+    # and ruida_pa/protocols/ruida/ruida_analyzer.py)
     # ------------------------------------------------------------------
 
     @staticmethod

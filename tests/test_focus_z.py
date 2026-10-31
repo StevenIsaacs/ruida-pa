@@ -4,11 +4,11 @@ On an RDC8445S, D8 2E runs the same probe routine as the controller
 panel's Focus key.
 """
 
-import protocols.ruida.ruida_protocol as rdap
-from rpalib.ruida_transcoder import RdEncoder
-from rpascript.interpreter import ScriptParser
-from ruidadriver.rd_gluescript import GlueScript
-from ruidadriver.ruida_driver import RdDriver
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
+from ruida_pa.rpalib.ruida_transcoder import RdEncoder
+from ruida_pa.rpascript.interpreter import ScriptParser
+from ruida_pa.ruidadriver.rd_gluescript import GlueScript
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
 
 
 def test_focus_z_generates_focus_command():

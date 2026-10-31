@@ -10,10 +10,10 @@ Covers:
 
 from unittest.mock import Mock
 
-import ruidadriver.ruida_driver as ruida_driver
-from ruidadriver.rd_status import RdStatusEvent
-from ruidadriver.ruida_driver import RdDriver
-from rpascript.tui_adapter import TuiAdapter
+import ruida_pa.ruidadriver.ruida_driver as ruida_driver
+from ruida_pa.ruidadriver.rd_status import RdStatusEvent
+from ruida_pa.ruidadriver.ruida_driver import RdDriver
+from ruida_pa.rpascript.tui_adapter import TuiAdapter
 
 
 def _fake_session(monkeypatch):

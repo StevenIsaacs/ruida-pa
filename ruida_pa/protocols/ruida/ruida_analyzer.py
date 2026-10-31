@@ -12,10 +12,10 @@ data previously captured using tshark (Wireshark CLI). See decode for more
 information.
 """
 
-import protocols.ruida.ruida_parser as rp
-import protocols.ruida.ruida_protocol as rdap
-from rpalib.rpa_emitter import RpaEmitter
-from rpalib.rpa_swizzler import RpaSwizzler
+import ruida_pa.protocols.ruida.ruida_parser as rp
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
+from ruida_pa.rpalib.rpa_emitter import RpaEmitter
+from ruida_pa.rpalib.rpa_swizzler import RpaSwizzler
 
 
 class UdpDumpReader:

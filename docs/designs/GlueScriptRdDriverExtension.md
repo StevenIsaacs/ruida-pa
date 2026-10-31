@@ -3,7 +3,7 @@ In the following:
 - `rpascript` refers to the low level Ruida commands as defined in `ruida_protocol.py` and currently supported by `RdDriver.run`.
 - `gluescript` refers to a high level script intended to be used by application adapters.
 # AGENTS
-The information contained in this document is intended to be used to write a plan for adding `gluescript` and `rpascript` generation methods in a new `GlueScript` class defined in a new file, `ruidadriver/rd_gluescript.py`. Therefore, this document is to be used to write a new guide named `docs/guides/gluescript-guide.md` and update the `docs/guides/integration-guide.md` document.
+The information contained in this document is intended to be used to write a plan for adding `gluescript` and `rpascript` generation methods in a new `GlueScript` class defined in a new file, `ruida_pa/ruidadriver/rd_gluescript.py`. Therefore, this document is to be used to write a new guide named `docs/guides/gluescript-guide.md` and update the `docs/guides/integration-guide.md` document.
 
 Implementation involves `RdDriver` being extended to include the new `GlueScript` methods. Use inheritance to do so. i.e. `def class RdDriver(GlueScript):`
 
@@ -50,9 +50,9 @@ ELSE
 	raise exception
 ```
 
-Within a generator method script expansion involves appending a list of commands to the `rpascript`. The commands are a list of strings and support variable substitution. Substitutions use Python style formats and can reference variables internal to the `GlueScript` class using `self.<var>`. 
+Within a generator method script expansion involves appending a list of commands to the `rpascript`. The commands are a list of strings and support variable substitution. Substitutions use Python style formats and can reference variables internal to the `GlueScript` class using `self.<var>`.
 
-Internal `GlueScript` variable references (`self.<var>`) are deferred, meaning not expanded until the script is finalized. 
+Internal `GlueScript` variable references (`self.<var>`) are deferred, meaning not expanded until the script is finalized.
 
 For example:
 If the method prototype is:
@@ -452,7 +452,7 @@ comment([
 ```
 
 ### inline(...)
-Append a list of `rpascript` commands. This appends the list of commands to the `rpascript` being generated. The lines are inserted at the call point in the assembled rpascript. It is highly recommended this method not be used for appending `rpascript` commands except in cases where it is necessary to work around a problem or for experimentation.
+Append a list of `rpascript` commands. This appends the list of commands to the `rpascript` being generated. The lines are inserted at the call point in the assembled `rpascript`. It is highly recommended this method not be used for appending `rpascript` commands except in cases where it is necessary to work around a problem or for experimentation.
 
 Prototype:
 ```
@@ -687,13 +687,13 @@ The following are the supported layer actions. Note that which actions can be us
 The move and cut actions on the X and/or Y axis use the job reference point and distance moved from current position to determine which form of move to use. All moves and cuts represent a line beginning at the current position and ending at the specified coordinate (**AGENT:** This implies that the coordinates are maintained internal to the class). With moves the laser is off and with cuts the laser is on. The forms are:
 **Far Form:**
 Used for moves and cuts having a distance greater than what can be represented using a near form.
-**Near Form:** 
+**Near Form:**
 Used for moves and cuts having a distance less than what can be represented
 using a signed 14 bit integer / 1000 (in the range -8.192mm to 8.191mm).
 Near-form emissions use relative deltas from the current position.
 
 **AGENT:** Cut coordinates are used to determine the current layer bounding box as well as the overall job bounding box. Add code to test when a coordinate is beyond the limit of either bounding box and expand the bounding box as needed.
-**AGENT:** Because the number of layer actions can quickly become unwieldy for large projects add a means, when RDP is used, to accumulate all actions and send them all at one time to the TUI RDP server. Sending the accumulated actions should be triggered when starting a new layer (i.e. `declare_layer`) or ending the job (i.e. `end_job`). 
+**AGENT:** Because the number of layer actions can quickly become unwieldy for large projects add a means, when RDP is used, to accumulate all actions and send them all at one time to the TUI RDP server. Sending the accumulated actions should be triggered when starting a new layer (i.e. `declare_layer`) or ending the job (i.e. `end_job`).
 #### power(...)
 Set the laser power to a percentage. This is a valid layer action only if the layer mode is `IMAGE` or `DEPTHMAP`.
 
@@ -741,7 +741,7 @@ followed by a power change, and a power change requires a preceding layer
 selection.
 
 Pending settings with no following cut are dropped at the `declare_layer()`
-boundary or at end-of-job — they never reach the rpascript. When both
+boundary or at end-of-job — they never reach the `rpascript`. When both
 `cut_speed()` and `power_range()` are pending, the flush emits
 `CUT_SPEED_LASER_1` first, then the power block, so the power minimum is
 scaled against the speed that is about to be cut.
@@ -826,14 +826,14 @@ Average Power (Watts) = Maximum Power (Watts) x Power Percentage (as decimal) x 
 
 Energy per Millimeter (J/mm) = Average Power (Watts) / Head Speed (mm/s)
 
-**Full expanded version:**  
+**Full expanded version:**
 Energy per Millimeter (J/mm) = [Maximum Power x Power Percentage x Duty Cycle] / Head Speed (mm/s)
 
 3. Energy Per Pulse
 
 Energy per Pulse (Joules) = Average Power (Watts) / PWM Frequency (Hz)
 
-**Full expanded version:**  
+**Full expanded version:**
 Energy per Pulse (Joules) = [Maximum Power x Power Percentage x Duty Cycle] / PWM Frequency (Hz)
 
 #### air_assist_on(...)

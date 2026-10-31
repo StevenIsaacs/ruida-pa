@@ -1,12 +1,12 @@
 """
 Encoding and decoding of Ruida protocol binary data.
 
-This module provides the RdDecoder (moved from protocols/ruida/ruida_parser.py)
+This module provides the RdDecoder (moved from ruida_pa/protocols/ruida/ruida_parser.py)
 and RdEncoder classes for converting between binary Ruida data and Python values.
 """
 
-import protocols.ruida.ruida_protocol as rdap
-from rpalib.rpa_emitter import RpaEmitter
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
+from ruida_pa.rpalib.rpa_emitter import RpaEmitter
 
 
 class RdDecoder:

@@ -26,6 +26,15 @@ jobs:
         run: |
           rpa --help
           rpa --version
+          rpa-script --help
+      - name: Verify library imports
+        run: |
+          python -W error::DeprecationWarning -c "
+          from ruida_pa.ruidadriver.ruida_driver import RdDriver
+          from ruida_pa.ruidadriver.rd_gluescript import GlueScript
+          from ruida_pa.rpalib.rpyc_client import RpcRdDriver
+          from ruida_pa.rpascript.interpreter import ScriptParser
+          "
 
   build-wheel:
     name: Build pip wheel

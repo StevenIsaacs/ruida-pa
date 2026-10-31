@@ -5,7 +5,7 @@ usage () {
 Usage: $_self <file> [<options>]
        $_self --dir <directory> [<options>]
 
-Use this script to run rpa.py to process a log file previously captured
+Use this script to run rpa to process a log file previously captured
 by the capture script. The log file is processed four times. First to produce a
 summarized decode, second to produce a verbose decode, third to generate a
 .rds script for round-trip verification, and fourth to produce an interactive HTML plot.
@@ -94,7 +94,7 @@ if [[ -z "$VIRTUAL_ENV" ]]; then
 fi
 
 _rpa_cmd=rpa
-command -v rpa >/dev/null 2>&1 || _rpa_cmd="python rpa.py"
+command -v rpa >/dev/null 2>&1 || _rpa_cmd="python -m ruida_pa.rpa"
 
 _errors=0
 _success=0

@@ -4,8 +4,8 @@ Most of the work is done by BokehPlotter. This routes Ruida protocol commands to
 the corresponding BokehPlotter methods.
 """
 
-import protocols.ruida.ruida_protocol as rdap
-from rpalib.rpa_emitter import RpaEmitter
+import ruida_pa.protocols.ruida.ruida_protocol as rdap
+from ruida_pa.rpalib.rpa_emitter import RpaEmitter
 
 
 class RpaArea:
@@ -37,7 +37,7 @@ class RpaPlotter:
 
     def __init__(self, out: RpaEmitter, title: str):
         self.out = out
-        import rpalib.bokeh_plotter as _bokeh_plotter
+        import ruida_pa.rpalib.bokeh_plotter as _bokeh_plotter
 
         self.title = title
         self.s = {  # Speed settings.

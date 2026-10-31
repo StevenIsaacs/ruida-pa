@@ -10,12 +10,12 @@ from PyInstaller.utils.hooks import copy_metadata
 
 block_cipher = None
 
-# Root of the source tree (where rpa.py lives)
+# Root of the source tree (where the ruida_pa package lives)
 # Note: __file__ is not available in spec exec context, use cwd
 root_dir = Path.cwd()
 
 a = Analysis(
-    [str(root_dir / 'rpa.py')],
+    [str(root_dir / 'ruida_pa' / 'rpa.py')],
     pathex=[str(root_dir)],
     binaries=[],
     datas=(

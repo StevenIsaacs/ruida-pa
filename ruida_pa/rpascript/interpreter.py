@@ -5,10 +5,10 @@ Parses human-readable script files into structured command tuples,
 supporting comment stripping and command/expected-reply directives.
 """
 
-from protocols.ruida.ruida_protocol import ACK, CT, MT, MT_MNEMONIC_ALIASES
-from rpalib.rpa_swizzler import RpaSwizzler
-from rpalib.ruida_transcoder import RdEncoder
-from rpascript.encoding import (
+from ruida_pa.protocols.ruida.ruida_protocol import ACK, CT, MT, MT_MNEMONIC_ALIASES
+from ruida_pa.rpalib.rpa_swizzler import RpaSwizzler
+from ruida_pa.rpalib.ruida_transcoder import RdEncoder
+from ruida_pa.rpascript.encoding import (
     _ENCODER_MAP,
     _RDTYPE_ENCODER_MAP,
     encode_command,
@@ -144,7 +144,7 @@ class ScriptParser:
     Reads human-readable script files and produces structured command dicts
     ready for interpretation / binary encoding.
 
-    Uses the CT command table from protocols.ruida.ruida_protocol to resolve
+    Uses the CT command table from ruida_pa.protocols.ruida.ruida_protocol to resolve
     command mnemonics and parameter specifications.
     """
 
@@ -653,8 +653,8 @@ class ScriptInterpreter:
 
         for cmd in commands:
             if cmd["type"] == "SESSION_START":
-                from ruidadriver.ruida_driver import RdDriver
-                from ruidadriver.rd_gluescript import JobRunningError
+                from ruida_pa.ruidadriver.ruida_driver import RdDriver
+                from ruida_pa.ruidadriver.rd_gluescript import JobRunningError
 
                 params = cmd.get("params", {})
                 # Parse optional magic number (hex string to int)
@@ -669,7 +669,7 @@ class ScriptInterpreter:
                         )
                         return
 
-                from ruidadriver.rd_transport import parse_network_protocol
+                from ruida_pa.ruidadriver.rd_transport import parse_network_protocol
 
                 try:
                     _protocol = parse_network_protocol(params.get("proto"))
@@ -776,7 +776,7 @@ class ScriptInterpreter:
     def _encode_ack(self, ts: float) -> str:
         """Generate a tshark-format ACK reply line (controller→host).
 
-        Produces a synthetic 1-byte ACK packet compatible with rpa.py's
+        Produces a synthetic 1-byte ACK packet compatible with rpa's
         check_handshake() method. The raw byte is the swizzled form of
         0xCC (ACK) using magic 0x88.
         """

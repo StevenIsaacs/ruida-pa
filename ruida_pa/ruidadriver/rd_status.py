@@ -14,8 +14,8 @@ import time
 from enum import Enum
 from typing import Callable, Optional
 
-from ruidadriver.rd_transport import RdTransport
-from ruidadriver.transport_events import TransportEvent
+from ruida_pa.ruidadriver.rd_transport import RdTransport
+from ruida_pa.ruidadriver.transport_events import TransportEvent
 
 
 class RdStatusEvent(Enum):

@@ -86,7 +86,7 @@ The Transport layer abstracts physical communication with the Ruida controller a
 
 ### 3.1 Transport Abstract Base — `Transport` (ABC)
 
-**File:** `ruidadriver/transport/base.py`
+**File:** `ruida_pa/ruidadriver/transport/base.py`
 
 An abstract base class defining the interface for all transport implementations. Designed to be called only from `RdTransport`.
 
@@ -104,7 +104,7 @@ An abstract base class defining the interface for all transport implementations.
 
 ### 3.2 UDP Transport — `UdpTransport`
 
-**File:** `ruidadriver/transport/udp_transport.py`
+**File:** `ruida_pa/ruidadriver/transport/udp_transport.py`
 
 Implements `Transport` for UDP network communication.
 
@@ -116,7 +116,7 @@ Implements `Transport` for UDP network communication.
 
 ### 3.3 USB Transport — `UsbTransport`
 
-**File:** `ruidadriver/transport/usb_transport.py`
+**File:** `ruida_pa/ruidadriver/transport/usb_transport.py`
 
 Implements `Transport` for USB/serial communication via `pyserial`. Requires the optional `serial` package.
 
@@ -132,7 +132,7 @@ Implements `Transport` for USB/serial communication via `pyserial`. Requires the
 
 ### 3.4 TCP Transport — `TcpTransport`
 
-**File:** `ruidadriver/transport/tcp_transport.py`
+**File:** `ruida_pa/ruidadriver/transport/tcp_transport.py`
 
 Implements `Transport` for TCP network communication. Newer controllers (e.g. the RDC8445S) accept the swizzled Ruida command stream on TCP port 50200 instead of UDP. This is a raw byte-stream transport: it performs no protocol framing, swizzling, or message parsing, so `RdTransport` (L4) is responsible for reassembling the stream into the ACK/reply units the handshake expects.
 
@@ -144,7 +144,7 @@ Implements `Transport` for TCP network communication. Newer controllers (e.g. th
 
 ### 3.5 Transport Events — `TransportEvent` Enum
 
-**File:** `ruidadriver/transport_events.py`
+**File:** `ruida_pa/ruidadriver/transport_events.py`
 
 ```python
 class TransportEvent(Enum):
@@ -163,7 +163,7 @@ class TransportEvent(Enum):
 
 ### 3.6 Ruida Transport Coordinator — `RdTransport`
 
-**File:** `ruidadriver/rd_transport.py`
+**File:** `ruida_pa/ruidadriver/rd_transport.py`
 
 `RdTransport` is the central L4 class. It wraps `UdpTransport`, `TcpTransport` and `UsbTransport`, providing a unified interface for upper layers with automatic transport selection, swizzle packing, checksum calculation, and command/response sequencing via a dedicated handshake thread. TCP byte-stream reassembly (ACK/reply framing) is owned here: the lower transport classes return raw bytes only.
 
@@ -348,7 +348,7 @@ The Session layer manages the connection lifecycle with a Ruida controller. It p
 
 ### 4.1 Session Status Events — `RdStatusEvent` Enum
 
-**File:** `ruidadriver/rd_status.py`
+**File:** `ruida_pa/ruidadriver/rd_status.py`
 
 ```python
 class RdStatusEvent(Enum):
@@ -374,7 +374,7 @@ class RdStatusEvent(Enum):
 
 ### 4.2 Status Monitor — `RdStatus`
 
-**File:** `ruidadriver/rd_status.py`
+**File:** `ruida_pa/ruidadriver/rd_status.py`
 
 `RdStatus` runs a background daemon thread with an event-driven state machine that manages connection lifecycle and periodic status polling.
 
@@ -447,7 +447,7 @@ Detailed state behavior:
 
 **Dead-controller detection latency:** A dead controller is detected after 3s of query timeouts (`QUERY_RETRY_COUNT` = 3 × `QUERY_RETRY_DELAY` = 1s) — up to ~4s from actual death when the remaining `WAIT_TO_POLL` wait is included. This is the accepted trade-off for responsive UDP↔USB switching.
 
-**`is_idle` drain guard:** On query timeout, the retry path drains stale data only when `RdTransport.is_idle` is `True` (handshake thread not mid-batch). The drain is skipped when the handshake is mid-batch — e.g., a query queued behind a driver batch. Note the residual TOCTOU window: between the `is_idle` check and the drain call the handshake could transition `IDLE → SEND → ACK_PENDING`, up to ~0.2s later (`_HANDSHAKE_TIMEOUT` queue poll interval, `ruidadriver/rd_transport.py:29`), not microseconds. Impact is the same as the pre-existing `_run_resync` drain: the drain steals that packet's ACK → `TIMEOUT` → advance (packet already sent, no desync).
+**`is_idle` drain guard:** On query timeout, the retry path drains stale data only when `RdTransport.is_idle` is `True` (handshake thread not mid-batch). The drain is skipped when the handshake is mid-batch — e.g., a query queued behind a driver batch. Note the residual TOCTOU window: between the `is_idle` check and the drain call the handshake could transition `IDLE → SEND → ACK_PENDING`, up to ~0.2s later (`_HANDSHAKE_TIMEOUT` queue poll interval, `ruida_pa/ruidadriver/rd_transport.py:29`), not microseconds. Impact is the same as the pre-existing `_run_resync` drain: the drain steals that packet's ACK → `TIMEOUT` → advance (packet already sent, no desync).
 
 #### 4.2.3 Wait-for-Event Mechanism
 
@@ -517,7 +517,7 @@ is_connected -> bool  # True iff transport is open AND a ping reply confirmed co
 
 ### 4.3 Session Manager — `RdSession`
 
-**File:** `ruidadriver/rd_session.py`
+**File:** `ruida_pa/ruidadriver/rd_session.py`
 
 `RdSession` is a thin wrapper that combines `RdTransport` (L4) and `RdStatus` (L5) into a single session API.
 
@@ -576,7 +576,7 @@ The Driver layer interprets human-readable rpascript commands, encodes them to b
 
 ### 5.1 `RdDriver`
 
-**File:** `ruidadriver/ruida_driver.py`
+**File:** `ruida_pa/ruidadriver/ruida_driver.py`
 
 #### 5.1.1 Constructor
 
@@ -718,7 +718,7 @@ Thread-safe (RLock). Forwarding methods copy the listener list under lock and it
 
 #### 5.1.10 Job-Running Guard (GlueScript Commands)
 
-**Files:** `ruidadriver/rd_gluescript.py`, `ruidadriver/ruida_driver.py`, `rpalib/rpyc_client.py`
+**Files:** `ruida_pa/ruidadriver/rd_gluescript.py`, `ruida_pa/ruidadriver/ruida_driver.py`, `ruida_pa/rpalib/rpyc_client.py`
 
 While the controller is running a job, every GlueScript command except the
 job-control commands (`pause`, `resume`, `stop_job`, `reset`) raises
@@ -780,7 +780,7 @@ own overrides, a guarded call is rejected locally without an RPC round trip.
 
 ### 6.1 `AppAdapter` Abstract Base
 
-**File:** `rpalib/app_adapter.py`
+**File:** `ruida_pa/rpalib/app_adapter.py`
 
 Abstract base class defining the interface for application-layer adapters.
 
@@ -810,7 +810,7 @@ Subclasses must implement the three callback methods and `create_driver_and_sess
 
 ### 6.2 `TuiAdapter` — Textual TUI
 
-**File:** `rpascript/tui_adapter.py`
+**File:** `ruida_pa/rpascript/tui_adapter.py`
 
 A Textual-based terminal user interface that implements (duck-types) the `AppAdapter` interface and extends Textual's `App`.
 
@@ -975,7 +975,7 @@ The driver's status and reply callbacks fire from background threads. The TUI us
 #### 6.2.8 Entry Point
 
 ```python
-# rpascript/tui_adapter.py
+# ruida_pa/rpascript/tui_adapter.py
 def run_tui() -> None:
     app = TuiAdapter()
     app.run()
@@ -983,7 +983,7 @@ def run_tui() -> None:
 
 ### 6.3 `rpa-script` CLI
 
-**File:** `rpascript/tui.py`
+**File:** `ruida_pa/rpascript/tui.py`
 
 #### 6.3.1 Command Line Interface
 
@@ -1006,7 +1006,7 @@ options:
 #### 6.3.2 Execution Modes
 
 1. **TUI mode** (`--tui`): Calls `run_tui()` from `tui_adapter.py`. Script argument is ignored with a note.
-2. **Parse + tshark output** (script file provided): Parses the `.rds` file, creates `ScriptInterpreter`, writes tshark-format output to stdout or a file. The output can be piped to `rpa.py` for decode verification.
+2. **Parse + tshark output** (script file provided): Parses the `.rds` file, creates `ScriptInterpreter`, writes tshark-format output to stdout or a file. The output can be piped to `rpa` for decode verification.
 3. **Dry run** (`--dry-run`): Parses and displays the command tree without generating output.
 4. **No arguments and no `--tui`**: Prints help and exits with code 1.
 
@@ -1311,9 +1311,9 @@ transport.set_gross_timeout(False)
 
 ### 11.1 `ScriptGenerator`
 
-**File:** `rpascript/generator.py`
+**File:** `ruida_pa/rpascript/generator.py`
 
-Converts decoded Ruida parser output (from `rpa.py`) to `.rds` script format for round-trip testing.
+Converts decoded Ruida parser output (from `rpa`) to `.rds` script format for round-trip testing.
 
 **Callback interface:**
 - `write_command(label, cmd_values, param_list, command, sub_command, decoded, cmd_n)` — Called once per decoded host→controller command. Buffers the command line until a reply callback arrives on the same `cmd_n`, then appends `= <reply_value>`.
@@ -1341,7 +1341,7 @@ Converts decoded Ruida parser output (from `rpa.py`) to `.rds` script format for
 ## 13. Directory Structure
 
 ```
-ruidadriver/
+ruida_pa/ruidadriver/
     rd_transport.py       # RdTransport (L4 coordinator)
     transport_events.py   # TransportEvent enum
     transport/
@@ -1354,18 +1354,18 @@ ruidadriver/
     rd_session.py         # RdSession (L5 session manager)
     ruida_driver.py       # RdDriver (L6 driver)
 
-rpascript/
+ruida_pa/rpascript/
     encoding.py           # Pure encoding functions
     interpreter.py        # ScriptParser, ScriptInterpreter
     generator.py          # ScriptGenerator (decode→.rds)
     tui_adapter.py        # TuiAdapter (L7 TUI)
     cli.py                # rpa-script CLI entry point
 
-rpalib/
+ruida_pa/rpalib/
     app_adapter.py        # AppAdapter ABC (L7 interface)
     ruida_transcoder.py   # RdEncoder, RdDecoder
 
-protocols/ruida/
+ruida_pa/protocols/ruida/
     ruida_protocol.py     # CT, MT, IDXT, RT command tables
 ```
 
