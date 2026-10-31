@@ -49,8 +49,11 @@ server start host=0.0.0.0 port=18812 cert=server.pem key=server.key token=mytoke
 server stop
 ```
 
-- `server start` — Starts the RPyC remote control server. If `host` is
-  `localhost` or `127.0.0.1`, TLS and authentication are disabled.
+- `server start` — Starts the RPyC remote control server. Optional
+  parameters: `host=`, `port=`, `token=`, `cert=`, `key=`, `ca=`.
+  On a loopback `host` authentication and TLS are optional but always
+  enforced when given; a non-loopback `host` requires both `token=`
+  and `cert=`/`key=` (TLS), otherwise the server refuses to start.
 - `server stop` — Stops the running RPyC server.
 - Parameters from previous `server start` are reused when omitted.
 - These are processed by `start_rpyc_server()` / `server.stop()`, not

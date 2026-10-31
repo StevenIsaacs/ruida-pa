@@ -1027,6 +1027,9 @@ class TuiAdapter(App):
         rpc_host: str = "localhost",
         rpc_port: int = 18812,
         rpc_token: str | None = None,
+        rpc_cert: str | None = None,
+        rpc_key: str | None = None,
+        rpc_ca: str | None = None,
         **kwargs: Any,
     ) -> None:
         # Consume the RPC auto-start params here, BEFORE super().__init__,
@@ -1036,6 +1039,9 @@ class TuiAdapter(App):
         self._rpc_auto_host = rpc_host
         self._rpc_auto_port = rpc_port
         self._rpc_auto_token = rpc_token
+        self._rpc_auto_cert = rpc_cert
+        self._rpc_auto_key = rpc_key
+        self._rpc_auto_ca = rpc_ca
         self._rpc_auto_start_task: asyncio.Task | None = None
         super().__init__(*args, **kwargs)
         self._ruida_driver: RdDriver | None = None
@@ -1089,6 +1095,7 @@ class TuiAdapter(App):
         self._last_server_port: int = 18812
         self._last_server_cert: str | None = None
         self._last_server_key: str | None = None
+        self._last_server_ca: str | None = None
         self._last_server_token: str | None = None
         self._dryrun: bool = False
         self._auto_display_script: bool = False
@@ -1287,6 +1294,9 @@ class TuiAdapter(App):
                     host=self._rpc_auto_host,
                     port=self._rpc_auto_port,
                     token=self._rpc_auto_token,
+                    cert=self._rpc_auto_cert,
+                    key=self._rpc_auto_key,
+                    ca=self._rpc_auto_ca,
                     exit_on_failure=True,
                 )
             )
@@ -4925,7 +4935,7 @@ class TuiAdapter(App):
     async def _start_server(
         self, host: str | None = None, port: int | None = None,
         cert: str | None = None, key: str | None = None,
-        token: str | None = None,
+        ca: str | None = None, token: str | None = None,
         exit_on_failure: bool = False,
     ) -> None:
         """Start the RPyC server in a background thread.
@@ -4933,7 +4943,9 @@ class TuiAdapter(App):
         Resolves None params against last-used values so params persist
         across server start/stop cycles.
 
-        Localhost/127.0.0.1 connections skip TLS and authentication.
+        The security policy is enforced by start_rpyc_server():
+        authentication/TLS are optional but always honored on loopback
+        binds, and non-loopback binds require both a token and TLS.
 
         exit_on_failure: When True and the server fails to start (e.g. the
             port is already bound by another TUI instance), report the
@@ -4951,6 +4963,8 @@ class TuiAdapter(App):
             cert = self._last_server_cert
         if key is None:
             key = self._last_server_key
+        if ca is None:
+            ca = self._last_server_ca
         if token is None:
             token = self._last_server_token
 
@@ -4963,14 +4977,8 @@ class TuiAdapter(App):
         self._last_server_port = port
         self._last_server_cert = cert
         self._last_server_key = key
+        self._last_server_ca = ca
         self._last_server_token = token
-
-        # Localhost skips TLS and auth
-        is_local = host in ("127.0.0.1", "::1", "localhost")
-        if is_local:
-            cert = None
-            key = None
-            token = None
 
         from ruida_pa.rpalib.rpyc_service import start_rpyc_server
 
@@ -4993,6 +5001,7 @@ class TuiAdapter(App):
                     port=port,
                     cert_path=cert,
                     key_path=key,
+                    ca_path=ca,
                     token=token,
                     auto_start=False,
                 )
@@ -6538,6 +6547,9 @@ def run_tui(
     rpc_host: str = "localhost",
     rpc_port: int = 18812,
     rpc_token: str | None = None,
+    rpc_cert: str | None = None,
+    rpc_key: str | None = None,
+    rpc_ca: str | None = None,
 ) -> int | None:
     """Run the TuiAdapter TUI application.
 
@@ -6548,8 +6560,13 @@ def run_tui(
         rpc: When True, auto-start the RPyC RPC server on mount.
         rpc_host: RPC server bind address (default: localhost).
         rpc_port: RPC server bind port (default: 18812).
-        rpc_token: RPC authentication token; only enforced for non-local
-            hosts (localhost always skips auth).
+        rpc_token: RPC authentication token. Optional on loopback binds
+            (required from every client when set); required together
+            with TLS for non-loopback binds.
+        rpc_cert: TLS certificate path (enables TLS with rpc_key).
+        rpc_key: TLS private key path.
+        rpc_ca: CA certificate; requires client certificates signed by
+            it (mutual TLS).
 
     Returns:
         The app exit code (e.g. 1 when a fatal error screen was dismissed)
@@ -6560,5 +6577,8 @@ def run_tui(
         rpc_host=rpc_host,
         rpc_port=rpc_port,
         rpc_token=rpc_token,
+        rpc_cert=rpc_cert,
+        rpc_key=rpc_key,
+        rpc_ca=rpc_ca,
     )
     return app.run()

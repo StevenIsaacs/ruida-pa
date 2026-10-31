@@ -47,15 +47,24 @@ together with `--tui`:
 
 ```bash
 rpa-script --tui --rpc
-# With non-default host/port/token:
-rpa-script --tui --rpc --rpc-host 0.0.0.0 --rpc-port 19001 --rpc-token secret
+# With a token on the default loopback bind:
+rpa-script --tui --rpc --rpc-token secret
+# With a non-loopback bind: token AND TLS are required:
+rpa-script --tui --rpc --rpc-host 0.0.0.0 --rpc-port 19001 --rpc-token secret \
+    --rpc-cert server-cert.pem --rpc-key server-key.pem
 ```
 
-Defaults are host `localhost`, port `18812`, and no token. `--rpc` is only valid
-together with `--tui`; `--rpc-host`, `--rpc-port`, and `--rpc-token` are only valid
-together with `--rpc`. This is equivalent to typing `server start` in the TUI.
-Localhost connections always skip TLS and token authentication; a token is only
-enforced when `--rpc-host` is a non-local address.
+Defaults are host `localhost`, port `18812`, no token, and no TLS. `--rpc` is
+only valid together with `--tui`; `--rpc-host`, `--rpc-port`, `--rpc-token`,
+`--rpc-cert`, `--rpc-key`, and `--rpc-ca` are only valid together with
+`--rpc`. This is equivalent to typing `server start` in the TUI.
+
+Security policy: on a loopback bind, authentication and TLS are optional —
+but whatever you explicitly request (a token and/or TLS) is enforced for
+every client, including local ones. A non-loopback bind requires both a
+token and TLS (`--rpc-cert`/`--rpc-key`); the server refuses to start with a
+`PermissionError` otherwise. `--rpc-ca` additionally requires RPC clients to
+present a certificate signed by it (mutual TLS).
 
 If the RPC port is already in use (for example, another TUI instance is running),
 an auto-start reports the failure on an error screen — press **Escape** to exit —

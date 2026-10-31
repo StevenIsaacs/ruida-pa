@@ -52,7 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--rpc-host",
-        help="RPC server bind address (default: localhost)",
+        help="RPC server bind address (default: localhost). Non-loopback "
+             "addresses require --rpc-token and --rpc-cert/--rpc-key (TLS).",
         default="localhost",
     )
     parser.add_argument(
@@ -63,7 +64,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--rpc-token",
-        help="RPC authentication token (only enforced for non-local hosts)",
+        help="RPC authentication token. Optional on loopback binds (enforced "
+             "for every client when set); required for non-loopback binds.",
+        default=None,
+    )
+    parser.add_argument(
+        "--rpc-cert",
+        help="TLS certificate path for the RPC server (enables TLS with "
+             "--rpc-key; required for non-loopback binds)",
+        default=None,
+    )
+    parser.add_argument(
+        "--rpc-key",
+        help="TLS private key path for the RPC server",
+        default=None,
+    )
+    parser.add_argument(
+        "--rpc-ca",
+        help="CA certificate; RPC clients must then present a certificate "
+             "signed by it (mutual TLS)",
         default=None,
     )
     parser.add_argument(
@@ -88,9 +107,15 @@ def main() -> None:
         args.rpc_host != "localhost"
         or args.rpc_port != 18812
         or args.rpc_token
+        or args.rpc_cert
+        or args.rpc_key
+        or args.rpc_ca
     )
     if rpc_tuning_given and not args.rpc:
-        parser.error("--rpc-host/--rpc-port/--rpc-token require --rpc")
+        parser.error(
+            "--rpc-host/--rpc-port/--rpc-token/--rpc-cert/--rpc-key/--rpc-ca "
+            "require --rpc"
+        )
 
     # TUI mode: launch interactive terminal interface
     if args.tui:
@@ -106,6 +131,9 @@ def main() -> None:
             rpc_host=args.rpc_host,
             rpc_port=args.rpc_port,
             rpc_token=args.rpc_token,
+            rpc_cert=args.rpc_cert,
+            rpc_key=args.rpc_key,
+            rpc_ca=args.rpc_ca,
         )
         if exit_code is not None:
             sys.exit(exit_code)

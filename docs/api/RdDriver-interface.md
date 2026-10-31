@@ -214,20 +214,26 @@ with no arguments, self-connecting over RPyC:
 
 ```python
 RpcRdDriver(svc=None, *, host="127.0.0.1", port=18812,
-            token=None, config=None, timeout=5)
+            token=None, config=None, timeout=5,
+            cert_path=None, key_path=None, ca_path=None)
 ```
 
 - With no `svc`, the driver opens and owns its own connection via the
   module-level `connect_rpc(host=..., port=..., token=..., config=...,
-  timeout=...)` helper; `close()` closes it. A caller-provided `svc`
+  timeout=..., cert_path=..., key_path=..., ca_path=...)` helper;
+  `close()` closes it. A caller-provided `svc`
   root (`connect_stream(...).root`, as in `tests/rpyc_poc/test_auth.py`)
   remains the first positional argument, exactly as before — the caller
   keeps ownership.
 - Token handshake: `token=None` sends NOTHING (pairs with the default
   token-less server, `start_rpyc_server(token=None)`); a non-empty `str`
   sends a 1-byte length prefix plus the UTF-8 bytes (tokens longer than
-  255 bytes raise `ValueError`); `token=""` sends the empty-token prefix
-  `b"\x00"` accepted on localhost by authenticator-enabled servers.
+  255 bytes raise `ValueError`). A token-configured server requires the
+  token from every client, loopback included — there is no local bypass.
+- TLS: `ca_path` enables verified TLS against that CA bundle (or the
+  server's self-signed certificate); `cert_path`/`key_path` present a
+  client certificate for mutual-TLS servers. With a token configured on
+  the server, the token handshake runs over the TLS session.
 - Timeouts: the socket timeout bounds the TCP connect and the
   handshake send; every RPC afterwards is bounded by rpyc's
   `sync_request_timeout`, merged connection-wide as `timeout` — rpyc's
