@@ -5,10 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.24.0] - 2026-10-30
 
 ### Changed
 
+- Version bump to 0.24.0.
 - **Breaking:** all Python modules were consolidated under the single `ruida_pa` namespace (issue [#14](https://github.com/StevenIsaacs/ruida-pa/issues/14)): the distribution now installs `ruida_pa.protocols`, `ruida_pa.rpalib`, `ruida_pa.rpascript`, `ruida_pa.ruidadriver` and `ruida_pa.rpa` instead of the unrelated-looking top-level names `protocols`, `rpalib`, `rpascript`, `ruidadriver` and `rpa` (the generic `protocols` name in particular could collide with other Python software). The old top-level import paths are gone; consumers must migrate to the `ruida_pa.*` forms (e.g. Rayforge's `from ruidadriver.ruida_driver import RdDriver` becomes `from ruida_pa.ruidadriver.ruida_driver import RdDriver`). The `rpa` and `rpa-script` console entry points are unchanged; `python -m ruida_pa.rpa` and `python -m ruida_pa.rpascript` replace direct script invocations from a source checkout.
 
 ## [0.23.0] - 2026-10-10
